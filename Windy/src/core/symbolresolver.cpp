@@ -39,6 +39,9 @@
 #include "../hardware/BaseBoard.h" 
 #include "../hardware/EepromBoard.h"
 
+typedef unsigned short mode_t;
+typedef unsigned int dev_t;
+
 // --- Helper Macros ---
 #define ELF32_R_SYM(val) ((val) >> 8)
 
@@ -48,8 +51,97 @@ static const char* GPU_RENDERER_STRING = "GeForce 7800/PCIe/SSE2";
 static const char* GPU_VERSION_STRING = "2.1.2 NVIDIA 285.05.09";
 static const char* GPU_SL_VERSION_STRING = "1.20 NVIDIA via Cg compiler";
 
+// --- Library Handles ---
+static HMODULE g_hMsys = NULL;
+static HMODULE g_hLibGcc = NULL;
+
+static void EnsureMsysLoaded() {
+    if (!g_hMsys) {
+        g_hMsys = LoadLibraryA("msys-2.0.dll");
+        if (g_hMsys) {
+            std::cout << "[Windy] MSYS2 runtime (msys-2.0.dll) loaded." << std::endl;
+        }
+        else {
+            std::cerr << "[Windy] WARNING: Failed to load msys-2.0.dll." << std::endl;
+        }
+    }
+}
+
+static void EnsureLibGccLoaded() {
+    if (!g_hLibGcc) {
+        // Loading msys stuffs
+        g_hLibGcc = LoadLibraryA("msys-gcc_s-1.dll");
+        if (!g_hLibGcc) g_hLibGcc = LoadLibraryA("libgcc_s_dw2-1.dll");
+
+        if (g_hLibGcc) {
+            std::cout << "[Windy] Loaded GCC Runtime (libgcc_s)" << std::endl;
+        }
+        else {
+            std::cerr << "[Windy] WARNING: FAILED to load GCC Runtime. _Unwind_* symbols will fail." << std::endl;
+            std::cerr << "  Please ensure 'msys-gcc_s-1.dll' is in the executable directory." << std::endl;
+        }
+    }
+}
+
+// =============================================================
+//   Linux (glibc) Ctype Compatibility Definitions
+// =============================================================
+enum {
+    _ISupper = 0x100,
+    _ISlower = 0x200,
+    _ISalpha = 0x400,
+    _ISdigit = 0x800,
+    _ISxdigit = 0x1000,
+    _ISspace = 0x2000,
+    _ISprint = 0x4000,
+    _ISgraph = 0x8000,
+    _ISblank = 0x1,
+    _IScntrl = 0x2,
+    _ISpunct = 0x4,
+    _ISalnum = 0x8
+};
+
+static unsigned short g_ctype_b[384]; // -128 to 255
+static const unsigned short* g_ctype_b_ptr = g_ctype_b + 128;
+static int32_t g_ctype_tolower[384];
+static const int32_t* g_ctype_tolower_ptr = g_ctype_tolower + 128;
+static int32_t g_ctype_toupper[384];
+static const int32_t* g_ctype_toupper_ptr = g_ctype_toupper + 128;
+static bool g_ctype_initialized = false;
+
+static void InitLinuxCtype() {
+    if (g_ctype_initialized) return;
+
+    // Initialize the ctype tables
+    for (int i = -128; i < 256; i++) {
+        int c = i;
+        unsigned short flags = 0;
+
+        // Flagging valid ASCII range
+        if (i >= -1 && i <= 255) {
+            if (isupper(c)) flags |= _ISupper | _ISalpha | _ISalnum | _ISprint | _ISgraph;
+            if (islower(c)) flags |= _ISlower | _ISalpha | _ISalnum | _ISprint | _ISgraph;
+            if (isdigit(c)) flags |= _ISdigit | _ISalnum | _ISprint | _ISgraph;
+            if (isspace(c)) flags |= _ISspace;
+            if (isprint(c)) flags |= _ISprint;
+            if (isgraph(c)) flags |= _ISgraph;
+            if (iscntrl(c)) flags |= _IScntrl;
+            if (ispunct(c)) flags |= _ISpunct | _ISprint | _ISgraph;
+            if (isxdigit(c)) flags |= _ISxdigit;
+            if (c == ' ' || c == '\t') flags |= _ISblank;
+        }
+
+        g_ctype_b[128 + i] = flags;
+        g_ctype_tolower[128 + i] = tolower(c);
+        g_ctype_toupper[128 + i] = toupper(c);
+    }
+    g_ctype_initialized = true;
+    std::cout << "[Windy] Initialized Linux Ctype table." << std::endl;
+}
+
 // --- GCC Builtins & Internals ---
 extern "C" {
+    // Arithmetic Helpers
     int64_t __divdi3(int64_t a, int64_t b) { return a / b; }
     uint64_t __udivdi3(uint64_t a, uint64_t b) { return a / b; }
     uint64_t __umoddi3(uint64_t a, uint64_t b) { return a % b; }
@@ -58,21 +150,32 @@ extern "C" {
     uint64_t __fixunssfdi(float a) { return (uint64_t)a; }
 
     int my_cxa_atexit(void (*func)(void*), void* arg, void* dso) { return 0; }
-
     int* __errno_location() { return _errno(); }
     void __libc_freeres() {}
 
+    // Ctype functions (Using Linux-compatible table)
     const unsigned short** __ctype_b_loc(void) {
-        static const unsigned short* pctype = _pctype;
-        return &pctype;
+        InitLinuxCtype();
+        return &g_ctype_b_ptr;
     }
-    const int32_t** __ctype_tolower_loc(void) { static int32_t* p = nullptr; return (const int32_t**)&p; }
-    const int32_t** __ctype_toupper_loc(void) { static int32_t* p = nullptr; return (const int32_t**)&p; }
-    size_t __ctype_get_mb_cur_max() { return MB_CUR_MAX; }
+    const int32_t** __ctype_tolower_loc(void) {
+        InitLinuxCtype();
+        return &g_ctype_tolower_ptr;
+    }
+    const int32_t** __ctype_toupper_loc(void) {
+        InitLinuxCtype();
+        return &g_ctype_toupper_ptr;
+    }
+    size_t __ctype_get_mb_cur_max() {
+        return 1;
+    }
 
     double __strtod_internal(const char* n, char** e, int g) { return strtod(n, e); }
     long __strtol_internal(const char* n, char** e, int b, int g) { return strtol(n, e, b); }
     unsigned long __strtoul_internal(const char* n, char** e, int b, int g) { return strtoul(n, e, b); }
+
+    // Stub (Uses defined mode_t)
+    int __xmknod(int ver, const char* path, mode_t mode, dev_t dev) { return -1; }
 }
 
 // --- Local Wrappers ---
@@ -240,9 +343,9 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
         static bool attemptedLoad = false;
         if (!attemptedLoad) {
             hCg = LoadLibraryA("cg.dll");
-            if (hCg) std::cout << "[Cg] Loaded cg.dll" << std::endl;
+            if (hCg) std::cout << "[Windy] Loaded cg.dll" << std::endl;
             hCgGL = LoadLibraryA("cgGL.dll");
-            if (hCgGL) std::cout << "[Cg] Loaded cgGL.dll" << std::endl;
+            if (hCgGL) std::cout << "[Windy] Loaded cgGL.dll" << std::endl;
             attemptedLoad = true;
         }
         void* proc = NULL;
@@ -252,6 +355,31 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     }
 
 #define MAP(n, f) if (strcmp(name, n) == 0) return (uintptr_t)&f
+
+    // ============================================================
+    // GCC / GLIBC INTERNALS
+    // ============================================================
+    MAP("__ctype_b_loc", __ctype_b_loc);
+    MAP("__ctype_tolower_loc", __ctype_tolower_loc);
+    MAP("__ctype_toupper_loc", __ctype_toupper_loc);
+    MAP("__ctype_get_mb_cur_max", __ctype_get_mb_cur_max);
+
+    MAP("__divdi3", __divdi3);
+    MAP("__udivdi3", __udivdi3);
+    MAP("__umoddi3", __umoddi3);
+    MAP("__moddi3", __moddi3);
+    MAP("__fixunsdfdi", __fixunsdfdi);
+    MAP("__fixunssfdi", __fixunssfdi);
+
+    MAP("__strtod_internal", __strtod_internal);
+    MAP("__strtol_internal", __strtol_internal);
+    MAP("__strtoul_internal", __strtoul_internal);
+    MAP("__libc_start_main", my_libc_start_main);
+    MAP("__cxa_atexit", my_cxa_atexit);
+    MAP("__assert_fail", __assert_fail);
+    MAP("__errno_location", __errno_location);
+    MAP("__libc_freeres", __libc_freeres);
+    MAP("__xmknod", __xmknod);
 
     // ============================================================
     // FILE I/O
@@ -293,7 +421,7 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("pclose", _pclose);
 
     // ============================================================
-    // FORMATTED I/O (sprintf, snprintf, sscanf, etc.)
+    // FORMATTED I/O
     // ============================================================
     MAP("sprintf", my_sprintf);
     MAP("snprintf", LibcBridge::snprintf_wrapper);
@@ -364,13 +492,9 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("settimeofday", LibcBridge::settimeofday_wrapper);
 
     // ============================================================
-    // LOCALE
+    // LOCALE / WIDE CHAR
     // ============================================================
     MAP("setlocale", LibcBridge::setlocale_wrapper);
-
-    // ============================================================
-    // WIDE CHARACTER
-    // ============================================================
     MAP("btowc", LibcBridge::btowc_wrapper);
     MAP("wctob", LibcBridge::wctob_wrapper);
     MAP("mbrtowc", LibcBridge::mbrtowc_wrapper);
@@ -388,9 +512,6 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("wcsxfrm", LibcBridge::wcsxfrm_wrapper);
     MAP("wcsftime", LibcBridge::wcsftime_wrapper);
 
-    // ============================================================
-    // CHARACTER CLASSIFICATION / CONVERSION
-    // ============================================================
     MAP("tolower", LibcBridge::tolower_wrapper);
     MAP("toupper", LibcBridge::toupper_wrapper);
     MAP("towlower", LibcBridge::towlower_wrapper);
@@ -412,29 +533,7 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("_exit", LibcBridge::_exit_wrapper);
 
     // ============================================================
-    // GCC INTERNALS
-    // ============================================================
-    MAP("__strtod_internal", __strtod_internal);
-    MAP("__strtol_internal", __strtol_internal);
-    MAP("__strtoul_internal", __strtoul_internal);
-    MAP("__divdi3", __divdi3);
-    MAP("__udivdi3", __udivdi3);
-    MAP("__umoddi3", __umoddi3);
-    MAP("__moddi3", __moddi3);
-    MAP("__fixunsdfdi", __fixunsdfdi);
-    MAP("__fixunssfdi", __fixunssfdi);
-    MAP("__libc_start_main", my_libc_start_main);
-    MAP("__cxa_atexit", my_cxa_atexit);
-    MAP("__assert_fail", __assert_fail);
-    MAP("__errno_location", __errno_location);
-    MAP("__libc_freeres", __libc_freeres);
-    MAP("__ctype_b_loc", __ctype_b_loc);
-    MAP("__ctype_tolower_loc", __ctype_tolower_loc);
-    MAP("__ctype_toupper_loc", __ctype_toupper_loc);
-    MAP("__ctype_get_mb_cur_max", __ctype_get_mb_cur_max);
-
-    // ============================================================
-    // PTHREADS - THREAD MANAGEMENT
+    // PTHREADS
     // ============================================================
     MAP("pthread_create", PthreadBridge::create_wrapper);
     MAP("pthread_join", PthreadBridge::join_wrapper);
@@ -445,9 +544,6 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("pthread_cancel", pthread_cancel);
     MAP("pthread_once", pthread_once);
 
-    // ============================================================
-    // PTHREADS - THREAD ATTRIBUTES
-    // ============================================================
     MAP("pthread_attr_init", pthread_attr_init);
     MAP("pthread_attr_destroy", pthread_attr_destroy);
     MAP("pthread_attr_setstacksize", pthread_attr_setstacksize);
@@ -456,9 +552,6 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("pthread_attr_setschedparam", pthread_attr_setschedparam);
     MAP("pthread_attr_setschedpolicy", pthread_attr_setschedpolicy);
 
-    // ============================================================
-    // PTHREADS - SCHEDULING
-    // ============================================================
     MAP("pthread_setschedparam", pthread_setschedparam);
     MAP("pthread_getschedparam", pthread_getschedparam);
     MAP("sched_yield", sched_yield);
@@ -467,9 +560,6 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("sched_getaffinity", sched_getaffinity);
     MAP("sched_setaffinity", sched_setaffinity);
 
-    // ============================================================
-    // PTHREADS - MUTEX
-    // ============================================================
     MAP("pthread_mutex_init", PthreadBridge::mutex_init_wrapper);
     MAP("pthread_mutex_destroy", PthreadBridge::mutex_destroy_wrapper);
     MAP("pthread_mutex_lock", PthreadBridge::mutex_lock_wrapper);
@@ -508,7 +598,7 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("sem_getvalue", sem_getvalue);
 
     // ============================================================
-    // LOW-LEVEL I/O (open, close, read, write, ioctl)
+    // LOW-LEVEL I/O
     // ============================================================
     MAP("open", my_open);
     MAP("close", my_close);
@@ -517,7 +607,7 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("ioctl", my_ioctl);
 
     // ============================================================
-    // PROCESS MANAGEMENT
+    // PROCESS / MISC STUBS
     // ============================================================
     MAP("getpid", _getpid);
     MAP("kill", my_stub_success);
@@ -526,32 +616,20 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("wait", my_stub_success);
     MAP("execlp", my_stub_fail);
 
-    // ============================================================
-    // SHARED MEMORY (STUBS)
-    // ============================================================
     MAP("shmget", my_stub_fail);
     MAP("shmat", my_stub_null);
     MAP("shmdt", my_stub_success);
     MAP("shmctl", my_stub_success);
 
-    // ============================================================
-    // DYNAMIC LOADING (STUBS)
-    // ============================================================
     MAP("dlopen", my_stub_null);
     MAP("dlsym", my_stub_null);
     MAP("dlclose", my_stub_success);
     MAP("dlerror", my_stub_null);
 
-    // ============================================================
-    // DIRECTORY OPERATIONS (STUBS)
-    // ============================================================
     MAP("opendir", my_stub_null);
     MAP("readdir", my_stub_null);
     MAP("closedir", my_stub_success);
 
-    // ============================================================
-    // TERMINAL / TTY (STUBS)
-    // ============================================================
     MAP("tcgetattr", my_stub_success);
     MAP("tcsetattr", my_stub_success);
     MAP("tcflush", my_stub_success);
@@ -560,16 +638,10 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("cfgetospeed", my_stub_success);
     MAP("cfsetspeed", my_stub_success);
 
-    // ============================================================
-    // MISC I/O (STUBS)
-    // ============================================================
     MAP("iopl", my_stub_success);
     MAP("writev", my_stub_success);
     MAP("fcntl", my_stub_success);
 
-    // ============================================================
-    // STAT FUNCTIONS (STUBS)
-    // ============================================================
     MAP("stat", my_stub_success);
     MAP("__xstat", my_stub_success);
     MAP("__lxstat", my_stub_success);
@@ -577,7 +649,7 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("__fxstat", LibcBridge::fxstat_wrapper);
 
     // ============================================================
-    // NETWORK - SOCKETS
+    // NETWORK
     // ============================================================
     MAP("socket", socket);
     MAP("connect", connect);
@@ -594,135 +666,15 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("poll", my_stub_success);
     MAP("select", select);
 
-    // ============================================================
-    // NETWORK - ADDRESS CONVERSION
-    // ============================================================
     MAP("inet_addr", inet_addr);
     MAP("inet_ntoa", inet_ntoa);
     MAP("inet_aton", LibcBridge::inet_aton_wrapper);
-
-    // ============================================================
-    // NETWORK - BYTE ORDER
-    // ============================================================
     MAP("htons", htons);
     MAP("htonl", htonl);
     MAP("ntohs", ntohs);
     MAP("ntohl", ntohl);
-
-    // ============================================================
-    // NETWORK - HOST RESOLUTION
-    // ============================================================
     MAP("gethostbyname_r", LibcBridge::gethostbyname_r_wrapper);
     MAP("gethostbyaddr_r", LibcBridge::gethostbyaddr_r_wrapper);
-
-    // ============================================================
-    // X11 - DISPLAY MANAGEMENT TODO:Switching to SDL or something else
-    // ============================================================
-    //if (name[0] == 'X') {
-    //    if (strcmp(name, "XOpenDisplay") == 0) return (uintptr_t)&X11Bridge::OpenDisplay;
-    //    if (strcmp(name, "XCloseDisplay") == 0) return (uintptr_t)&X11Bridge::CloseDisplay;
-    //    if (strcmp(name, "XSync") == 0) return (uintptr_t)&X11Bridge::Sync;
-    //    if (strcmp(name, "XFlush") == 0) return (uintptr_t)&X11Bridge::Flush;
-    //    if (strcmp(name, "XFree") == 0) return (uintptr_t)&X11Bridge::Free;
-    //    if (strcmp(name, "XInitThreads") == 0) return (uintptr_t)&X11Bridge::InitThreads;
-    //    if (strcmp(name, "XLockDisplay") == 0) return (uintptr_t)&X11Bridge::LockDisplay;
-    //    if (strcmp(name, "XUnlockDisplay") == 0) return (uintptr_t)&X11Bridge::UnlockDisplay;
-    //    if (strcmp(name, "XSetErrorHandler") == 0) return (uintptr_t)&X11Bridge::SetErrorHandler;
-    //    if (strcmp(name, "XGetErrorText") == 0) return (uintptr_t)&X11Bridge::GetErrorText;
-    //    if (strcmp(name, "XSetCloseDownMode") == 0) return (uintptr_t)&X11Bridge::SetCloseDownMode;
-
-    //    // X11 - WINDOW MANAGEMENT
-    //    if (strcmp(name, "XCreateWindow") == 0) return (uintptr_t)&X11Bridge::XCreateWindow;
-    //    if (strcmp(name, "XDestroyWindow") == 0) return (uintptr_t)&X11Bridge::DestroyWindow;
-    //    if (strcmp(name, "XMapWindow") == 0) return (uintptr_t)&X11Bridge::MapWindow;
-    //    if (strcmp(name, "XMoveWindow") == 0) return (uintptr_t)&X11Bridge::MoveWindow;
-    //    if (strcmp(name, "XGetWindowAttributes") == 0) return (uintptr_t)&X11Bridge::GetWindowAttributes;
-    //    if (strcmp(name, "XGetGeometry") == 0) return (uintptr_t)&X11Bridge::GetGeometry;
-    //    if (strcmp(name, "XTranslateCoordinates") == 0) return (uintptr_t)&X11Bridge::TranslateCoordinates;
-
-    //    // X11 - WINDOW PROPERTIES
-    //    if (strcmp(name, "XStoreName") == 0) return (uintptr_t)&X11Bridge::StoreName;
-    //    if (strcmp(name, "XSetWMName") == 0) return (uintptr_t)&X11Bridge::SetWMName;
-    //    if (strcmp(name, "XSetWMHints") == 0) return (uintptr_t)&X11Bridge::SetWMHints;
-    //    if (strcmp(name, "XSetWMProperties") == 0) return (uintptr_t)&X11Bridge::SetWMProperties;
-    //    if (strcmp(name, "XSetWMProtocols") == 0) return (uintptr_t)&X11Bridge::SetWMProtocols;
-    //    if (strcmp(name, "XChangeProperty") == 0) return (uintptr_t)&X11Bridge::ChangeProperty;
-    //    if (strcmp(name, "XStringListToTextProperty") == 0) return (uintptr_t)&X11Bridge::StringListToTextProperty;
-    //    if (strcmp(name, "XInternAtom") == 0) return (uintptr_t)&X11Bridge::InternAtom;
-
-    //    // X11 - EVENT HANDLING
-    //    if (strcmp(name, "XPending") == 0) return (uintptr_t)&X11Bridge::Pending;
-    //    if (strcmp(name, "XNextEvent") == 0) return (uintptr_t)&X11Bridge::NextEvent;
-    //    if (strcmp(name, "XSelectInput") == 0) return (uintptr_t)&X11Bridge::SelectInput;
-    //    if (strcmp(name, "XLookupString") == 0) return (uintptr_t)&X11Bridge::LookupString;
-
-    //    // X11 - INPUT (KEYBOARD / POINTER)
-    //    if (strcmp(name, "XSetInputFocus") == 0) return (uintptr_t)&X11Bridge::SetInputFocus;
-    //    if (strcmp(name, "XWarpPointer") == 0) return (uintptr_t)&X11Bridge::WarpPointer;
-    //    if (strcmp(name, "XQueryPointer") == 0) return (uintptr_t)&X11Bridge::QueryPointer;
-    //    if (strcmp(name, "XGrabKeyboard") == 0) return (uintptr_t)&X11Bridge::GrabKeyboard;
-    //    if (strcmp(name, "XGrabPointer") == 0) return (uintptr_t)&X11Bridge::GrabPointer;
-    //    if (strcmp(name, "XUngrabKeyboard") == 0) return (uintptr_t)&X11Bridge::UngrabKeyboard;
-    //    if (strcmp(name, "XUngrabPointer") == 0) return (uintptr_t)&X11Bridge::UngrabPointer;
-    //    if (strcmp(name, "XAutoRepeatOn") == 0) return (uintptr_t)&X11Bridge::AutoRepeatOn;
-
-    //    // X11 - CURSOR
-    //    if (strcmp(name, "XDefineCursor") == 0) return (uintptr_t)&X11Bridge::DefineCursor;
-    //    if (strcmp(name, "XFreeCursor") == 0) return (uintptr_t)&X11Bridge::FreeCursor;
-    //    if (strcmp(name, "XCreatePixmapCursor") == 0) return (uintptr_t)&X11Bridge::CreatePixmapCursor;
-
-    //    // X11 - PIXMAP
-    //    if (strcmp(name, "XFreePixmap") == 0) return (uintptr_t)&X11Bridge::FreePixmap;
-    //    if (strcmp(name, "XCreatePixmapFromBitmapData") == 0) return (uintptr_t)&X11Bridge::CreatePixmapFromBitmapData;
-
-    //    // X11 - COLOR
-    //    if (strcmp(name, "XCreateColormap") == 0) return (uintptr_t)&X11Bridge::CreateColormap;
-    //    if (strcmp(name, "XParseColor") == 0) return (uintptr_t)&X11Bridge::ParseColor;
-
-    //    // X11 - XF86 VIDMODE EXTENSION
-    //    if (strncmp(name, "XF86VidMode", 11) == 0)
-    //    {
-    //        if (strcmp(name, "XF86VidModeQueryExtension") == 0) return (uintptr_t)&X11Bridge::VidModeQueryExtension;
-    //        if (strcmp(name, "XF86VidModeGetAllModeLines") == 0) return (uintptr_t)&X11Bridge::VidModeGetAllModeLines;
-    //        if (strcmp(name, "XF86VidModeSwitchToMode") == 0) return (uintptr_t)&X11Bridge::VidModeSwitchToMode;
-    //        if (strcmp(name, "XF86VidModeSetViewPort") == 0) return (uintptr_t)&X11Bridge::VidModeSetViewPort;
-    //        if (strcmp(name, "XF86VidModeGetViewPort") == 0) return (uintptr_t)&X11Bridge::VidModeGetViewPort;
-    //        if (strcmp(name, "XF86VidModeGetModeLine") == 0) return (uintptr_t)&X11Bridge::VidModeGetModeLine;
-    //    }
-    //}
-
-    // ============================================================
-    // GLX - CONTEXT MANAGEMENT TODO:Switching to SDL or something else
-    // ============================================================
-    //if (strncmp(name, "glX", 3) == 0) {
-    //    if (strcmp(name, "glXChooseVisual") == 0) return (uintptr_t)&GLXBridge::ChooseVisual;
-    //    if (strcmp(name, "glXCreateContext") == 0) return (uintptr_t)&GLXBridge::CreateContext;
-    //    if (strcmp(name, "glXDestroyContext") == 0) return (uintptr_t)&GLXBridge::DestroyContext;
-    //    if (strcmp(name, "glXMakeCurrent") == 0) return (uintptr_t)&GLXBridge::MakeCurrent;
-    //    if (strcmp(name, "glXGetCurrentDisplay") == 0) return (uintptr_t)&GLXBridge::GetCurrentDisplay;
-    //    if (strcmp(name, "glXGetCurrentContext") == 0) return (uintptr_t)&GLXBridge::GetCurrentContext;
-    //    if (strcmp(name, "glXGetCurrentDrawable") == 0) return (uintptr_t)&GLXBridge::GetCurrentDrawable;
-    //    if (strcmp(name, "glXIsDirect") == 0) return (uintptr_t)&GLXBridge::IsDirect;
-
-    //    // GLX - SWAP / RENDERING
-    //    if (strcmp(name, "glXSwapBuffers") == 0) return (uintptr_t)&GLXBridge::SwapBuffers;
-    //    if (strcmp(name, "glXSwapIntervalEXT") == 0) return (uintptr_t)&GLXBridge::SwapInterval;
-    //    if (strcmp(name, "glXSwapIntervalSGI") == 0) return (uintptr_t)&GLXBridge::SwapInterval;
-
-    //    // GLX - EXTENSION QUERIES
-    //    if (strcmp(name, "glXGetProcAddressARB") == 0) return (uintptr_t)&GLXBridge::GetProcAddress;
-    //    if (strcmp(name, "glXGetProcAddress") == 0) return (uintptr_t)&GLXBridge::GetProcAddress;
-    //    if (strcmp(name, "glXQueryExtensionsString") == 0) return (uintptr_t)&GLXBridge::QueryExtensionsString;
-    //    if (strcmp(name, "glXQueryServerString") == 0) return (uintptr_t)&GLXBridge::QueryServerString;
-    //    if (strcmp(name, "glXGetClientString") == 0) return (uintptr_t)&GLXBridge::GetClientString;
-
-    //    // GLX - SGIX EXTENSIONS (FBCONFIG / PBUFFER)
-    //    if (strcmp(name, "glXChooseFBConfigSGIX") == 0) return (uintptr_t)&GLXBridge::ChooseFBConfigSGIX;
-    //    if (strcmp(name, "glXGetFBConfigAttribSGIX") == 0) return (uintptr_t)&GLXBridge::GetFBConfigAttribSGIX;
-    //    if (strcmp(name, "glXCreateContextWithConfigSGIX") == 0) return (uintptr_t)&GLXBridge::CreateContextWithConfigSGIX;
-    //    if (strcmp(name, "glXCreateGLXPbufferSGIX") == 0) return (uintptr_t)&GLXBridge::CreateGLXPbufferSGIX;
-    //    if (strcmp(name, "glXDestroyGLXPbufferSGIX") == 0) return (uintptr_t)&GLXBridge::DestroyGLXPbufferSGIX;
-    //}
 
     // ============================================================
     // SEGAAPI
@@ -810,7 +762,19 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     }
 
     // ============================================================
-    // OPENGL : not sure it is even works
+    // GCC Exception Handling (_Unwind_*)
+    // ============================================================
+    if (strncmp(name, "_Unwind_", 8) == 0) {
+        EnsureLibGccLoaded();
+        if (g_hLibGcc) {
+            void* proc = (void*)GetProcAddress(g_hLibGcc, name);
+            if (proc) return (uintptr_t)proc;
+        }
+        std::cerr << "[Windy] _Unwind_ symbol not found in libgcc: " << name << std::endl;
+    }
+
+    // ============================================================
+    // OPEN GL TODO: bridge to SDL2 or something else
     // ============================================================
     if (strncmp(name, "gl", 2) == 0 && strncmp(name, "glX", 3) != 0) {
         typedef void* (WINAPI* PFNWGLGETPROCADDRESS)(LPCSTR);
@@ -823,6 +787,15 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
         if (!proc) {
             proc = (void*)GetProcAddress(hOpengl, name);
         }
+        if (proc) return (uintptr_t)proc;
+    }
+
+    // ============================================================
+    // MSYS2 Fallback
+    // ============================================================
+    EnsureMsysLoaded();
+    if (g_hMsys) {
+        void* proc = (void*)GetProcAddress(g_hMsys, name);
         if (proc) return (uintptr_t)proc;
     }
 
