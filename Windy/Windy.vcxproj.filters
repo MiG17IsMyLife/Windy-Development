@@ -1,0 +1,120 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="src">
+      <UniqueIdentifier>{45b3d0c2-f439-41ac-93b7-92ad0d076bbd}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="include">
+      <UniqueIdentifier>{c5e524fa-5b99-49dc-adc5-40a3696069d6}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="deps">
+      <UniqueIdentifier>{86fe3938-18ec-4c57-a104-c16364ea1cbf}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\core">
+      <UniqueIdentifier>{f97de3b3-2d81-41cd-a4f5-dc5b5619e4f4}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\api">
+      <UniqueIdentifier>{967dfe32-184d-4b2f-bbf0-96ce657c2f6e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\api\sega">
+      <UniqueIdentifier>{64babdb5-574b-48e0-a0d9-349e15c1b42d}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\api\posix">
+      <UniqueIdentifier>{647baaf2-1bb6-4ee8-8628-fcc34025311f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\api\graphics">
+      <UniqueIdentifier>{05754540-450b-4aa1-9883-c08f872ee6b7}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\hardware">
+      <UniqueIdentifier>{12802c83-b7e5-4126-a0ff-d780ac6e1915}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\api\libc">
+      <UniqueIdentifier>{ab0a5e48-4396-4274-866e-86f9411d2082}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\api\sega\libsegaapi.c">
+      <Filter>src\api\sega</Filter>
+    </ClCompile>
+    <ClCompile Include="src\core\memorymanager.cpp">
+      <Filter>src\core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\core\elfloader.cpp">
+      <Filter>src\core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\core\symbolresolver.cpp">
+      <Filter>src\core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\core\linuxstack.cpp">
+      <Filter>src\core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\main.cpp">
+      <Filter>src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\api\graphics\x11bridge.cpp">
+      <Filter>src\api\graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="src\api\graphics\glxbridge.cpp">
+      <Filter>src\api\graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="src\hardware\jvsboard.h">
+      <Filter>src\hardware</Filter>
+    </ClCompile>
+    <ClCompile Include="src\hardware\jvsboard.cpp">
+      <Filter>src\hardware</Filter>
+    </ClCompile>
+    <ClCompile Include="src\hardware\baseboard.h">
+      <Filter>src\hardware</Filter>
+    </ClCompile>
+    <ClCompile Include="src\hardware\baseboard.cpp">
+      <Filter>src\hardware</Filter>
+    </ClCompile>
+    <ClCompile Include="src\hardware\eepromboard.cpp">
+      <Filter>src\hardware</Filter>
+    </ClCompile>
+    <ClCompile Include="src\api\libc\libcbridge.cpp">
+      <Filter>src\api\libc</Filter>
+    </ClCompile>
+    <ClCompile Include="src\api\libc\pthreadbridge.cpp">
+      <Filter>src\api\libc</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\api\sega\libsegaapi.h">
+      <Filter>src\api\sega</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\common.h">
+      <Filter>src\core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\memorymanager.h">
+      <Filter>src\core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\elfloader.h">
+      <Filter>src\core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\symbolresolver.h">
+      <Filter>src\core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\linuxstack.h">
+      <Filter>src\core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\api\graphics\x11bridge.h">
+      <Filter>src\api\graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="src\api\graphics\glxbridge.h">
+      <Filter>src\api\graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="src\hardware\lindberghdevice.h">
+      <Filter>src\hardware</Filter>
+    </ClInclude>
+    <ClInclude Include="src\hardware\eepromboard.h">
+      <Filter>src\hardware</Filter>
+    </ClInclude>
+    <ClInclude Include="src\api\libc\libcbridge.h">
+      <Filter>src\api\libc</Filter>
+    </ClInclude>
+    <ClInclude Include="src\api\libc\pthreadbridge.h">
+      <Filter>src\api\libc</Filter>
+    </ClInclude>
+  </ItemGroup>
+</Project>
