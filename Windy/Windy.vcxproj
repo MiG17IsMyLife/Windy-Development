@@ -23,6 +23,12 @@
     <ClCompile Include="src\api\graphics\x11bridge.cpp" />
     <ClCompile Include="src\api\libc\libcbridge.cpp" />
     <ClCompile Include="src\api\libc\pthreadbridge.cpp" />
+    <ClCompile Include="src\api\linux\filesystembridge.cpp" />
+    <ClCompile Include="src\api\linux\gccbridge.cpp" />
+    <ClCompile Include="src\api\linux\hardwarebridge.cpp" />
+    <ClCompile Include="src\api\linux\ipcbridge.cpp" />
+    <ClCompile Include="src\api\linux\processbridge.cpp" />
+    <ClCompile Include="src\api\linux\processbridge.h" />
     <ClCompile Include="src\api\sega\libsegaapi.c" />
     <ClCompile Include="src\core\elfloader.cpp" />
     <ClCompile Include="src\core\linuxstack.cpp" />
@@ -40,6 +46,11 @@
     <ClInclude Include="src\api\graphics\x11bridge.h" />
     <ClInclude Include="src\api\libc\libcbridge.h" />
     <ClInclude Include="src\api\libc\pthreadbridge.h" />
+    <ClInclude Include="src\api\linux\filesystembridge.h" />
+    <ClInclude Include="src\api\linux\gccbridge.h" />
+    <ClInclude Include="src\api\linux\hardwarebridge.h" />
+    <ClInclude Include="src\api\linux\ipcbridge.h" />
+    <ClInclude Include="src\api\linux\linuxtypes.h" />
     <ClInclude Include="src\api\sega\libsegaapi.h" />
     <ClInclude Include="src\core\common.h" />
     <ClInclude Include="src\core\elfloader.h" />

@@ -19,7 +19,7 @@
 #include <sys/types.h>
 #include <winsock2.h>
 
-// Linux off64_t defihition
+// Linux off64_t definition
 typedef int64_t off64_t;
 
 class LibcBridge {
@@ -48,7 +48,7 @@ public:
     static int   putchar_wrapper(int c);
     static int   puts_wrapper(const char* s);
     static int   ungetc_wrapper(int c, FILE* stream);
-    static int   getc_wrapper(FILE* stream); // Wrapper for the getc macro
+    static int   getc_wrapper(FILE* stream);
 
     // --- File Stream Management ---
     static int   feof_wrapper(FILE* stream);
@@ -73,6 +73,8 @@ public:
     static int vsnprintf_wrapper(char* str, size_t size, const char* format, va_list ap);
     static int vsprintf_wrapper(char* str, const char* format, va_list ap);
 
+    static int sprintf_wrapper(char* str, const char* format, ...);
+
     // ========================================================================
     // --- String & Memory Operations (string.h) ---
     // ========================================================================
@@ -90,6 +92,12 @@ public:
     static size_t strxfrm_wrapper(char* dest, const char* src, size_t n);
     static char* strerror_wrapper(int errnum);
 
+    static void* malloc_wrapper(size_t size);
+    static void  free_wrapper(void* ptr);
+    static void* calloc_wrapper(size_t nmemb, size_t size);
+    static void* realloc_wrapper(void* ptr, size_t size);
+    static void* memalign_wrapper(size_t alignment, size_t size);
+
     // ========================================================================
     // --- Path & Directory Management ---
     // ========================================================================
@@ -106,6 +114,11 @@ public:
     static int   nanosleep_wrapper(const struct timespec* req, struct timespec* rem);
     static int   settimeofday_wrapper(const struct timeval* tv, const void* tz);
 
+    static int   gettimeofday_wrapper(struct timeval* tv, void* tz);
+    static struct tm* localtime_r_wrapper(const time_t* timep, struct tm* result);
+    static int   usleep_wrapper(unsigned int usec);
+    static unsigned int sleep_wrapper(unsigned int seconds);
+
     // ========================================================================
     // --- Standard Library & System (stdlib.h / signal.h) ---
     // ========================================================================
@@ -116,6 +129,9 @@ public:
     static void  abort_wrapper();
     static int   raise_wrapper(int sig);
     static void  _exit_wrapper(int status);
+
+    static void  exit_wrapper(int status);
+
     static int   fxstat_wrapper(int ver, int fd, void* stat_buf); // System stat (fstat)
 
     // ========================================================================

@@ -19,9 +19,6 @@
     <Filter Include="src\api\sega">
       <UniqueIdentifier>{64babdb5-574b-48e0-a0d9-349e15c1b42d}</UniqueIdentifier>
     </Filter>
-    <Filter Include="src\api\posix">
-      <UniqueIdentifier>{647baaf2-1bb6-4ee8-8628-fcc34025311f}</UniqueIdentifier>
-    </Filter>
     <Filter Include="src\api\graphics">
       <UniqueIdentifier>{05754540-450b-4aa1-9883-c08f872ee6b7}</UniqueIdentifier>
     </Filter>
@@ -30,6 +27,9 @@
     </Filter>
     <Filter Include="src\api\libc">
       <UniqueIdentifier>{ab0a5e48-4396-4274-866e-86f9411d2082}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\api\linux">
+      <UniqueIdentifier>{0b6fa992-316e-4c2e-bd5b-aaeea2022c01}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -78,6 +78,24 @@
     <ClCompile Include="src\api\libc\pthreadbridge.cpp">
       <Filter>src\api\libc</Filter>
     </ClCompile>
+    <ClCompile Include="src\api\linux\gccbridge.cpp">
+      <Filter>src\api\linux</Filter>
+    </ClCompile>
+    <ClCompile Include="src\api\linux\ipcbridge.cpp">
+      <Filter>src\api\linux</Filter>
+    </ClCompile>
+    <ClCompile Include="src\api\linux\processbridge.h">
+      <Filter>src\api\linux</Filter>
+    </ClCompile>
+    <ClCompile Include="src\api\linux\processbridge.cpp">
+      <Filter>src\api\linux</Filter>
+    </ClCompile>
+    <ClCompile Include="src\api\linux\filesystembridge.cpp">
+      <Filter>src\api\linux</Filter>
+    </ClCompile>
+    <ClCompile Include="src\api\linux\hardwarebridge.cpp">
+      <Filter>src\api\linux</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\api\sega\libsegaapi.h">
@@ -115,6 +133,21 @@
     </ClInclude>
     <ClInclude Include="src\api\libc\pthreadbridge.h">
       <Filter>src\api\libc</Filter>
+    </ClInclude>
+    <ClInclude Include="src\api\linux\linuxtypes.h">
+      <Filter>src\api\linux</Filter>
+    </ClInclude>
+    <ClInclude Include="src\api\linux\gccbridge.h">
+      <Filter>src\api\linux</Filter>
+    </ClInclude>
+    <ClInclude Include="src\api\linux\ipcbridge.h">
+      <Filter>src\api\linux</Filter>
+    </ClInclude>
+    <ClInclude Include="src\api\linux\filesystembridge.h">
+      <Filter>src\api\linux</Filter>
+    </ClInclude>
+    <ClInclude Include="src\api\linux\hardwarebridge.h">
+      <Filter>src\api\linux</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

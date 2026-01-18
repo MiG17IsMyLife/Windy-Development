@@ -16,7 +16,7 @@ int main(int argc, char* argv[]) {
         std::cerr << "Warning: CoInitializeEx failed: " << std::hex << hr << std::endl;
     }
 
-    std::cout << "--- Windy Lindbergh Loader ---" << std::endl;
+    std::cout << "--- Windy Lindbergh-Loader for Windows ---" << std::endl;
 
     if (argc < 2) {
         std::cerr << "Error: No ELF file path specified." << std::endl;

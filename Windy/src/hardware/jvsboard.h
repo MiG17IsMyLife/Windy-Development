@@ -2,19 +2,19 @@
 #include "LindberghDevice.h"
 #include <vector>
 
+// TODO: Add baseboard implementions from original Lindbergh-Loader
 class JvsBoard : public LindberghDevice {
-private:
-    std::vector<uint8_t> outputBuffer; // send buffer
-    int deviceID = -1;                 // JVS address
-
-    // JVS info feature writer
-    void writeFeature(std::vector<uint8_t>& buf, uint8_t cap, uint8_t arg0, uint8_t arg1, uint8_t arg2);
-
 public:
-    // pakcet processor
-    void ProcessPacket(const uint8_t* input, size_t inputSize, std::vector<uint8_t>& output);
+    JvsBoard();
+    virtual ~JvsBoard();
 
-    // LindberghDevice implementions
+    // LindberghDevice overrides
+    bool Open() override;
+    void Close() override;
     int Read(void* buf, size_t count) override;
     int Write(const void* buf, size_t count) override;
+    int Ioctl(unsigned long request, void* data) override;
+
+    // JVS specific
+    void ProcessPacket(const unsigned char* data, unsigned int len, std::vector<unsigned char>& reply);
 };

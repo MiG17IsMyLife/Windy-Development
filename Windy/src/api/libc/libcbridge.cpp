@@ -4,9 +4,9 @@
 #include <iostream>
 #include <vector>
 #include <algorithm>
-#include <io.h>     // _fileno, _isatty, _setmode, _creat, _fstat64
-#include <fcntl.h>  // _O_BINARY
-#include <direct.h> // _getcwd
+#include <io.h>
+#include <fcntl.h>
+#include <direct.h>
 #include <sys/stat.h>
 #include <sys/utime.h>
 #include <csignal>
@@ -28,7 +28,7 @@ static void ConvertPath(char* dst, const char* src, size_t size) {
 static std::mutex g_net_mutex;
 
 // ========================================================================
-// --- File Input/Output (stdio.h / io.h) ---
+// --- File Input/Output (stdio.h / io.h) --- : Probably most of them are bugged
 // ========================================================================
 
 FILE* LibcBridge::fopen_wrapper(const char* filename, const char* mode) {
@@ -211,6 +211,14 @@ int LibcBridge::vsprintf_wrapper(char* str, const char* format, va_list ap) {
     return vsprintf(str, format, ap);
 }
 
+int LibcBridge::sprintf_wrapper(char* str, const char* format, ...) {
+    va_list args;
+    va_start(args, format);
+    int ret = vsprintf(str, format, args);
+    va_end(args);
+    return ret;
+}
+
 // ========================================================================
 // --- String & Memory Operations (string.h) ---
 // ========================================================================
@@ -269,6 +277,29 @@ int LibcBridge::strcoll_wrapper(const char* s1, const char* s2) {
 
 size_t LibcBridge::strxfrm_wrapper(char* dest, const char* src, size_t n) {
     return strxfrm(dest, src, n);
+}
+
+void* LibcBridge::malloc_wrapper(size_t size) {
+    return _aligned_malloc(size, 16);
+}
+
+void LibcBridge::free_wrapper(void* ptr) {
+    _aligned_free(ptr);
+}
+
+void* LibcBridge::calloc_wrapper(size_t nmemb, size_t size) {
+    size_t total = nmemb * size;
+    void* ptr = _aligned_malloc(total, 16);
+    if (ptr) memset(ptr, 0, total);
+    return ptr;
+}
+
+void* LibcBridge::realloc_wrapper(void* ptr, size_t size) {
+    return _aligned_realloc(ptr, size, 16);
+}
+
+void* LibcBridge::memalign_wrapper(size_t alignment, size_t size) {
+    return _aligned_malloc(size, alignment);
 }
 
 // ========================================================================
@@ -367,6 +398,36 @@ int LibcBridge::settimeofday_wrapper(const struct timeval* tv, const void* tz) {
     return -1;
 }
 
+int LibcBridge::gettimeofday_wrapper(struct timeval* tv, void* tz) {
+    if (tv) {
+        FILETIME ft;
+        GetSystemTimeAsFileTime(&ft);
+        unsigned __int64 t = (unsigned __int64)ft.dwHighDateTime << 32 | ft.dwLowDateTime;
+        t -= 116444736000000000ULL;
+        t /= 10;
+        tv->tv_sec = (long)(t / 1000000);
+        tv->tv_usec = (long)(t % 1000000);
+    }
+    return 0;
+}
+
+int LibcBridge::usleep_wrapper(unsigned int usec) {
+    Sleep(usec / 1000);
+    return 0;
+}
+
+unsigned int LibcBridge::sleep_wrapper(unsigned int seconds) {
+    Sleep(seconds * 1000);
+    return 0;
+}
+
+struct tm* LibcBridge::localtime_r_wrapper(const time_t* timep, struct tm* result) {
+    if (localtime_s(result, timep) == 0) {
+        return result;
+    }
+    return nullptr;
+}
+
 // ========================================================================
 // --- Standard Library & System (stdlib.h / signal.h) ---
 // ========================================================================
@@ -397,6 +458,10 @@ int LibcBridge::raise_wrapper(int sig) {
 
 void LibcBridge::_exit_wrapper(int status) {
     _exit(status);
+}
+
+void LibcBridge::exit_wrapper(int status) {
+    exit(status);
 }
 
 // Simulation of standard Linux 32-bit stat structure (common in arcade binaries)
