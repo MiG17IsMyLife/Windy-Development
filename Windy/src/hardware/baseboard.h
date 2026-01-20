@@ -5,15 +5,12 @@
 
 class BaseBoard : public LindberghDevice {
 private:
-    // 32KB Shared Memory
     uint8_t m_sharedMemory[1024 * 32];
     unsigned int m_sharedMemoryIndex = 0;
 
-    // Persistent File Handle for SRAM
     FILE* m_sramFile = nullptr;
     const char* m_sramPath = "sram.bin";
 
-    // Command State
     struct {
         uint32_t srcAddress;
         uint32_t srcSize;
@@ -21,7 +18,6 @@ private:
         uint32_t destSize;
     } m_jvsCommand, m_serialCommand;
 
-    // Buffer for JVS input emulation
     uint8_t m_inputBuffer[1024];
 
 public:
