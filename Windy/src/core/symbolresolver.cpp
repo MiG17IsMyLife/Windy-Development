@@ -191,7 +191,7 @@ extern "C" void my_libc_start_main(MainFunc m, int c, char** a, void (*i)(), voi
 uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
 
     // Log symbol resolution requests for debugging
-    printf("[Symbol] Resolving: %s\n", name);
+    //printf("[Symbol] Resolving: %s\n", name);
 
     // Special Handling
     if (strcmp(name, "glGetString") == 0) return (uintptr_t)&my_glGetString;

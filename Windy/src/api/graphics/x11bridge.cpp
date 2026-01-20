@@ -6,6 +6,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <malloc.h>
+#include <SDL3/SDL.h>
+
+extern SDL_Window* g_sdlWindow;
+extern int g_windowWidth;
+extern int g_windowHeight;
+extern void CreateSDLWindowIfNeeded();
 
 HWND X11Bridge::m_hWnd = NULL;
 
@@ -20,12 +26,13 @@ static void* x_calloc(size_t count, size_t size) {
 }
 static void x_free(void* p) { if (p) _aligned_free(p); }
 
-// Stubbed structures
+// X11 Structures (Stub)
 struct DummyDisplay { char pad[4096]; };
-struct DummyScreen { char pad[512]; };
-struct DummyVisual { unsigned long visualid; int class_type; int bits_per_rgb; };
-struct DummyTextProperty { unsigned char* value; unsigned long encoding; int format; unsigned long nitems; };
 struct DummyXEvent { int type; unsigned long serial; int send_event; unsigned long display; unsigned long window; int pad[20]; };
+struct DummyXSizeHints { long flags; int x, y, width, height, min_width, min_height, max_width, max_height, width_inc, height_inc; struct { int x; int y; } min_aspect, max_aspect; int base_width, base_height; int win_gravity; };
+struct DummyXWMHints { long flags; int input; int initial_state; unsigned long icon_pixmap; unsigned long icon_window; int icon_x, icon_y; unsigned long icon_mask; unsigned long window_group; };
+struct DummyXClassHint { char* res_name; char* res_class; };
+struct DummyTextProperty { unsigned char* value; unsigned long encoding; int format; unsigned long nitems; };
 
 // ---------------------------------------------------------
 // Implementation
@@ -38,38 +45,60 @@ LRESULT CALLBACK X11Bridge::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
 int X11Bridge::InitThreads() { return 1; }
 
 void* X11Bridge::OpenDisplay(const char* name) {
-    std::cout << "[X11] OpenDisplay (Stub): " << (name ? name : "NULL") << std::endl;
+    std::cout << "[X11] OpenDisplay: " << (name ? name : "NULL") << std::endl;
+    CreateSDLWindowIfNeeded();
     return x_calloc(1, sizeof(DummyDisplay));
 }
 
 int X11Bridge::CloseDisplay(void* dpy) {
-    std::cout << "[X11] CloseDisplay (Stub)" << std::endl;
+    std::cout << "[X11] CloseDisplay" << std::endl;
     x_free(dpy);
     return 0;
 }
 
 unsigned long X11Bridge::XCreateWindow(void* dpy, unsigned long parent, int x, int y, unsigned int width, unsigned int height, unsigned int border_width, int depth, unsigned int class_type, void* visual, unsigned long valuemask, void* attributes) {
-    std::cout << "[X11] XCreateWindow (Stub): " << width << "x" << height << std::endl;
-    return 1; // Dummy Window ID
+    std::cout << "[X11] XCreateWindow: " << width << "x" << height << std::endl;
+
+    if (width > 0) g_windowWidth = width;
+    if (height > 0) g_windowHeight = height;
+
+    CreateSDLWindowIfNeeded();
+    if (g_sdlWindow) {
+        SDL_SetWindowSize(g_sdlWindow, g_windowWidth, g_windowHeight);
+        SDL_ShowWindow(g_sdlWindow);
+    }
+
+    return 1; // Dummy Window ID (Must correspond to GLXBridge)
 }
 
-void X11Bridge::MapWindow(void* dpy, unsigned long win) {}
-int X11Bridge::Pending(void* dpy) { return 1; }
+void X11Bridge::MapWindow(void* dpy, unsigned long win) {
+    if (g_sdlWindow) SDL_ShowWindow(g_sdlWindow);
+}
+
+int X11Bridge::Pending(void* dpy) {
+    if (SDL_HasEvents(SDL_EVENT_FIRST, SDL_EVENT_LAST)) {
+        return 1;
+    }
+    return 0;
+}
 
 void X11Bridge::NextEvent(void* dpy, void* event_return) {
     DummyXEvent* ev = (DummyXEvent*)event_return;
     memset(ev, 0, sizeof(DummyXEvent));
+
+    SDL_Event e;
+    if (SDL_WaitEventTimeout(&e, 10)) {
+    }
 
     static bool mapped = false;
     if (!mapped) {
         ev->type = 19; // MapNotify
         ev->window = 1;
         mapped = true;
-        return;
     }
-
-    Sleep(16);
-    ev->type = 0;
+    else {
+        ev->type = 0;
+    }
 }
 
 int X11Bridge::Sync(void* dpy, int discard) { return 0; }
@@ -84,7 +113,10 @@ unsigned long X11Bridge::InternAtom(void* dpy, const char* name, int only_if_exi
     return hash ? hash : 0x123;
 }
 
-void X11Bridge::StoreName(void* dpy, unsigned long win, const char* name) {}
+void X11Bridge::StoreName(void* dpy, unsigned long win, const char* name) {
+    if (g_sdlWindow && name) SDL_SetWindowTitle(g_sdlWindow, name);
+}
+
 int X11Bridge::LookupString(void* event, char* buffer, int n, void* k, void* s) { return 0; }
 void X11Bridge::DefineCursor(void* d, unsigned long w, unsigned long c) {}
 void X11Bridge::WarpPointer(void* d, unsigned long s, unsigned long de, int sx, int sy, unsigned int sw, unsigned int sh, int dx, int dy) {}
@@ -101,12 +133,14 @@ void X11Bridge::SetWMName(void* dpy, unsigned long win, void* text_prop) {}
 int X11Bridge::SetWMHints(void* dpy, unsigned long win, void* hints) { return 1; }
 int X11Bridge::SetWMProperties(void* dpy, unsigned long win, void* window_name, void* icon_name, char** argv, int argc, void* normal_hints, void* wm_hints, void* class_hints) { return 1; }
 int X11Bridge::ChangeProperty(void* dpy, unsigned long win, unsigned long property, unsigned long type, int format, int mode, const unsigned char* data, int nelements) { return 1; }
+
 int X11Bridge::GetGeometry(void* dpy, unsigned long drawable, unsigned long* root_return, int* x_return, int* y_return, unsigned int* width_return, unsigned int* height_return, unsigned int* border_width_return, unsigned int* depth_return) {
-    if (width_return) *width_return = 1360;
-    if (height_return) *height_return = 768;
+    if (width_return) *width_return = g_windowWidth;
+    if (height_return) *height_return = g_windowHeight;
     if (depth_return) *depth_return = 24;
     return 1;
 }
+
 int X11Bridge::TranslateCoordinates(void* dpy, unsigned long src_w, unsigned long dest_w, int src_x, int src_y, int* dest_x_return, int* dest_y_return, unsigned long* child_return) {
     if (dest_x_return) *dest_x_return = src_x;
     if (dest_y_return) *dest_y_return = src_y;
@@ -132,6 +166,7 @@ unsigned long X11Bridge::CreatePixmapFromBitmapData(void* dpy, unsigned long dra
 int X11Bridge::ParseColor(void* dpy, unsigned long colormap, const char* spec, void* exact_def_return) { return 1; }
 int X11Bridge::GetErrorText(void* dpy, int code, char* buffer, int length) { return 0; }
 int X11Bridge::SetCloseDownMode(void* dpy, int close_mode) { return 1; }
+
 int X11Bridge::StringListToTextProperty(char** list, int count, void* text_prop_return) {
     if (text_prop_return && count > 0 && list && list[0]) {
         DummyTextProperty* prop = (DummyTextProperty*)text_prop_return;
@@ -143,8 +178,8 @@ int X11Bridge::StringListToTextProperty(char** list, int count, void* text_prop_
     }
     return 0;
 }
-int X11Bridge::AutoRepeatOn(void* dpy) { return 1; }
 
+int X11Bridge::AutoRepeatOn(void* dpy) { return 1; }
 int X11Bridge::VidModeQueryExtension(void* dpy, int* event_base_return, int* error_base_return) { return 1; }
 int X11Bridge::VidModeGetAllModeLines(void* dpy, int screen, int* modecount_return, void*** modesinfo_return) {
     if (modecount_return) *modecount_return = 0;
@@ -154,3 +189,18 @@ int X11Bridge::VidModeSwitchToMode(void* dpy, int screen, void* modeline) { retu
 int X11Bridge::VidModeSetViewPort(void* dpy, int screen, int x, int y) { return 1; }
 int X11Bridge::VidModeGetViewPort(void* dpy, int screen, int* x_return, int* y_return) { return 1; }
 int X11Bridge::VidModeGetModeLine(void* dpy, int screen, int* dotclock_return, void* modeline) { return 0; }
+
+// ---------------------------------------------------------
+// New Allocators
+// ---------------------------------------------------------
+void* X11Bridge::XAllocWMHints() {
+    return x_calloc(1, sizeof(DummyXWMHints));
+}
+
+void* X11Bridge::XAllocClassHint() {
+    return x_calloc(1, sizeof(DummyXClassHint));
+}
+
+void* X11Bridge::XAllocSizeHints() {
+    return x_calloc(1, sizeof(DummyXSizeHints));
+}

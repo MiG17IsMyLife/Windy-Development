@@ -92,7 +92,7 @@ int BaseBoard::Ioctl(unsigned long request, void* data) {
         if (data) {
             uint8_t versionData[4] = { 0x00, 0x19, 0x20, 0x07 };
             memcpy(data, versionData, 4);
-            // printf("[BaseBoard] GetVersion\n");
+            printf("[BaseBoard] GetVersion\n");
         }
         return 0;
 
@@ -103,7 +103,7 @@ int BaseBoard::Ioctl(unsigned long request, void* data) {
 
     case BASEBOARD_READY:
         // lindbergh-loader: selectReply = 0
-        // printf("[BaseBoard] Ready\n");
+         printf("[BaseBoard] Ready\n");
         return 0;
 
     case BASEBOARD_SEEK_SHM:
@@ -114,7 +114,7 @@ int BaseBoard::Ioctl(unsigned long request, void* data) {
 
     case BASEBOARD_READ_SRAM:
         if (data && m_sramFile) {
-            // struct: { uint32_t *data; uint32_t offset; uint32_t size; }
+            //struct: { uint32_t *data; uint32_t offset; uint32_t size; }
             struct ReadData { uint32_t ptr; uint32_t offset; uint32_t size; }*rd =
                 (ReadData*)data;
 
