@@ -41,22 +41,27 @@ extern "C" {
         if (strncmp(pathname, "/proc/", 6) == 0) return -1;
 
         LindberghDevice* target = nullptr;
-        if (strstr(pathname, "/dev/lbbb")) target = &g_baseBoard;
+
+        // 【修正】 タイポを修正 (/dev/lbbb -> /dev/lbb)
+        if (strstr(pathname, "/dev/lbb")) target = &g_baseBoard;
         else if (strstr(pathname, "/dev/i2c")) target = &g_eepromBoard;
         else if (strstr(pathname, "/dev/ttyS")) target = &g_jvsBoard;
 
         else if (strncmp(pathname, "/dev/", 5) == 0) {
+            // 知らないデバイスはNULを開いておく（読み書きしても落ちないように）
+            std::cout << "[IO] Unknown device, opening NUL: " << pathname << std::endl;
             return _open("NUL", _O_RDWR);
         }
 
-
         if (target) {
+            std::cout << "[IO] Device found: " << pathname << " -> Simulated" << std::endl;
             if (target->Open()) {
                 int fd = g_nextFd++;
                 g_openDevices[fd] = target;
                 return fd;
             }
             else {
+                std::cerr << "[IO] Failed to open device: " << pathname << std::endl;
                 return -1;
             }
         }
@@ -73,6 +78,7 @@ extern "C" {
         if (flags & 0x40) {
             va_list args;
             va_start(args, flags);
+            // mode = va_arg(args, int); // 必要なら取得
             va_end(args);
         }
 
@@ -132,7 +138,6 @@ extern "C" {
         if (g_openDevices.count(fd)) {
             return g_openDevices[fd]->Ioctl(request, argp);
         }
-
 
         return 0;
     }

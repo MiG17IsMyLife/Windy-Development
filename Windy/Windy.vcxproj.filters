@@ -57,13 +57,7 @@
     <ClCompile Include="src\api\graphics\glxbridge.cpp">
       <Filter>src\api\graphics</Filter>
     </ClCompile>
-    <ClCompile Include="src\hardware\jvsboard.h">
-      <Filter>src\hardware</Filter>
-    </ClCompile>
     <ClCompile Include="src\hardware\jvsboard.cpp">
-      <Filter>src\hardware</Filter>
-    </ClCompile>
-    <ClCompile Include="src\hardware\baseboard.h">
       <Filter>src\hardware</Filter>
     </ClCompile>
     <ClCompile Include="src\hardware\baseboard.cpp">
@@ -82,9 +76,6 @@
       <Filter>src\api\linux</Filter>
     </ClCompile>
     <ClCompile Include="src\api\linux\ipcbridge.cpp">
-      <Filter>src\api\linux</Filter>
-    </ClCompile>
-    <ClCompile Include="src\api\linux\processbridge.h">
       <Filter>src\api\linux</Filter>
     </ClCompile>
     <ClCompile Include="src\api\linux\processbridge.cpp">
@@ -147,6 +138,15 @@
       <Filter>src\api\linux</Filter>
     </ClInclude>
     <ClInclude Include="src\api\linux\hardwarebridge.h">
+      <Filter>src\api\linux</Filter>
+    </ClInclude>
+    <ClInclude Include="src\hardware\baseboard.h">
+      <Filter>src\hardware</Filter>
+    </ClInclude>
+    <ClInclude Include="src\hardware\jvsboard.h">
+      <Filter>src\hardware</Filter>
+    </ClInclude>
+    <ClInclude Include="src\api\linux\processbridge.h">
       <Filter>src\api\linux</Filter>
     </ClInclude>
   </ItemGroup>

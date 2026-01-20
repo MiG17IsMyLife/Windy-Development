@@ -23,6 +23,13 @@
 #include <algorithm>
 #include <vector>
 #include <string>
+#include <math.h>
+#include <stdlib.h>
+
+// --- OpenGL ---
+#ifndef APIENTRY
+#define APIENTRY __stdcall
+#endif
 #include <GL/gl.h>
 
 // --- Pthreads & Semaphore ---
@@ -33,14 +40,14 @@
 #include "SymbolResolver.h"
 #include "common.h"
 
-// --- Existing Bridges ---
+// --- Bridges ---
 #include "../api/sega/libsegaapi.h"
 #include "../api/graphics/X11Bridge.h"
 #include "../api/graphics/GLXBridge.h"
 #include "../api/libc/LibcBridge.h"
 #include "../api/libc/PthreadBridge.h"
 
-// --- New Linux Bridges (Refactored) ---
+// --- Linux Bridges ---
 #include "../api/linux/LinuxTypes.h"
 #include "../api/linux/GccBridge.h"
 #include "../api/linux/IpcBridge.h"
@@ -61,19 +68,16 @@ static const char* GPU_SL_VERSION_STRING = "1.20 NVIDIA via Cg compiler";
 //   Stubs & Utilities
 // =============================================================
 
-// Stubs for unimplemented functions
 extern "C" int my_stub_success() { return 0; }
 extern "C" int my_stub_fail() { return -1; }
 extern "C" void* my_stub_null() { return NULL; }
 
-// Trap for unimplemented functions that is critical
 void __declspec(naked) UnimplementedStub() {
     __asm { pushad }
     MessageBoxA(NULL, "Unimplemented Function Called", "Error", MB_OK);
     TerminateProcess(GetCurrentProcess(), 1);
 }
 
-// exception filter for access violations
 int ExceptionFilter(unsigned int code, struct _EXCEPTION_POINTERS* ep) {
     if (code == EXCEPTION_ACCESS_VIOLATION) {
         return EXCEPTION_EXECUTE_HANDLER;
@@ -89,31 +93,91 @@ extern "C" const GLubyte* my_glGetString(GLenum name) {
     case 0x1F02: return (const GLubyte*)GPU_VERSION_STRING;
     case 0x8B8C: return (const GLubyte*)GPU_SL_VERSION_STRING;
     }
-
-    // Fallback to glGetString
     static auto real_glGetString = (const GLubyte * (APIENTRY*)(GLenum))GetProcAddress(LoadLibraryA("opengl32.dll"), "glGetString");
     if (real_glGetString) return real_glGetString(name);
     return NULL;
 }
 
+// --- GLUT Support ---
+void (*g_glutKeyboardFunc)(unsigned char key, int x, int y) = nullptr;
+
+extern "C" void my_glutKeyboardFunc(void (*func)(unsigned char key, int x, int y)) {
+    g_glutKeyboardFunc = func;
+}
+
+// --- Missing Libc / System Functions ---
+
+extern "C" void my_bzero(void* s, size_t n) {
+    memset(s, 0, n);
+}
+
+extern "C" int my_bcmp(const void* s1, const void* s2, size_t n) {
+    return memcmp(s1, s2, n);
+}
+
+extern "C" int my_clock_gettime(int clk_id, struct timespec* tp) {
+    if (!tp) return -1;
+    FILETIME ft;
+    GetSystemTimeAsFileTime(&ft);
+    unsigned __int64 t = (unsigned __int64)ft.dwHighDateTime << 32 | ft.dwLowDateTime;
+    // 1601 to 1970 epoch
+    t -= 116444736000000000ULL;
+    tp->tv_sec = (time_t)(t / 10000000);
+    tp->tv_nsec = (long)((t % 10000000) * 100);
+    return 0;
+}
+
+// --- File I/O Wrappers ---
+
+extern "C" int my_fsync(int fd) { return _commit(fd); }
+extern "C" int my_fdatasync(int fd) { return _commit(fd); }
+extern "C" int my_access(const char* pathname, int mode) { if (mode == 1) mode = 0; return _access(pathname, mode); }
+extern "C" int my_chmod(const char* filename, int pmode) { return _chmod(filename, pmode); }
+extern "C" long my_lseek(int fd, long offset, int origin) { return _lseek(fd, offset, origin); }
+
+// Linux __xstat64 -> Windows _stat64
+extern "C" int my_xstat64(int ver, const char* path, struct _stat64* buffer) {
+    return _stat64(path, buffer);
+}
+
+// --- Env Wrappers ---
+
+extern "C" int my_setenv(const char* name, const char* value, int overwrite) {
+    if (!overwrite && getenv(name)) return 0;
+    return _putenv_s(name, value);
+}
+
+extern "C" int my_unsetenv(const char* name) {
+    return _putenv_s(name, "");
+}
+
+extern "C" int my_putenv(char* string) {
+    return _putenv(string);
+}
+
+// --- Select Wrapper ---
+// Handles timeout-only usage (common in loops) or logs usage with FDs
+extern "C" int my_select(int nfds, fd_set* readfds, fd_set* writefds, fd_set* exceptfds, struct timeval* timeout) {
+    if (!readfds && !writefds && !exceptfds && timeout) {
+        DWORD ms = (timeout->tv_sec * 1000) + (timeout->tv_usec / 1000);
+        Sleep(ms);
+        return 0;
+    }
+    printf("[Windy] select called with FDs (Stubbed)\n");
+    return 0;
+}
+
+// --- Lindbergh Specific Stubs ---
+
+extern "C" void my_kswap_collect(void* p) { return; }
+
 // Entrypoint hooking
 typedef int (*MainFunc)(int, char**, char**);
 extern "C" void my_libc_start_main(MainFunc m, int c, char** a, void (*i)(), void (*f)(), void (*r)(), void* s) {
-    std::cout << "[Translator] Starting via __libc_start_main..." << std::endl;
-
-    // Initialize  
     CoInitializeEx(NULL, COINIT_MULTITHREADED);
     WSADATA wsaData; WSAStartup(MAKEWORD(2, 2), &wsaData);
-
-    if (i) {
-        std::cout << "[Translator] Running init..." << std::endl;
-        __try { i(); }
-        __except (ExceptionFilter(GetExceptionCode(), GetExceptionInformation())) {}
-    }
-
-    std::cout << "[Translator] Calling main()..." << std::endl;
+    if (i) { __try { i(); } __except (ExceptionFilter(GetExceptionCode(), GetExceptionInformation())) {} }
     int result = 0;
-
     __try { result = m(c, a, nullptr); }
     __except (ExceptionFilter(GetExceptionCode(), GetExceptionInformation())) {
         std::cerr << "[Translator] Process terminated during main." << std::endl; exit(1);
@@ -125,9 +189,11 @@ extern "C" void my_libc_start_main(MainFunc m, int c, char** a, void (*i)(), voi
 //   Symbol Resolver Main Function
 // =============================================================
 uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
-    // --------------------------------------------------------
+
+    // Log symbol resolution requests for debugging
+    printf("[Symbol] Resolving: %s\n", name);
+
     // Special Handling
-    // --------------------------------------------------------
     if (strcmp(name, "glGetString") == 0) return (uintptr_t)&my_glGetString;
 
     // NVIDIA Cg Toolkit
@@ -137,9 +203,9 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
         static bool attemptedLoad = false;
         if (!attemptedLoad) {
             hCg = LoadLibraryA("cg.dll");
-            if (hCg) std::cout << "[Windy] Loaded cg.dll" << std::endl;
+            if (hCg) printf("[Windy] Loaded cg.dll\n");
             hCgGL = LoadLibraryA("cgGL.dll");
-            if (hCgGL) std::cout << "[Windy] Loaded cgGL.dll" << std::endl;
+            if (hCgGL) printf("[Windy] Loaded cgGL.dll\n");
             attemptedLoad = true;
         }
         void* proc = NULL;
@@ -148,12 +214,81 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
         if (proc) return (uintptr_t)proc;
     }
 
-    // Helper Macro for Mapping
+    // Standard Mapping Macro
 #define MAP(n, f) if (strcmp(name, n) == 0) return (uintptr_t)&f
+    // Overloaded Function Mapping Macro (No & operator)
+#define MAP_OL(n, f) if (strcmp(name, n) == 0) return (uintptr_t)(f)
 
-// ============================================================
-// 1. GCC / GLIBC Internals (from GccBridge)
-// ============================================================
+    // ============================================================
+    // GLUT / GLU
+    // ============================================================
+    MAP("glutInit", GLXBridge::glutInit);
+    MAP("glutInitDisplayMode", GLXBridge::glutInitDisplayMode);
+    MAP("glutInitWindowSize", GLXBridge::glutInitWindowSize);
+    MAP("glutInitWindowPosition", GLXBridge::glutInitWindowPosition);
+    MAP("glutEnterGameMode", GLXBridge::glutEnterGameMode);
+    MAP("glutLeaveGameMode", GLXBridge::glutLeaveGameMode);
+    MAP("glutMainLoop", GLXBridge::glutMainLoop);
+    MAP("glutDisplayFunc", GLXBridge::glutDisplayFunc);
+    MAP("glutIdleFunc", GLXBridge::glutIdleFunc);
+    MAP("glutPostRedisplay", GLXBridge::glutPostRedisplay);
+    MAP("glutSwapBuffers", GLXBridge::glutSwapBuffers);
+    MAP("glutGet", GLXBridge::glutGet);
+    MAP("glutSetCursor", GLXBridge::glutSetCursor);
+    MAP("glutGameModeString", GLXBridge::glutGameModeString);
+    MAP("glutBitmapCharacter", GLXBridge::glutBitmapCharacter);
+    MAP("glutBitmapWidth", GLXBridge::glutBitmapWidth);
+    MAP("glutKeyboardFunc", my_glutKeyboardFunc);
+
+    MAP("gluPerspective", GLXBridge::gluPerspective);
+    MAP("gluLookAt", GLXBridge::gluLookAt);
+
+    // ============================================================
+    // Missing Libc / Linux Specific / File I/O
+    // ============================================================
+    MAP("bzero", my_bzero);
+    MAP("bcmp", my_bcmp);
+    MAP("clock_gettime", my_clock_gettime);
+
+    // File I/O
+    MAP("fsync", my_fsync);
+    MAP("fdatasync", my_fdatasync);
+    MAP("lseek", my_lseek);
+    MAP("access", my_access);
+    MAP("chmod", my_chmod);
+    MAP("__xstat64", my_xstat64);
+
+    // Env
+    MAP("setenv", my_setenv);
+    MAP("unsetenv", my_unsetenv);
+    MAP("putenv", my_putenv);
+
+    // Network / Select
+    MAP("select", my_select);
+
+    // Lindbergh Specific
+    MAP("kswap_collect", my_kswap_collect);
+
+    // ============================================================
+    // Math Functions (Explicit Casting & MAP_OL macro)
+    // ============================================================
+    MAP_OL("atan", (double(*)(double))atan);
+    MAP_OL("atan2", (double(*)(double, double))atan2);
+    MAP_OL("cos", (double(*)(double))cos);
+    MAP_OL("sin", (double(*)(double))sin);
+    MAP_OL("tan", (double(*)(double))tan);
+    MAP_OL("sqrt", (double(*)(double))sqrt);
+    MAP_OL("pow", (double(*)(double, double))pow);
+    MAP_OL("powf", (double(*)(double, double))pow); // Map powf to pow
+    MAP_OL("floor", (double(*)(double))floor);
+    MAP_OL("ceil", (double(*)(double))ceil);
+    MAP_OL("fmod", (double(*)(double, double))fmod);
+    MAP_OL("abs", (int(*)(int))abs);
+    MAP_OL("fabs", (double(*)(double))fabs);
+
+    // ============================================================
+    // GCC / GLIBC Internals
+    // ============================================================
     MAP("__ctype_b_loc", __ctype_b_loc);
     MAP("__ctype_tolower_loc", __ctype_tolower_loc);
     MAP("__ctype_toupper_loc", __ctype_toupper_loc);
@@ -176,17 +311,17 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("__libc_freeres", __libc_freeres);
 
     // ============================================================
-    // 2. Hardware / Low-Level I/O (from HardwareBridge)
+    // Hardware / Low-Level I/O
     // ============================================================
     MAP("open", my_open);
     MAP("close", my_close);
     MAP("read", my_read);
     MAP("write", my_write);
     MAP("ioctl", my_ioctl);
-    MAP("writev", my_writev); // New!
+    MAP("writev", my_writev);
 
     // ============================================================
-    // 3. IPC (Shared Memory) (from IpcBridge)
+    // IPC
     // ============================================================
     MAP("shmget", my_shmget);
     MAP("shmat", my_shmat);
@@ -194,19 +329,18 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("shmdt", my_shmdt);
 
     // ============================================================
-    // 4. Process Management (from ProcessBridge)
+    // Process
     // ============================================================
     MAP("getpid", _getpid);
     MAP("fork", my_fork);
     MAP("vfork", my_vfork);
     MAP("daemon", my_daemon);
     MAP("execlp", my_execlp);
-
     MAP("kill", my_stub_success);
     MAP("wait", my_stub_success);
 
     // ============================================================
-    // 5. Filesystem & Dynamic Loading (from FilesystemBridge)
+    // Filesystem
     // ============================================================
     MAP("dlopen", my_dlopen);
     MAP("dlsym", my_dlsym);
@@ -226,10 +360,11 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("__fxstat", __fxstat);
     MAP("__fxstat64", __fxstat64);
     MAP("__xmknod", my_stub_fail);
-
     MAP("fcntl", my_fcntl);
 
-    // File I/O (Stdio wrappers from LibcBridge)
+    // ============================================================
+    // Libc Wrappers
+    // ============================================================
     MAP("fopen", LibcBridge::fopen_wrapper);
     MAP("fopen64", LibcBridge::fopen64_wrapper);
     MAP("fclose", LibcBridge::fclose_wrapper);
@@ -265,10 +400,6 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("fdopen", LibcBridge::fdopen_wrapper);
     MAP("popen", _popen);
     MAP("pclose", _pclose);
-
-    // ============================================================
-    // 6. Others (LibcBridge & Stubs)
-    // ============================================================
 
     // String & Memory
     MAP("sprintf", LibcBridge::sprintf_wrapper);
@@ -376,7 +507,7 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("shutdown", shutdown);
     MAP("setsockopt", setsockopt);
     MAP("getsockopt", getsockopt);
-    MAP("select", select);
+    // select mapped above to my_select
     MAP("inet_addr", inet_addr);
     MAP("inet_ntoa", inet_ntoa);
     MAP("inet_aton", LibcBridge::inet_aton_wrapper);
@@ -397,7 +528,6 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("cfgetospeed", my_stub_success);
     MAP("cfsetspeed", my_stub_success);
     MAP("iopl", my_stub_success);
-    MAP("writev", my_writev); // Previously defined map
 
     // Pthreads
     MAP("pthread_create", PthreadBridge::create_wrapper);
@@ -506,33 +636,24 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
         if (strcmp(name, "SEGAAPI_GetLastStatus") == 0) return (uintptr_t)&SEGAAPI_GetLastStatus;
     }
 
-    // ============================================================
-    // Exception Handling (_Unwind_*) (from GccBridge)
-    // ============================================================
+    // Exception Handling (_Unwind_*)
     if (strncmp(name, "_Unwind_", 8) == 0) {
         void* proc = GetLibGccSymbol(name);
         if (proc) return (uintptr_t)proc;
-        std::cerr << "[Windy] _Unwind_ symbol not found: " << name << std::endl;
     }
 
-    // ============================================================
-    // OpenGL (X11 removed, Win32 direct)
-    // ============================================================
-    if (strncmp(name, "gl", 2) == 0 && strncmp(name, "glX", 3) != 0) {
+    // OpenGL (Direct)
+    if (strncmp(name, "gl", 2) == 0 && strncmp(name, "glX", 3) != 0 && strncmp(name, "glut", 4) != 0) {
         typedef void* (WINAPI* PFNWGLGETPROCADDRESS)(LPCSTR);
         static HMODULE hOpengl = LoadLibraryA("opengl32.dll");
         static PFNWGLGETPROCADDRESS my_wglGetProcAddress = (PFNWGLGETPROCADDRESS)GetProcAddress(hOpengl, "wglGetProcAddress");
-
         void* proc = NULL;
         if (my_wglGetProcAddress) proc = my_wglGetProcAddress(name);
         if (!proc) proc = (void*)GetProcAddress(hOpengl, name);
-
         if (proc) return (uintptr_t)proc;
     }
 
-    // ============================================================
     // MSYS2 Fallback
-    // ============================================================
     void* msysProc = GetMsysSymbol(name);
     if (msysProc) return (uintptr_t)msysProc;
 

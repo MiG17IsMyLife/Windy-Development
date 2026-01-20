@@ -28,17 +28,14 @@
     <ClCompile Include="src\api\linux\hardwarebridge.cpp" />
     <ClCompile Include="src\api\linux\ipcbridge.cpp" />
     <ClCompile Include="src\api\linux\processbridge.cpp" />
-    <ClCompile Include="src\api\linux\processbridge.h" />
     <ClCompile Include="src\api\sega\libsegaapi.c" />
     <ClCompile Include="src\core\elfloader.cpp" />
     <ClCompile Include="src\core\linuxstack.cpp" />
     <ClCompile Include="src\core\memorymanager.cpp" />
     <ClCompile Include="src\core\symbolresolver.cpp" />
     <ClCompile Include="src\hardware\baseboard.cpp" />
-    <ClCompile Include="src\hardware\baseboard.h" />
     <ClCompile Include="src\hardware\eepromboard.cpp" />
     <ClCompile Include="src\hardware\jvsboard.cpp" />
-    <ClCompile Include="src\hardware\jvsboard.h" />
     <ClCompile Include="src\main.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -51,13 +48,16 @@
     <ClInclude Include="src\api\linux\hardwarebridge.h" />
     <ClInclude Include="src\api\linux\ipcbridge.h" />
     <ClInclude Include="src\api\linux\linuxtypes.h" />
+    <ClInclude Include="src\api\linux\processbridge.h" />
     <ClInclude Include="src\api\sega\libsegaapi.h" />
     <ClInclude Include="src\core\common.h" />
     <ClInclude Include="src\core\elfloader.h" />
     <ClInclude Include="src\core\linuxstack.h" />
     <ClInclude Include="src\core\memorymanager.h" />
     <ClInclude Include="src\core\symbolresolver.h" />
+    <ClInclude Include="src\hardware\baseboard.h" />
     <ClInclude Include="src\hardware\eepromboard.h" />
+    <ClInclude Include="src\hardware\jvsboard.h" />
     <ClInclude Include="src\hardware\lindberghdevice.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
@@ -113,12 +113,12 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
-    <ExternalIncludePath>$(ExternalIncludePath)</ExternalIncludePath>
-    <LibraryPath>C:\cygwin64\lib;$(LibraryPath)</LibraryPath>
+    <ExternalIncludePath>C:\Dev\Emulators\Windy\Windy\include;$(ExternalIncludePath)</ExternalIncludePath>
+    <LibraryPath>C:\Dev\Emulators\Windy\Windy\lib\x86;C:\cygwin64\lib;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
-    <ExternalIncludePath>$(ExternalIncludePath)</ExternalIncludePath>
-    <LibraryPath>C:\cygwin64\lib;$(LibraryPath)</LibraryPath>
+    <ExternalIncludePath>C:\Dev\Emulators\Windy\Windy\include;$(ExternalIncludePath)</ExternalIncludePath>
+    <LibraryPath>C:\Dev\Emulators\Windy\Windy\lib\x86;C:\cygwin64\lib;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -133,7 +133,7 @@
       <BaseAddress>0x20000000</BaseAddress>
       <RandomizedBaseAddress>false</RandomizedBaseAddress>
       <FixedBaseAddress>true</FixedBaseAddress>
-      <AdditionalDependencies>ws2_32.lib;OpenGL32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>SDL3.lib;ws2_32.lib;OpenGL32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -153,7 +153,7 @@
       <BaseAddress>0x20000000</BaseAddress>
       <RandomizedBaseAddress>false</RandomizedBaseAddress>
       <FixedBaseAddress>true</FixedBaseAddress>
-      <AdditionalDependencies>ws2_32.lib;OpenGL32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>SDL3.lib;ws2_32.lib;OpenGL32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
