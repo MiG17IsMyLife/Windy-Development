@@ -132,7 +132,15 @@ extern "C" int my_clock_gettime(int clk_id, struct timespec* tp) {
 
 extern "C" int my_fsync(int fd) { return _commit(fd); }
 extern "C" int my_fdatasync(int fd) { return _commit(fd); }
-extern "C" int my_access(const char* pathname, int mode) { if (mode == 1) mode = 0; return _access(pathname, mode); }
+
+extern "C" int my_access(const char* pathname, int mode) {
+    if (pathname && strstr(pathname, "/dev/") != NULL) {
+        return 0; // Success
+    }
+    if (mode == 1) mode = 0;
+    return _access(pathname, mode);
+}
+
 extern "C" int my_chmod(const char* filename, int pmode) { return _chmod(filename, pmode); }
 extern "C" long my_lseek(int fd, long offset, int origin) { return _lseek(fd, offset, origin); }
 
@@ -325,11 +333,20 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     // Hardware / Low-Level I/O
     // ============================================================
     MAP("open", my_open);
+    MAP("open64", my_open);
     MAP("close", my_close);
     MAP("read", my_read);
     MAP("write", my_write);
     MAP("ioctl", my_ioctl);
     MAP("writev", my_writev);
+    MAP("openat", my_openat);
+    MAP("openat64", my_openat);
+    MAP("__xstat64", __xstat64);
+
+    MAP("__open_2", my_open);
+    MAP("__open64_2", my_open);
+    MAP("__openat_2", my_openat);
+    MAP("__openat64_2", my_openat);
 
     // ============================================================
     // IPC
@@ -370,7 +387,7 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("__lxstat", __lxstat);
     MAP("__fxstat", __fxstat);
     MAP("__fxstat64", __fxstat64);
-    MAP("__xmknod", my_stub_fail);
+    MAP("__xmknod", my_stub_success);
     MAP("fcntl", my_fcntl);
 
     // ============================================================

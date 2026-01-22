@@ -24,11 +24,13 @@ extern "C" {
     void my_rewinddir(void* dirp);
 
     // ---------------------------------------------------------
+    // File Open / At
+    // ---------------------------------------------------------
+    int my_openat(int dirfd, const char* pathname, int flags, ...);
+
+    // ---------------------------------------------------------
     // File Status / Info (sys/stat.h)
     // ---------------------------------------------------------
-    // Note: These will be implemented in FilesystemBridge.cpp
-    // to map Windows _stat64 to Linux stat64 structures.
-
     int my_stat(const char* path, struct linux_stat64* buf);
     int my_fstat(int fd, struct linux_stat64* buf);
     int my_lstat(const char* path, struct linux_stat64* buf);
@@ -37,6 +39,8 @@ extern "C" {
     int __xstat(int ver, const char* path, struct linux_stat64* buf);
     int __lxstat(int ver, const char* path, struct linux_stat64* buf);
     int __fxstat(int ver, int fd, struct linux_stat64* buf);
+    int __fxstat64(int ver, int fd, struct linux_stat64* buf);
+    int __xstat64(int ver, const char* path, struct linux_stat64* buf);
     int __fxstat64(int ver, int fd, struct linux_stat64* buf);
 
     // ---------------------------------------------------------

@@ -63,11 +63,10 @@ static void EnsureDevicesInitialized() {
 
 static DeviceType GetDeviceType(const char* path) {
     if (!path) return DEV_NONE;
-
-    if (strstr(path, "/dev/lbb")) return DEV_BASEBOARD;
-    if (strstr(path, "/dev/i2c")) return DEV_EEPROM;
-    if (strstr(path, "/dev/ttyS")) return DEV_SERIAL;
-    if (strstr(path, "/dev/jvs")) return DEV_JVS;
+    if (strstr(path, "/dev/lbb") || strstr(path, "lbb")) return DEV_BASEBOARD;
+    if (strstr(path, "/dev/i2c") || strstr(path, "i2c/")) return DEV_EEPROM;
+    if (strstr(path, "/dev/ttyS") || strstr(path, "ttyS")) return DEV_SERIAL;
+    if (strstr(path, "/dev/jvs") || strstr(path, "jvs")) return DEV_JVS;
 
     return DEV_REAL_FILE;
 }

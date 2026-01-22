@@ -10,7 +10,7 @@
 #include <io.h>
 #include <fcntl.h>
 #include <errno.h>
-
+#include <stdarg.h>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -20,6 +20,15 @@
 // =============================================================
 #include "FilesystemBridge.h"
 #include "../src/core/log.h"
+
+// =============================================================
+//   Definitions
+// =============================================================
+#ifndef AT_FDCWD
+#define AT_FDCWD -100
+#endif
+
+extern "C" int my_open(const char* pathname, int flags, int mode);
 
 // =============================================================
 //   Internal Structures
@@ -213,10 +222,36 @@ extern "C" {
     }
 
     // ---------------------------------------------------------
+    // File Open / At (New additions)
+    // ---------------------------------------------------------
+
+    int my_openat(int dirfd, const char* pathname, int flags, ...) {
+        va_list args;
+        va_start(args, flags);
+        int mode = va_arg(args, int);
+        va_end(args);
+
+        log_debug("my_openat called for: %s", pathname);
+
+        return my_open(pathname, flags, mode);
+    }
+
+    // ---------------------------------------------------------
     // File Status / Info (stat family)
     // ---------------------------------------------------------
 
     int my_stat(const char* path, struct linux_stat64* buf) {
+        if (path && (strstr(path, "/dev/") != NULL || strstr(path, "i2c/") != NULL || strstr(path, "ttyS") != NULL)) {
+            log_debug("stat: Spoofing virtual device for %s", path);
+            memset(buf, 0, sizeof(struct linux_stat64));
+            buf->st_mode = LINUX_S_IFCHR | 0666;
+            buf->st_rdev = 1;
+            buf->st_nlink = 1;
+            buf->st_uid = 0;
+            buf->st_gid = 0;
+            return 0;
+        }
+
         struct _stat64 win_stat;
         if (_stat64(path, &win_stat) != 0) {
             log_trace("stat failed: %s", path);
@@ -238,6 +273,10 @@ extern "C" {
     }
 
     int __xstat(int ver, const char* path, struct linux_stat64* buf) {
+        return my_stat(path, buf);
+    }
+
+    int __xstat64(int ver, const char* path, struct linux_stat64* buf) {
         return my_stat(path, buf);
     }
 
