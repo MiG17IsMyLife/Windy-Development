@@ -39,6 +39,7 @@
 
 #include "SymbolResolver.h"
 #include "common.h"
+#include "../src/core/log.h"
 
 // --- Bridges ---
 #include "../api/sega/libsegaapi.h"
@@ -163,7 +164,7 @@ extern "C" int my_select(int nfds, fd_set* readfds, fd_set* writefds, fd_set* ex
         Sleep(ms);
         return 0;
     }
-    printf("[Windy] select called with FDs (Stubbed)\n");
+    log_trace("select called with FDs (Stubbed)");
     return 0;
 }
 
@@ -174,14 +175,24 @@ extern "C" void my_kswap_collect(void* p) { return; }
 // Entrypoint hooking
 typedef int (*MainFunc)(int, char**, char**);
 extern "C" void my_libc_start_main(MainFunc m, int c, char** a, void (*i)(), void (*f)(), void (*r)(), void* s) {
+    log_info("__libc_start_main called");
     CoInitializeEx(NULL, COINIT_MULTITHREADED);
     WSADATA wsaData; WSAStartup(MAKEWORD(2, 2), &wsaData);
-    if (i) { __try { i(); } __except (ExceptionFilter(GetExceptionCode(), GetExceptionInformation())) {} }
+    if (i) {
+        log_debug("Calling init function");
+        __try { i(); }
+        __except (ExceptionFilter(GetExceptionCode(), GetExceptionInformation())) {
+            log_error("Exception in init function");
+        }
+    }
     int result = 0;
+    log_info("Calling main(argc=%d)", c);
     __try { result = m(c, a, nullptr); }
     __except (ExceptionFilter(GetExceptionCode(), GetExceptionInformation())) {
-        std::cerr << "[Translator] Process terminated during main." << std::endl; exit(1);
+        log_fatal("Exception in main() - process terminated");
+        exit(1);
     }
+    log_info("main() returned %d", result);
     exit(result);
 }
 
@@ -190,8 +201,8 @@ extern "C" void my_libc_start_main(MainFunc m, int c, char** a, void (*i)(), voi
 // =============================================================
 uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
 
-    // Log symbol resolution requests for debugging
-    //printf("[Symbol] Resolving: %s\n", name);
+    // Log symbol resolution requests for debugging (only unresolved ones are logged as warnings)
+    // log_trace("Resolving symbol: %s", name);
 
     // Special Handling
     if (strcmp(name, "glGetString") == 0) return (uintptr_t)&my_glGetString;
@@ -203,9 +214,9 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
         static bool attemptedLoad = false;
         if (!attemptedLoad) {
             hCg = LoadLibraryA("cg.dll");
-            if (hCg) printf("[Windy] Loaded cg.dll\n");
+            if (hCg) log_info("Loaded cg.dll");
             hCgGL = LoadLibraryA("cgGL.dll");
-            if (hCgGL) printf("[Windy] Loaded cgGL.dll\n");
+            if (hCgGL) log_info("Loaded cgGL.dll");
             attemptedLoad = true;
         }
         void* proc = NULL;
@@ -657,14 +668,21 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     void* msysProc = GetMsysSymbol(name);
     if (msysProc) return (uintptr_t)msysProc;
 
-    std::cout << "[WARNING] Symbol unresolved: " << name << " -> Stub" << std::endl;
+    log_warn("Symbol unresolved: %s -> Using stub", name);
     return (uintptr_t)&UnimplementedStub;
 }
 
 void SymbolResolver::ResolveAll(uintptr_t jmpRel, uintptr_t symTab, uintptr_t strTab, uint32_t pltRelSize) {
-    if (!jmpRel || !symTab || !strTab) return;
+    if (!jmpRel || !symTab || !strTab) {
+        log_error("Invalid PLT/GOT parameters");
+        return;
+    }
+
     size_t relCount = pltRelSize / sizeof(Elf32_Rel);
-    std::cout << "--- Starting Dynamic Symbol Resolution ---" << std::endl;
+    log_info("Resolving %zu dynamic symbols...", relCount);
+
+    int resolved = 0;
+    int stubbed = 0;
 
     for (size_t i = 0; i < relCount; ++i) {
         Elf32_Rel* rel = (Elf32_Rel*)(jmpRel + i * sizeof(Elf32_Rel));
@@ -672,9 +690,19 @@ void SymbolResolver::ResolveAll(uintptr_t jmpRel, uintptr_t symTab, uintptr_t st
         Elf32_Sym* sym = (Elf32_Sym*)(symTab + symIdx * sizeof(Elf32_Sym));
         const char* name = (const char*)(strTab + sym->st_name);
         uintptr_t addr = GetExternalAddr(name);
+
+        if (addr == (uintptr_t)&UnimplementedStub) {
+            stubbed++;
+        }
+        else {
+            resolved++;
+        }
+
         DWORD oldProtect;
         VirtualProtect((LPVOID)rel->r_offset, 4, PAGE_READWRITE, &oldProtect);
         *(uintptr_t*)(rel->r_offset) = addr;
         VirtualProtect((LPVOID)rel->r_offset, 4, oldProtect, &oldProtect);
     }
+
+    log_info("Symbol resolution complete: %d resolved, %d stubbed", resolved, stubbed);
 }

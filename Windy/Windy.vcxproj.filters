@@ -87,6 +87,9 @@
     <ClCompile Include="src\api\linux\hardwarebridge.cpp">
       <Filter>src\api\linux</Filter>
     </ClCompile>
+    <ClCompile Include="src\core\log.cpp">
+      <Filter>src\core</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\api\sega\libsegaapi.h">
@@ -148,6 +151,9 @@
     </ClInclude>
     <ClInclude Include="src\api\linux\processbridge.h">
       <Filter>src\api\linux</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\log.h">
+      <Filter>src\core</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

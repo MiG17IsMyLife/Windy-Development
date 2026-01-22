@@ -1,6 +1,7 @@
 #include "core/ElfLoader.h"
 #include "core/SymbolResolver.h"
 #include "core/LinuxStack.h"
+#include "core/log.h"
 #include <iostream>
 #include <windows.h>
 #include <objbase.h>
@@ -10,27 +11,39 @@ static const char* DEFAULT_ARGV0 = "id5.elf";
 
 int main(int argc, char* argv[]) {
 
+    // Initialize logging system first
+    logInit();
+
+    log_info("==============================================");
+    log_info("   Windy - Lindbergh Loader for Windows");
+    log_info("==============================================");
+
     // COM initialization
     HRESULT hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
     if (FAILED(hr)) {
-        std::cerr << "Warning: CoInitializeEx failed: " << std::hex << hr << std::endl;
+        log_warn("CoInitializeEx failed: 0x%08X", hr);
+    }
+    else {
+        log_debug("COM initialized successfully");
     }
 
-    std::cout << "--- Windy Lindbergh-Loader for Windows ---" << std::endl;
-
     if (argc < 2) {
-        std::cerr << "Error: No ELF file path specified." << std::endl;
-        std::cerr << "Usage: Windy.exe <path_to_elf>" << std::endl;
+        log_error("No ELF file path specified.");
+        log_info("Usage: Windy.exe <path_to_elf>");
         system("pause");
         return 1;
     }
+
+    log_info("Loading ELF: %s", argv[1]);
 
     ElfLoader loader(argv[1]);
     if (!loader.LoadToMemory()) {
-        std::cerr << "Error: Failed to load ELF file into memory." << std::endl;
+        log_fatal("Failed to load ELF file into memory.");
         system("pause");
         return 1;
     }
+
+    log_info("ELF loaded successfully, resolving symbols...");
 
     // Perform dynamic linking (GOT patching)
     SymbolResolver::ResolveAll(
@@ -40,11 +53,14 @@ int main(int argc, char* argv[]) {
         loader.GetPltRelSize()
     );
 
+    log_info("Symbol resolution complete.");
+
     // Prepare Linux-style stack
     uint32_t finalEsp = LinuxStack::Setup(STACK_SIZE, DEFAULT_ARGV0);
     uint32_t entry = loader.GetHeader().e_entry;
 
-    std::cout << "Jumping to Linux entry point: 0x" << std::hex << entry << std::endl;
+    log_info("Jumping to ELF entry point: 0x%08X", entry);
+    log_info("==============================================");
 
     // Switch stack and jump to ELF entry
     __asm {

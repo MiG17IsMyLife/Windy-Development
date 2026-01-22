@@ -1,5 +1,6 @@
 #define _CRT_SECURE_NO_WARNINGS
 #include "ProcessBridge.h"
+#include "../src/core/log.h"
 #include <windows.h>
 #include <iostream>
 #include <vector>
@@ -10,34 +11,23 @@
 
 extern "C" {
 
-    // ----------------------------------------------------------------
-    // fork: Create a child process
-    // ----------------------------------------------------------------
     int my_fork(void) {
-        std::cout << "[Process] fork called. Pretending to be Parent (PID=1000)." << std::endl;
+        log_debug("fork() called - returning fake parent PID 1000");
         return 1000;
     }
 
-    // ----------------------------------------------------------------
-    // vfork: Create a child process and block parent
-    // ----------------------------------------------------------------
     int my_vfork(void) {
+        log_debug("vfork() called - returning fake parent PID 1000");
         return my_fork();
     }
 
-    // ----------------------------------------------------------------
-    // daemon: Run in background
-    // ----------------------------------------------------------------
     int my_daemon(int nochdir, int noclose) {
-        std::cout << "[Process] daemon called. Success." << std::endl;
+        log_debug("daemon(%d, %d) called - stubbed success", nochdir, noclose);
         return 0;
     }
 
-    // ----------------------------------------------------------------
-    // execlp: Execute a file
-    // ----------------------------------------------------------------
     int my_execlp(const char* file, const char* arg, ...) {
-        std::cout << "[Process] execlp called: " << file << std::endl;
+        log_info("execlp(\"%s\", \"%s\", ...)", file, arg);
 
         std::vector<const char*> args;
         args.push_back(arg);
@@ -52,7 +42,6 @@ extern "C" {
         va_end(ap);
         args.push_back(NULL);
 
-        // Path adjustment 
         std::string prog = file;
         if (prog == "sh" || prog == "/bin/sh") {
             prog = "C:\\msys64\\usr\\bin\\sh.exe";
@@ -61,20 +50,11 @@ extern "C" {
         intptr_t ret = _spawnvp(_P_NOWAIT, prog.c_str(), (char* const*)args.data());
 
         if (ret == -1) {
-            std::cerr << "[Process] execlp failed: " << strerror(errno) << std::endl;
+            log_error("execlp failed: %s", strerror(errno));
             return -1;
         }
 
+        log_debug("execlp: Spawned process %s", prog.c_str());
         return 0;
     }
-
-    // ----------------------------------------------------------------
-    // wait: Wait for process termination
-    // ----------------------------------------------------------------
-    // 
-    /*
-    int my_wait(int* status) {
-        return _cwait(status, _getpid(), 0);
-    }
-    */
 }

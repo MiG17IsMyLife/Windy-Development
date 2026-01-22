@@ -31,6 +31,7 @@
     <ClCompile Include="src\api\sega\libsegaapi.c" />
     <ClCompile Include="src\core\elfloader.cpp" />
     <ClCompile Include="src\core\linuxstack.cpp" />
+    <ClCompile Include="src\core\log.cpp" />
     <ClCompile Include="src\core\memorymanager.cpp" />
     <ClCompile Include="src\core\symbolresolver.cpp" />
     <ClCompile Include="src\hardware\baseboard.cpp" />
@@ -53,6 +54,7 @@
     <ClInclude Include="src\core\common.h" />
     <ClInclude Include="src\core\elfloader.h" />
     <ClInclude Include="src\core\linuxstack.h" />
+    <ClInclude Include="src\core\log.h" />
     <ClInclude Include="src\core\memorymanager.h" />
     <ClInclude Include="src\core\symbolresolver.h" />
     <ClInclude Include="src\hardware\baseboard.h" />

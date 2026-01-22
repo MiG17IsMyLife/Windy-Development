@@ -1,4 +1,5 @@
 #include "GLXBridge.h"
+#include "../src/core/log.h"
 #include <vector>
 #include <string>
 #include <malloc.h>
@@ -46,10 +47,10 @@ void EnsureSDLInitialized() {
     static bool initialized = false;
     if (!initialized) {
         if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS)) {
-            printf("[GLX] SDL_Init failed: %s\n", SDL_GetError());
+            log_error("SDL_Init failed: %s", SDL_GetError());
         }
         else {
-            printf("[GLX] SDL3 Initialized successfully.\n");
+            log_info("SDL3 initialized successfully");
         }
         initialized = true;
     }
@@ -64,10 +65,10 @@ void CreateSDLWindowIfNeeded() {
 
     g_sdlWindow = SDL_CreateWindow("Windy - Sega Lindbergh loader for Windows", g_windowWidth, g_windowHeight, flags);
     if (!g_sdlWindow) {
-        printf("[GLX] Failed to create SDL Window: %s\n", SDL_GetError());
+        log_error("Failed to create SDL Window: %s", SDL_GetError());
     }
     else {
-        printf("[GLX] SDL Window created (%dx%d).\n", g_windowWidth, g_windowHeight);
+        log_info("SDL Window created (%dx%d)", g_windowWidth, g_windowHeight);
         if (g_windowX != -1 && g_windowY != -1) {
             SDL_SetWindowPosition(g_sdlWindow, g_windowX, g_windowY);
         }
@@ -104,6 +105,7 @@ struct XVisualInfo {
 };
 
 void* GLXBridge::ChooseVisual(void* dpy, int screen, int* attribList) {
+    log_trace("glXChooseVisual(dpy=%p, screen=%d)", dpy, screen);
     EnsureSDLInitialized();
     DummyVisual* dv = (DummyVisual*)calloc(1, sizeof(DummyVisual));
     XVisualInfo* vi = (XVisualInfo*)calloc(1, sizeof(XVisualInfo));
@@ -117,6 +119,7 @@ void* GLXBridge::ChooseVisual(void* dpy, int screen, int* attribList) {
 }
 
 void* GLXBridge::CreateContext(void* dpy, void* vis, void* shareList, bool direct) {
+    log_debug("glXCreateContext(dpy=%p, vis=%p, shareList=%p, direct=%d)", dpy, vis, shareList, direct);
     CreateSDLWindowIfNeeded();
     if (!g_sdlWindow) return NULL;
 
@@ -126,14 +129,17 @@ void* GLXBridge::CreateContext(void* dpy, void* vis, void* shareList, bool direc
     // VSync off by default for performance
     SDL_GL_SetSwapInterval(0);
 
+    log_debug("OpenGL context created: %p", ctx);
     return (void*)ctx;
 }
 
 void GLXBridge::DestroyContext(void* dpy, void* ctx) {
+    log_debug("glXDestroyContext(ctx=%p)", ctx);
     SDL_GL_DestroyContext((SDL_GLContext)ctx);
 }
 
 int GLXBridge::MakeCurrent(void* dpy, unsigned long drawable, void* ctx) {
+    log_trace("glXMakeCurrent(dpy=%p, drawable=%lu, ctx=%p)", dpy, drawable, ctx);
     if (!g_sdlWindow) CreateSDLWindowIfNeeded();
     if (!ctx) return SDL_GL_MakeCurrent(g_sdlWindow, NULL) ? 1 : 0;
     return SDL_GL_MakeCurrent(g_sdlWindow, (SDL_GLContext)ctx) ? 1 : 0;
@@ -145,13 +151,25 @@ void GLXBridge::SwapBuffers(void* dpy, unsigned long drawable) {
         // Process minimal events to keep window responsive
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
-            if (e.type == SDL_EVENT_QUIT) exit(0);
+            if (e.type == SDL_EVENT_QUIT) {
+                log_info("SDL_EVENT_QUIT received, exiting...");
+                exit(0);
+            }
         }
     }
 }
 
-int GLXBridge::SwapInterval(int interval) { return SDL_GL_SetSwapInterval(interval); }
-void* GLXBridge::GetProcAddress(const char* procName) { return (void*)SDL_GL_GetProcAddress(procName); }
+int GLXBridge::SwapInterval(int interval) {
+    log_trace("glXSwapInterval(%d)", interval);
+    return SDL_GL_SetSwapInterval(interval);
+}
+
+void* GLXBridge::GetProcAddress(const char* procName) {
+    void* addr = (void*)SDL_GL_GetProcAddress(procName);
+    log_trace("glXGetProcAddress(\"%s\") = %p", procName, addr);
+    return addr;
+}
+
 const char* GLXBridge::QueryExtensionsString(void* dpy, int screen) { return ""; }
 const char* GLXBridge::QueryServerString(void* dpy, int screen, int name) { return ""; }
 const char* GLXBridge::GetClientString(void* dpy, int name) { return ""; }
@@ -159,43 +177,63 @@ void* GLXBridge::GetCurrentDisplay() { return NULL; }
 void* GLXBridge::GetCurrentContext() { return (void*)SDL_GL_GetCurrentContext(); }
 unsigned long GLXBridge::GetCurrentDrawable() { return 1; }
 int GLXBridge::IsDirect(void* dpy, void* ctx) { return 1; }
+
 void* GLXBridge::ChooseFBConfigSGIX(void* dpy, int screen, int* attrib_list, int* nelements) {
+    log_trace("glXChooseFBConfigSGIX(screen=%d)", screen);
     if (nelements) *nelements = 1;
     static void* cfg[] = { (void*)1, NULL };
     return cfg;
 }
-int GLXBridge::GetFBConfigAttribSGIX(void* dpy, void* config, int attribute, int* value) { if (value)*value = 0; return 0; }
-void* GLXBridge::CreateContextWithConfigSGIX(void* dpy, void* config, int render_type, void* share_list, bool direct) { return CreateContext(dpy, NULL, share_list, direct); }
-void* GLXBridge::CreateGLXPbufferSGIX(void* dpy, void* config, unsigned int width, unsigned int height, int* attrib_list) { return (void*)0xDEAD; }
-void GLXBridge::DestroyGLXPbufferSGIX(void* dpy, void* pbuf) {}
+
+int GLXBridge::GetFBConfigAttribSGIX(void* dpy, void* config, int attribute, int* value) {
+    if (value) *value = 0;
+    return 0;
+}
+
+void* GLXBridge::CreateContextWithConfigSGIX(void* dpy, void* config, int render_type, void* share_list, bool direct) {
+    log_debug("glXCreateContextWithConfigSGIX");
+    return CreateContext(dpy, NULL, share_list, direct);
+}
+
+void* GLXBridge::CreateGLXPbufferSGIX(void* dpy, void* config, unsigned int width, unsigned int height, int* attrib_list) {
+    log_debug("glXCreateGLXPbufferSGIX(%ux%u)", width, height);
+    return (void*)0xDEAD;
+}
+
+void GLXBridge::DestroyGLXPbufferSGIX(void* dpy, void* pbuf) {
+    log_debug("glXDestroyGLXPbufferSGIX(%p)", pbuf);
+}
 
 // ==========================================================================
 //   GLUT Implementation
 // ==========================================================================
 
 void GLXBridge::glutInit(int* argcp, char** argv) {
-    printf("[GLUT] glutInit called.\n");
+    log_info("glutInit called");
     EnsureSDLInitialized();
 }
 
 void GLXBridge::glutInitDisplayMode(unsigned int mode) {
+    log_debug("glutInitDisplayMode(0x%X)", mode);
     EnsureSDLInitialized();
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
 }
 
 void GLXBridge::glutInitWindowSize(int width, int height) {
+    log_debug("glutInitWindowSize(%d, %d)", width, height);
     g_windowWidth = width;
     g_windowHeight = height;
 }
 
 void GLXBridge::glutInitWindowPosition(int x, int y) {
+    log_debug("glutInitWindowPosition(%d, %d)", x, y);
     g_windowX = x;
     g_windowY = y;
 }
 
 int GLXBridge::glutEnterGameMode() {
-    printf("[GLUT] glutEnterGameMode called.\n");
+    log_info("glutEnterGameMode called");
     CreateSDLWindowIfNeeded();
     // SDL_SetWindowFullscreen(g_sdlWindow, SDL_WINDOW_FULLSCREEN); // Optional
     if (!g_sdlContext) g_sdlContext = SDL_GL_CreateContext(g_sdlWindow);
@@ -204,11 +242,12 @@ int GLXBridge::glutEnterGameMode() {
 }
 
 void GLXBridge::glutLeaveGameMode() {
+    log_info("glutLeaveGameMode called");
     if (g_sdlWindow) SDL_SetWindowFullscreen(g_sdlWindow, 0);
 }
 
 void GLXBridge::glutMainLoop() {
-    printf("[GLUT] Starting glutMainLoop...\n");
+    log_info("Entering glutMainLoop...");
     CreateSDLWindowIfNeeded();
     if (!g_sdlContext) {
         g_sdlContext = SDL_GL_CreateContext(g_sdlWindow);
@@ -219,7 +258,11 @@ void GLXBridge::glutMainLoop() {
     SDL_Event e;
     while (running) {
         while (SDL_PollEvent(&e)) {
-            if (e.type == SDL_EVENT_QUIT) { running = false; exit(0); }
+            if (e.type == SDL_EVENT_QUIT) {
+                log_info("SDL_EVENT_QUIT in glutMainLoop");
+                running = false;
+                exit(0);
+            }
             else if (e.type == SDL_EVENT_KEY_DOWN) {
                 if (g_glutKeyboardFunc) {
                     float mx, my;
@@ -237,13 +280,21 @@ void GLXBridge::glutMainLoop() {
     }
 }
 
-void GLXBridge::glutDisplayFunc(void (*func)(void)) { g_glutDisplayFunc = func; }
-void GLXBridge::glutIdleFunc(void (*func)(void)) { g_glutIdleFunc = func; }
+void GLXBridge::glutDisplayFunc(void (*func)(void)) {
+    log_debug("glutDisplayFunc(%p)", func);
+    g_glutDisplayFunc = func;
+}
+
+void GLXBridge::glutIdleFunc(void (*func)(void)) {
+    log_debug("glutIdleFunc(%p)", func);
+    g_glutIdleFunc = func;
+}
+
 void GLXBridge::glutPostRedisplay() { g_redisplayNeeded = true; }
 void GLXBridge::glutSwapBuffers() { if (g_sdlWindow) SDL_GL_SwapWindow(g_sdlWindow); }
 int GLXBridge::glutGet(int state) { return (state == 700) ? (int)SDL_GetTicks() : 0; }
 void GLXBridge::glutSetCursor(int cursor) {}
-void GLXBridge::glutGameModeString(const char* string) { printf("[GLUT] GameModeString: %s\n", string); }
+void GLXBridge::glutGameModeString(const char* string) { log_debug("glutGameModeString: %s", string); }
 void GLXBridge::glutBitmapCharacter(void* font, int character) {}
 int GLXBridge::glutBitmapWidth(void* font, int character) { return 8; }
 
@@ -266,7 +317,7 @@ void GLXBridge::gluLookAt(double eyeX, double eyeY, double eyeZ, double centerX,
     mag = sqrt(s[0] * s[0] + s[1] * s[1] + s[2] * s[2]);
     if (mag > 0) { s[0] /= mag; s[1] /= mag; s[2] /= mag; }
     u[0] = s[1] * f[2] - s[2] * f[1]; u[1] = s[2] * f[0] - s[0] * f[2]; u[2] = s[0] * f[1] - s[1] * f[0];
-    double m[16] = { s[0], u[0], -f[0], 0, s[1], u[1], -f[1], 0, s[2], u[2], -f[2], 0, 0, 0, 0, 1 };
-    glMultMatrixd(m);
+    double mat[16] = { s[0], u[0], -f[0], 0, s[1], u[1], -f[1], 0, s[2], u[2], -f[2], 0, 0, 0, 0, 1 };
+    glMultMatrixd(mat);
     glTranslated(-eyeX, -eyeY, -eyeZ);
 }

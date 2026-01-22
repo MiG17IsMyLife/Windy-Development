@@ -19,6 +19,7 @@
 //   Bridge Headers
 // =============================================================
 #include "FilesystemBridge.h"
+#include "../src/core/log.h"
 
 // =============================================================
 //   Internal Structures
@@ -72,7 +73,7 @@ extern "C" {
     // ---------------------------------------------------------
 
     void* my_dlopen(const char* filename, int flags) {
-        std::cout << "[Loader] dlopen called: " << (filename ? filename : "NULL") << std::endl;
+        log_debug("dlopen(\"%s\", 0x%X)", filename ? filename : "NULL", flags);
 
         if (!filename) return GetModuleHandle(NULL);
 
@@ -87,9 +88,10 @@ extern "C" {
         HMODULE hLib = LoadLibraryA(path.c_str());
         if (!hLib) {
             sprintf(g_dlErrorBuf, "LoadLibrary failed for %s (Error: %lu)", path.c_str(), GetLastError());
-            std::cerr << "[Loader] dlopen failed: " << g_dlErrorBuf << std::endl;
+            log_error("dlopen failed: %s", g_dlErrorBuf);
             return NULL;
         }
+        log_debug("dlopen: Loaded %s -> %p", path.c_str(), hLib);
         return (void*)hLib;
     }
 
@@ -99,11 +101,13 @@ extern "C" {
         void* proc = (void*)GetProcAddress((HMODULE)handle, symbol);
         if (!proc) {
             sprintf(g_dlErrorBuf, "GetProcAddress failed for %s", symbol);
+            log_trace("dlsym failed: %s", symbol);
         }
         return proc;
     }
 
     int my_dlclose(void* handle) {
+        log_trace("dlclose(%p)", handle);
         if (handle) FreeLibrary((HMODULE)handle);
         return 0;
     }
@@ -117,7 +121,7 @@ extern "C" {
     // ---------------------------------------------------------
 
     void* my_opendir(const char* name) {
-        std::cout << "[FS] opendir called: " << name << std::endl;
+        log_debug("opendir(\"%s\")", name);
 
         std::string searchPath = name;
         if (searchPath.empty()) return NULL;
@@ -134,6 +138,7 @@ extern "C" {
         dir->hFind = FindFirstFileA(searchPath.c_str(), &dir->findData);
 
         if (dir->hFind == INVALID_HANDLE_VALUE) {
+            log_warn("opendir failed: %s", name);
             delete dir;
             return NULL;
         }
@@ -159,16 +164,13 @@ extern "C" {
             }
         }
 
-        // Copy to linux direct structure
         memset(&dir->ent, 0, sizeof(linux_dirent));
-        dir->ent.d_ino = 1; // dummy indore number
+        dir->ent.d_ino = 1;
         dir->ent.d_off = 0;
 
-        // copy file name
         strncpy(dir->ent.d_name, dir->findData.cFileName, 255);
         dir->ent.d_reclen = (unsigned short)strlen(dir->ent.d_name);
 
-        // d_type setting
         if (dir->findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
             dir->ent.d_type = 4; // DT_DIR
         }
@@ -216,7 +218,10 @@ extern "C" {
 
     int my_stat(const char* path, struct linux_stat64* buf) {
         struct _stat64 win_stat;
-        if (_stat64(path, &win_stat) != 0) return -1;
+        if (_stat64(path, &win_stat) != 0) {
+            log_trace("stat failed: %s", path);
+            return -1;
+        }
         CopyStat(win_stat, buf);
         return 0;
     }
@@ -252,7 +257,7 @@ extern "C" {
     // File Control (fcntl)
     // ---------------------------------------------------------
     int my_fcntl(int fd, int cmd, ...) {
-        // lazy implementation
+        log_trace("fcntl(fd=%d, cmd=%d) - stubbed", fd, cmd);
         return 0;
     }
 }

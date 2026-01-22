@@ -1,6 +1,7 @@
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 
 #include "LibcBridge.h"
+#include "../src/core/log.h"
 #include <iostream>
 #include <vector>
 #include <algorithm>
@@ -14,7 +15,6 @@
 
 // --- Helper Functions ---
 
-// Linux path (/) to Windows path (\) conversion
 static void ConvertPath(char* dst, const char* src, size_t size) {
     if (!src || !dst) return;
     strncpy(dst, src, size);
@@ -24,17 +24,20 @@ static void ConvertPath(char* dst, const char* src, size_t size) {
     }
 }
 
-// Network thread safety mutex for non-reentrant Winsock functions
 static std::mutex g_net_mutex;
 
 // ========================================================================
-// --- File Input/Output (stdio.h / io.h) --- : Probably most of them are bugged
+// --- File Input/Output (stdio.h / io.h) ---
 // ========================================================================
 
 FILE* LibcBridge::fopen_wrapper(const char* filename, const char* mode) {
     char winPath[MAX_PATH];
     ConvertPath(winPath, filename, MAX_PATH);
-    return fopen(winPath, mode);
+    FILE* f = fopen(winPath, mode);
+    if (!f) {
+        log_trace("fopen failed: %s (%s)", filename, mode);
+    }
+    return f;
 }
 
 FILE* LibcBridge::fopen64_wrapper(const char* filename, const char* mode) {
@@ -79,7 +82,6 @@ void LibcBridge::rewind_wrapper(FILE* stream) {
     rewind(stream);
 }
 
-// --- Character & String I/O ---
 int LibcBridge::fgetc_wrapper(FILE* stream) {
     return fgetc(stream);
 }
@@ -116,7 +118,6 @@ int LibcBridge::getc_wrapper(FILE* stream) {
     return getc(stream);
 }
 
-// --- File Stream Management ---
 int LibcBridge::feof_wrapper(FILE* stream) {
     return feof(stream);
 }
@@ -152,19 +153,55 @@ int LibcBridge::remove_wrapper(const char* pathname) {
 }
 
 // ========================================================================
-// --- Formatted I/O ---
+// --- Formatted I/O --- (Game output logged as LOG_GAME)
 // ========================================================================
 
 int LibcBridge::printf_wrapper(const char* format, ...) {
     va_list args;
     va_start(args, format);
-    int ret = vprintf(format, args);
+
+    // Format the message
+    va_list args_copy;
+    va_copy(args_copy, args);
+    int size = vsnprintf(NULL, 0, format, args_copy);
+    va_end(args_copy);
+
+    if (size > 0) {
+        char* buffer = (char*)malloc(size + 1);
+        if (buffer) {
+            vsnprintf(buffer, size + 1, format, args);
+            // Remove trailing newline for cleaner log output
+            if (size > 0 && buffer[size - 1] == '\n') {
+                buffer[size - 1] = '\0';
+            }
+            log_game("%s", buffer);
+            free(buffer);
+        }
+    }
+
     va_end(args);
-    return ret;
+    return size;
 }
 
 int LibcBridge::vprintf_wrapper(const char* format, va_list ap) {
-    return vprintf(format, ap);
+    va_list args_copy;
+    va_copy(args_copy, ap);
+    int size = vsnprintf(NULL, 0, format, args_copy);
+    va_end(args_copy);
+
+    if (size > 0) {
+        char* buffer = (char*)malloc(size + 1);
+        if (buffer) {
+            vsnprintf(buffer, size + 1, format, ap);
+            if (size > 0 && buffer[size - 1] == '\n') {
+                buffer[size - 1] = '\0';
+            }
+            log_game("%s", buffer);
+            free(buffer);
+        }
+    }
+
+    return size;
 }
 
 int LibcBridge::fprintf_wrapper(FILE* stream, const char* format, ...) {
@@ -220,7 +257,7 @@ int LibcBridge::sprintf_wrapper(char* str, const char* format, ...) {
 }
 
 // ========================================================================
-// --- String & Memory Operations (string.h) ---
+// --- String & Memory Operations ---
 // ========================================================================
 
 char* LibcBridge::strchr_wrapper(const char* s, int c) {
@@ -350,7 +387,7 @@ char* LibcBridge::realpath_wrapper(const char* path, char* resolved_path) {
 }
 
 // ========================================================================
-// --- Time & Clock Functions (time.h / sys/time.h) ---
+// --- Time & Clock Functions ---
 // ========================================================================
 
 int LibcBridge::utime_wrapper(const char* filename, const void* times) {
@@ -373,7 +410,6 @@ time_t LibcBridge::mktime_wrapper(struct tm* tm) {
 
 int LibcBridge::nanosleep_wrapper(const struct timespec* req, struct timespec* rem) {
     if (req) {
-        // Convert nanoseconds to milliseconds
         DWORD ms = req->tv_sec * 1000 + (req->tv_nsec / 1000000);
         Sleep(ms);
     }
@@ -383,7 +419,6 @@ int LibcBridge::nanosleep_wrapper(const struct timespec* req, struct timespec* r
 int LibcBridge::settimeofday_wrapper(const struct timeval* tv, const void* tz) {
     if (!tv) return -1;
 
-    // timeval (UNIX epoch) to SYSTEMTIME conversion
     FILETIME ft;
     unsigned __int64 ticks = (unsigned __int64)tv->tv_sec * 10000000ULL +
         (unsigned __int64)tv->tv_usec * 10ULL +
@@ -429,7 +464,7 @@ struct tm* LibcBridge::localtime_r_wrapper(const time_t* timep, struct tm* resul
 }
 
 // ========================================================================
-// --- Standard Library & System (stdlib.h / signal.h) ---
+// --- Standard Library & System ---
 // ========================================================================
 
 int LibcBridge::rand_wrapper() {
@@ -445,26 +480,30 @@ char* LibcBridge::getenv_wrapper(const char* name) {
 }
 
 int LibcBridge::system_wrapper(const char* command) {
+    log_debug("system(\"%s\")", command);
     return system(command);
 }
 
 void LibcBridge::abort_wrapper() {
+    log_fatal("abort() called!");
     abort();
 }
 
 int LibcBridge::raise_wrapper(int sig) {
+    log_warn("raise(%d) called", sig);
     return raise(sig);
 }
 
 void LibcBridge::_exit_wrapper(int status) {
+    log_info("_exit(%d)", status);
     _exit(status);
 }
 
 void LibcBridge::exit_wrapper(int status) {
+    log_info("exit(%d)", status);
     exit(status);
 }
 
-// Simulation of standard Linux 32-bit stat structure (common in arcade binaries)
 struct linux_stat {
     uint32_t st_dev; uint16_t __pad1; uint32_t st_ino; uint32_t st_mode;
     uint32_t st_nlink; uint32_t st_uid; uint32_t st_gid; uint32_t st_rdev;
@@ -478,7 +517,6 @@ int LibcBridge::fxstat_wrapper(int ver, int fd, void* stat_buf) {
     struct _stat64 st;
     if (_fstat64(fd, &st) != 0) return -1;
 
-    // Manual field-by-field copy from Windows _stat64 to Linux-like structure
     struct linux_stat* ls = (struct linux_stat*)stat_buf;
     memset(ls, 0, sizeof(linux_stat));
     ls->st_mode = (uint32_t)st.st_mode;
@@ -491,7 +529,7 @@ int LibcBridge::fxstat_wrapper(int ver, int fd, void* stat_buf) {
 }
 
 // ========================================================================
-// --- Network & Socket Utilities (arpa/inet.h / netdb.h) ---
+// --- Network & Socket Utilities ---
 // ========================================================================
 
 int LibcBridge::inet_aton_wrapper(const char* cp, struct in_addr* inp) {
@@ -509,7 +547,6 @@ int LibcBridge::gethostbyname_r_wrapper(const char* name, void* ret, char* buf, 
         *result = nullptr;
         return -1;
     }
-    // Deep copy into the provided result buffer
     memcpy(ret, he, sizeof(struct hostent));
     *result = ret;
     return 0;
@@ -523,14 +560,13 @@ int LibcBridge::gethostbyaddr_r_wrapper(const void* addr, int len, int type, voi
         *result = nullptr;
         return -1;
     }
-    // Deep copy into the provided result buffer
     memcpy(ret, he, sizeof(struct hostent));
     *result = ret;
     return 0;
 }
 
 // ========================================================================
-// --- Locale & Wide Character Support (locale.h / wchar.h / wctype.h) ---
+// --- Locale & Wide Character Support ---
 // ========================================================================
 
 char* LibcBridge::setlocale_wrapper(int category, const char* locale) {

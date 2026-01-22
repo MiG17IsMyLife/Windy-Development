@@ -1,6 +1,6 @@
 #include "JvsBoard.h"
 
-// TODO: Add baseboard implementions from original Lindbergh-Loader
+// TODO: Add jvs implementions from original Lindbergh-Loader
 JvsBoard::JvsBoard() {}
 JvsBoard::~JvsBoard() {}
 

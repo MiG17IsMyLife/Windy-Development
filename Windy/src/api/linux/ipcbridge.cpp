@@ -1,5 +1,6 @@
 #define _CRT_SECURE_NO_WARNINGS
 #include "IpcBridge.h"
+#include "../src/core/log.h"
 #include <windows.h>
 #include <iostream>
 #include <map>
@@ -10,10 +11,10 @@
 // =============================================================
 
 struct ShmInfo {
-    HANDLE hMap;    // Windows mapping handle
-    void* pMem;     // Mapped memory address
-    size_t size;    // Size
-    int key;        // Linux shm key
+    HANDLE hMap;
+    void* pMem;
+    size_t size;
+    int key;
 };
 
 static std::map<int, ShmInfo> g_shmMap;
@@ -23,13 +24,11 @@ static std::map<int, ShmInfo> g_shmMap;
 // =============================================================
 extern "C" {
 
-    // ----------------------------------------------------------------
-    // shmget: Allocates a shared memory segment
-    // ----------------------------------------------------------------
     int my_shmget(int key, size_t size, int shmflg) {
-        std::cout << "[IPC] shmget called. Key: " << key << ", Size: " << size << std::endl;
+        log_debug("shmget(key=%d, size=%zu, flags=0x%X)", key, size, shmflg);
 
         if (g_shmMap.find(key) != g_shmMap.end()) {
+            log_trace("shmget: Returning existing key %d", key);
             return key;
         }
 
@@ -45,12 +44,12 @@ extern "C" {
             mapName);
 
         if (!hMap) {
-            std::cerr << "[IPC] shmget failed: CreateFileMapping error " << GetLastError() << std::endl;
+            log_error("shmget failed: CreateFileMapping error %lu", GetLastError());
             return -1;
         }
 
         if (GetLastError() == ERROR_ALREADY_EXISTS) {
-            // std::cout << "[IPC] shmget: Opened existing mapping." << std::endl;
+            log_trace("shmget: Opened existing mapping for key %d", key);
         }
 
         ShmInfo info;
@@ -61,17 +60,15 @@ extern "C" {
 
         g_shmMap[key] = info;
 
-        return key; // another lazy implemention 
+        log_debug("shmget: Created mapping for key %d, size %zu", key, size);
+        return key;
     }
 
-    // ----------------------------------------------------------------
-    // shmat: Attaches the shared memory segment
-    // ----------------------------------------------------------------
     void* my_shmat(int shmid, const void* shmaddr, int shmflg) {
-        // std::cout << "[IPC] shmat called. ID: " << shmid << std::endl;
+        log_trace("shmat(id=%d, addr=%p, flags=0x%X)", shmid, shmaddr, shmflg);
 
         if (g_shmMap.find(shmid) == g_shmMap.end()) {
-            std::cerr << "[IPC] shmat failed: Invalid shmid " << shmid << std::endl;
+            log_error("shmat failed: Invalid shmid %d", shmid);
             return (void*)-1;
         }
 
@@ -90,19 +87,17 @@ extern "C" {
         );
 
         if (!info.pMem) {
-            std::cerr << "[IPC] shmat failed: MapViewOfFile error " << GetLastError() << std::endl;
+            log_error("shmat failed: MapViewOfFile error %lu", GetLastError());
             return (void*)-1;
         }
 
+        log_debug("shmat: Attached id=%d at %p", shmid, info.pMem);
         return info.pMem;
     }
 
-    // ----------------------------------------------------------------
-    // shmctl: Shared memory control operations
-    // ----------------------------------------------------------------
     int my_shmctl(int shmid, int cmd, void* buf) {
-        if (cmd == 0) {
-            std::cout << "[IPC] shmctl: Removing ID " << shmid << std::endl;
+        if (cmd == 0) { // IPC_RMID
+            log_debug("shmctl: Removing id=%d", shmid);
 
             if (g_shmMap.find(shmid) != g_shmMap.end()) {
                 ShmInfo& info = g_shmMap[shmid];
@@ -122,10 +117,8 @@ extern "C" {
         return 0;
     }
 
-    // ----------------------------------------------------------------
-    // shmdt: Detaches the shared memory segment
-    // ----------------------------------------------------------------
     int my_shmdt(const void* shmaddr) {
+        log_trace("shmdt(%p)", shmaddr);
         return 0;
     }
 }
