@@ -231,7 +231,8 @@ extern "C" {
         int mode = va_arg(args, int);
         va_end(args);
 
-        log_debug("my_openat called for: %s", pathname);
+        log_debug("my_openat called: dirfd=%d, path=\"%s\", flags=0x%X",
+            dirfd, pathname ? pathname : "NULL", flags);
 
         return my_open(pathname, flags, mode);
     }

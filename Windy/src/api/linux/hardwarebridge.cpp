@@ -64,7 +64,7 @@ static void EnsureDevicesInitialized() {
 static DeviceType GetDeviceType(const char* path) {
     if (!path) return DEV_NONE;
     if (strstr(path, "/dev/lbb") || strstr(path, "lbb")) return DEV_BASEBOARD;
-    if (strstr(path, "/dev/i2c") || strstr(path, "i2c/")) return DEV_EEPROM;
+    if (strstr(path, "/dev/i2c") || strstr(path, "i2c/") || strstr(path, "i2c-")) return DEV_EEPROM;
     if (strstr(path, "/dev/ttyS") || strstr(path, "ttyS")) return DEV_SERIAL;
     if (strstr(path, "/dev/jvs") || strstr(path, "jvs")) return DEV_JVS;
 
@@ -110,6 +110,9 @@ static int ConvertLinuxFlags(int linuxFlags) {
 extern "C" {
 
     int my_open(const char* pathname, int flags, ...) {
+        log_debug("my_open called: path=\"%s\", flags=0x%X",
+            pathname ? pathname : "NULL", flags);
+
         EnsureDevicesInitialized();
 
         DeviceType devType = GetDeviceType(pathname);
@@ -164,7 +167,11 @@ extern "C" {
             return result;
         }
 
-        // Virtual device - just remove from map
+        if (vf.type == DEV_EEPROM) {
+            log_debug("close: Keeping EEPROM device open (FD %d)", fd);
+            return 0;
+        }
+
         log_trace("close: Virtual FD %d (%s)", fd, vf.path.c_str());
         g_fdMap.erase(it);
         return 0;
@@ -215,6 +222,29 @@ extern "C" {
         va_start(args, request);
         void* data = va_arg(args, void*);
         va_end(args);
+
+        //Lazy implemention for I2C requests with FD -1 but, game will crash
+        if (fd == -1) {
+            // 0x720  = I2C_SMBUS_TRANSFER
+            // 0x1261 = I2C_BUFFER_CLEAR
+            // 0x703  = I2C_SET_SLAVE_MODE
+            // 0x705  = I2C_GET_FUNCTIONS
+            if (request == 0x720 || request == 0x1261 || request == 0x703 || request == 0x705) {
+                static int i2cLogCount = 0;
+                if (i2cLogCount < 10) {
+                    log_debug("ioctl: FD -1 with I2C request 0x%lX - returning success", request);
+                    i2cLogCount++;
+                }
+                return 0;
+            }
+
+            static int otherWarnCount = 0;
+            if (otherWarnCount < 10) {
+                log_warn("ioctl: Unknown FD -1, request 0x%lX", request);
+                otherWarnCount++;
+            }
+            return -1;
+        }
 
         auto it = g_fdMap.find(fd);
         if (it == g_fdMap.end()) {
