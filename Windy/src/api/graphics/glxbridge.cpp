@@ -247,7 +247,7 @@ void GLXBridge::glutLeaveGameMode() {
 }
 
 void GLXBridge::glutMainLoop() {
-    log_info("Entering glutMainLoop...");
+    log_info(">>> glutMainLoop ENTERED <<<");
     CreateSDLWindowIfNeeded();
     if (!g_sdlContext) {
         g_sdlContext = SDL_GL_CreateContext(g_sdlWindow);

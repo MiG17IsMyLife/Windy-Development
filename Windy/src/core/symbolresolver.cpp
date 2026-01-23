@@ -167,13 +167,207 @@ extern "C" int my_putenv(char* string) {
 // --- Select Wrapper ---
 // Handles timeout-only usage (common in loops) or logs usage with FDs
 extern "C" int my_select(int nfds, fd_set* readfds, fd_set* writefds, fd_set* exceptfds, struct timeval* timeout) {
+    log_info(">>> select called: nfds=%d, timeout=%s", nfds, timeout ? "set" : "NULL");
     if (!readfds && !writefds && !exceptfds && timeout) {
         DWORD ms = (timeout->tv_sec * 1000) + (timeout->tv_usec / 1000);
+        log_info(">>> select: sleep-only mode, sleeping %lu ms", ms);
         Sleep(ms);
+        log_info(">>> select EXIT: returning 0");
         return 0;
     }
-    log_trace("select called with FDs (Stubbed)");
-    return 0;
+    log_info(">>> select: calling real select...");
+    int ret = select(nfds, readfds, writefds, exceptfds, timeout);
+    log_info(">>> select EXIT: returning %d", ret);
+    return ret;
+}
+
+// =============================================================
+//   Poll Wrapper (with logging)
+// =============================================================
+
+// Linux pollfd structure
+struct linux_pollfd {
+    int fd;
+    short events;
+    short revents;
+};
+
+#define LINUX_POLLIN   0x0001
+#define LINUX_POLLOUT  0x0004
+#define LINUX_POLLERR  0x0008
+#define LINUX_POLLHUP  0x0010
+#define LINUX_POLLNVAL 0x0020
+
+extern "C" int my_poll(struct linux_pollfd* fds, unsigned long nfds, int timeout) {
+    log_info(">>> poll called: nfds=%lu, timeout=%d", nfds, timeout);
+
+    for (unsigned long i = 0; i < nfds && i < 5; i++) {
+        log_info(">>>   poll fd[%lu]: fd=%d, events=0x%04X", i, fds[i].fd, fds[i].events);
+    }
+    if (nfds > 5) {
+        log_info(">>>   ... and %lu more fds", nfds - 5);
+    }
+
+    // If no fds, just sleep
+    if (nfds == 0) {
+        if (timeout > 0) {
+            Sleep(timeout);
+        }
+        log_info(">>> poll EXIT: returning 0 (no fds)");
+        return 0;
+    }
+
+    // Convert to Windows select
+    fd_set readfds, writefds, exceptfds;
+    FD_ZERO(&readfds);
+    FD_ZERO(&writefds);
+    FD_ZERO(&exceptfds);
+
+    int maxfd = 0;
+    bool hasValidFd = false;
+
+    for (unsigned long i = 0; i < nfds; i++) {
+        fds[i].revents = 0;
+
+        if (fds[i].fd < 0) {
+            continue;
+        }
+
+        hasValidFd = true;
+        if (fds[i].fd > maxfd) maxfd = fds[i].fd;
+
+        if (fds[i].events & LINUX_POLLIN) {
+            FD_SET((SOCKET)fds[i].fd, &readfds);
+        }
+        if (fds[i].events & LINUX_POLLOUT) {
+            FD_SET((SOCKET)fds[i].fd, &writefds);
+        }
+        FD_SET((SOCKET)fds[i].fd, &exceptfds);
+    }
+
+    if (!hasValidFd) {
+        if (timeout > 0) {
+            Sleep(timeout);
+        }
+        log_info(">>> poll EXIT: returning 0 (no valid fds)");
+        return 0;
+    }
+
+    struct timeval tv;
+    struct timeval* tvp = NULL;
+    if (timeout >= 0) {
+        tv.tv_sec = timeout / 1000;
+        tv.tv_usec = (timeout % 1000) * 1000;
+        tvp = &tv;
+    }
+
+    log_info(">>> poll: calling select (maxfd=%d)...", maxfd);
+    int ret = select(maxfd + 1, &readfds, &writefds, &exceptfds, tvp);
+    log_info(">>> poll: select returned %d", ret);
+
+    if (ret > 0) {
+        int count = 0;
+        for (unsigned long i = 0; i < nfds; i++) {
+            if (fds[i].fd < 0) continue;
+
+            if (FD_ISSET(fds[i].fd, &readfds)) {
+                fds[i].revents |= LINUX_POLLIN;
+            }
+            if (FD_ISSET(fds[i].fd, &writefds)) {
+                fds[i].revents |= LINUX_POLLOUT;
+            }
+            if (FD_ISSET(fds[i].fd, &exceptfds)) {
+                fds[i].revents |= LINUX_POLLERR;
+            }
+            if (fds[i].revents) count++;
+        }
+        log_info(">>> poll EXIT: returning %d", count);
+        return count;
+    }
+
+    log_info(">>> poll EXIT: returning %d", ret);
+    return ret;
+}
+
+// =============================================================
+//   Socket Wrappers (with logging)
+// =============================================================
+
+extern "C" SOCKET my_socket(int af, int type, int protocol) {
+    log_info(">>> socket called: af=%d, type=%d, protocol=%d", af, type, protocol);
+    SOCKET s = socket(af, type, protocol);
+    log_info(">>> socket EXIT: returning %lld", (long long)s);
+    return s;
+}
+
+extern "C" int my_connect(SOCKET s, const struct sockaddr* name, int namelen) {
+    log_info(">>> connect called: socket=%lld", (long long)s);
+    int ret = connect(s, name, namelen);
+    log_info(">>> connect EXIT: returning %d (WSAError=%d)", ret, ret < 0 ? WSAGetLastError() : 0);
+    return ret;
+}
+
+extern "C" int my_bind(SOCKET s, const struct sockaddr* name, int namelen) {
+    log_info(">>> bind called: socket=%lld", (long long)s);
+    int ret = bind(s, name, namelen);
+    log_info(">>> bind EXIT: returning %d", ret);
+    return ret;
+}
+
+extern "C" int my_listen(SOCKET s, int backlog) {
+    log_info(">>> listen called: socket=%lld, backlog=%d", (long long)s, backlog);
+    int ret = listen(s, backlog);
+    log_info(">>> listen EXIT: returning %d", ret);
+    return ret;
+}
+
+extern "C" SOCKET my_accept(SOCKET s, struct sockaddr* addr, int* addrlen) {
+    log_info(">>> accept ENTRY: socket=%lld (THIS MAY BLOCK!)", (long long)s);
+    SOCKET ret = accept(s, addr, addrlen);
+    log_info(">>> accept EXIT: returning %lld (WSAError=%d)", (long long)ret, ret == INVALID_SOCKET ? WSAGetLastError() : 0);
+    return ret;
+}
+
+extern "C" int my_recv(SOCKET s, char* buf, int len, int flags) {
+    log_info(">>> recv ENTRY: socket=%lld, len=%d (THIS MAY BLOCK!)", (long long)s, len);
+    int ret = recv(s, buf, len, flags);
+    log_info(">>> recv EXIT: returning %d", ret);
+    return ret;
+}
+
+extern "C" int my_send(SOCKET s, const char* buf, int len, int flags) {
+    log_info(">>> send called: socket=%lld, len=%d", (long long)s, len);
+    int ret = send(s, buf, len, flags);
+    log_info(">>> send EXIT: returning %d", ret);
+    return ret;
+}
+
+extern "C" int my_recvfrom(SOCKET s, char* buf, int len, int flags, struct sockaddr* from, int* fromlen) {
+    log_info(">>> recvfrom ENTRY: socket=%lld, len=%d (THIS MAY BLOCK!)", (long long)s, len);
+    int ret = recvfrom(s, buf, len, flags, from, fromlen);
+    log_info(">>> recvfrom EXIT: returning %d", ret);
+    return ret;
+}
+
+extern "C" int my_sendto(SOCKET s, const char* buf, int len, int flags, const struct sockaddr* to, int tolen) {
+    log_info(">>> sendto called: socket=%lld, len=%d", (long long)s, len);
+    int ret = sendto(s, buf, len, flags, to, tolen);
+    log_info(">>> sendto EXIT: returning %d", ret);
+    return ret;
+}
+
+extern "C" int my_setsockopt(SOCKET s, int level, int optname, const char* optval, int optlen) {
+    log_info(">>> setsockopt called: socket=%lld, level=%d, optname=%d", (long long)s, level, optname);
+    int ret = setsockopt(s, level, optname, optval, optlen);
+    log_info(">>> setsockopt EXIT: returning %d", ret);
+    return ret;
+}
+
+extern "C" int my_getsockopt(SOCKET s, int level, int optname, char* optval, int* optlen) {
+    log_info(">>> getsockopt called: socket=%lld, level=%d, optname=%d", (long long)s, level, optname);
+    int ret = getsockopt(s, level, optname, optval, optlen);
+    log_info(">>> getsockopt EXIT: returning %d", ret);
+    return ret;
 }
 
 // --- Lindbergh Specific Stubs ---
@@ -522,19 +716,21 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("wctype", LibcBridge::wctype_wrapper);
     MAP("iswctype", LibcBridge::iswctype_wrapper);
 
-    // Network / Socket
-    MAP("socket", socket);
-    MAP("connect", connect);
-    MAP("bind", bind);
-    MAP("listen", listen);
-    MAP("accept", accept);
-    MAP("send", send);
-    MAP("recv", recv);
-    MAP("sendto", sendto);
-    MAP("recvfrom", recvfrom);
+    // ============================================================
+    // Network / Socket (with logging wrappers)
+    // ============================================================
+    MAP("socket", my_socket);
+    MAP("connect", my_connect);
+    MAP("bind", my_bind);
+    MAP("listen", my_listen);
+    MAP("accept", my_accept);
+    MAP("send", my_send);
+    MAP("recv", my_recv);
+    MAP("sendto", my_sendto);
+    MAP("recvfrom", my_recvfrom);
     MAP("shutdown", shutdown);
-    MAP("setsockopt", setsockopt);
-    MAP("getsockopt", getsockopt);
+    MAP("setsockopt", my_setsockopt);
+    MAP("getsockopt", my_getsockopt);
     // select mapped above to my_select
     MAP("inet_addr", inet_addr);
     MAP("inet_ntoa", inet_ntoa);
@@ -546,8 +742,8 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("gethostbyname_r", LibcBridge::gethostbyname_r_wrapper);
     MAP("gethostbyaddr_r", LibcBridge::gethostbyaddr_r_wrapper);
 
-    // Stubs
-    MAP("poll", my_stub_success);
+    // Stubs (poll now has proper implementation)
+    MAP("poll", my_poll);
     MAP("tcgetattr", my_stub_success);
     MAP("tcsetattr", my_stub_success);
     MAP("tcflush", my_stub_success);

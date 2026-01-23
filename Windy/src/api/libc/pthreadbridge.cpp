@@ -2,6 +2,8 @@
 #include <cstring>
 #include <iostream>
 
+#include "../src/core/log.h"
+
 // --- Helper: Lazy Initialization ---
 
 static void EnsureMutexInitialized(pthread_mutex_t* wm) {
@@ -23,6 +25,7 @@ int PthreadBridge::mutex_init_wrapper(void* mutex, const void* attr) {
 }
 
 int PthreadBridge::mutex_lock_wrapper(void* mutex) {
+    log_info(">>> mutex_lock: %p", mutex);
     pthread_mutex_t* wm = (pthread_mutex_t*)mutex;
     EnsureMutexInitialized(wm);
     return pthread_mutex_lock(wm);
@@ -71,6 +74,7 @@ int PthreadBridge::cond_init_wrapper(void* cond, const void* attr) {
 }
 
 int PthreadBridge::cond_wait_wrapper(void* cond, void* mutex) {
+    log_info(">>> cond_wait: cond=%p mutex=%p", cond, mutex);
     pthread_cond_t* wc = (pthread_cond_t*)cond;
     pthread_mutex_t* wm = (pthread_mutex_t*)mutex;
     EnsureCondInitialized(wc);

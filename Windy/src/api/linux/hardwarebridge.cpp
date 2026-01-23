@@ -233,9 +233,12 @@ extern "C" {
     }
 
     int my_read(int fd, void* buf, size_t count) {
+        log_info(">>> my_read called: fd=%d, count=%zu", fd, count);
         auto it = g_fdTable.find(fd);
         if (it == g_fdTable.end()) {
-            return _read(fd, buf, (unsigned int)count);
+            int result = _read(fd, buf, (unsigned int)count);
+            log_info(">>> my_read EXIT (raw fd): returning %d", result);
+            return result;
         }
 
         FileDescriptorEntry& entry = it->second;
@@ -252,13 +255,17 @@ extern "C" {
             }
         }
 
+        log_info(">>> my_read EXIT: fd=%d returning %d", fd, result);
         return result;
     }
 
     int my_write(int fd, const void* buf, size_t count) {
+        log_info(">>> my_write called: fd=%d, count=%zu", fd, count);
         auto it = g_fdTable.find(fd);
         if (it == g_fdTable.end()) {
-            return _write(fd, buf, (unsigned int)count);
+            int result = _write(fd, buf, (unsigned int)count);
+            log_info(">>> my_write EXIT (raw fd): returning %d", result);
+            return result;
         }
 
         FileDescriptorEntry& entry = it->second;
@@ -274,10 +281,12 @@ extern "C" {
             result = entry.device->Write(buf, count);
         }
 
+        log_info(">>> my_write EXIT: fd=%d returning %d", fd, result);
         return result;
     }
 
     int my_ioctl(int fd, unsigned long request, ...) {
+        log_info(">>> my_ioctl ENTRY: fd=%d, request=0x%lX", fd, request);
         va_list args;
         va_start(args, request);
         void* data = va_arg(args, void*);
@@ -292,45 +301,60 @@ extern "C" {
             if (reqCmd == 0x0720 || reqCmd == 0x0703 || reqCmd == 0x0705 || reqCmd == 0x1261) {
                 EnsureDevicesInitialized();
                 log_debug("ioctl[-1]: Routing I2C request 0x%lX to EEPROM (Game Bug Workaround)", request);
-                return g_eepromBoard.Ioctl(request, data);
+                int ret = g_eepromBoard.Ioctl(request, data);
+                log_info(">>> my_ioctl EXIT (fd=-1 workaround): returning %d", ret);
+                return ret;
             }
             log_error("ioctl[-1]: Unhandled request 0x%lX", request);
+            log_info(">>> my_ioctl EXIT (fd=-1 unhandled): returning -1");
             return -1;
         }
 
         auto it = g_fdTable.find(fd);
         if (it == g_fdTable.end()) {
             log_error("ioctl[%d]: Invalid FD! (Req: 0x%lX)", fd, request);
+            log_info(">>> my_ioctl EXIT (invalid fd): returning -1");
             return -1;
         }
 
         FileDescriptorEntry& entry = it->second;
 
         if (entry.type == DEV_REAL_FILE) {
+            log_info(">>> my_ioctl EXIT (real file): returning -1");
             return -1;
         }
 
         if (entry.device) {
             log_debug("ioctl[%d] (%s): Req 0x%lX", fd, GetDeviceName(entry.type), request);
 
+            log_info(">>> my_ioctl: Calling device->Ioctl()...");
             int ret = entry.device->Ioctl(request, data);
+            log_info(">>> my_ioctl: device->Ioctl() returned %d", ret);
 
             if (ret != 0) {
                 log_warn("ioctl[%d] (%s): Req 0x%lX failed with %d", fd, GetDeviceName(entry.type), request, ret);
             }
+
+            log_info(">>> my_ioctl EXIT: fd=%d, request=0x%lX, returning %d to caller", fd, request, ret);
             return ret;
         }
 
+        log_info(">>> my_ioctl EXIT (no device): returning -1");
         return -1;
     }
 
     int my_writev(int fd, const struct iovec* iov, int iovcnt) {
+        log_info(">>> my_writev ENTRY: fd=%d, iovcnt=%d", fd, iovcnt);
         int totalWritten = 0;
         for (int i = 0; i < iovcnt; i++) {
             int res = my_write(fd, iov[i].iov_base, iov[i].iov_len);
-            if (res < 0) return (totalWritten > 0) ? totalWritten : -1;
+            if (res < 0) {
+                log_info(">>> my_writev EXIT (error): returning %d", (totalWritten > 0) ? totalWritten : -1);
+                return (totalWritten > 0) ? totalWritten : -1;
+            }
             totalWritten += res;
         }
+        log_info(">>> my_writev EXIT: returning %d", totalWritten);
         return totalWritten;
     }
 

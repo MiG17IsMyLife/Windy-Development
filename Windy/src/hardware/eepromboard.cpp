@@ -5,27 +5,33 @@
 #include <stdio.h>
 #include <io.h>
 
-// I2C Definitions
+// =============================================================
+//   I2C Definitions
+// =============================================================
+
 #define I2C_SMBUS_READ  1
 #define I2C_SMBUS_WRITE 0
 
-#define I2C_SMBUS_BYTE          1
-#define I2C_SMBUS_BYTE_DATA     2
-#define I2C_SMBUS_WORD_DATA     3
-#define I2C_SMBUS_BLOCK_DATA    5
-#define I2C_SMBUS_I2C_BLOCK_BROKEN 6
-#define I2C_SMBUS_I2C_BLOCK_DATA   8
+#define I2C_SMBUS_BYTE              1
+#define I2C_SMBUS_BYTE_DATA         2
+#define I2C_SMBUS_WORD_DATA         3
+#define I2C_SMBUS_BLOCK_DATA        5
+#define I2C_SMBUS_I2C_BLOCK_BROKEN  6
+#define I2C_SMBUS_I2C_BLOCK_DATA    8
 
-#define I2C_SLAVE       0x0703
-#define I2C_FUNCS       0x0705
-#define I2C_SMBUS       0x0720
+#define I2C_SLAVE         0x0703
+#define I2C_FUNCS         0x0705
+#define I2C_SMBUS         0x0720
+#define I2C_BUFFER_CLEAR  0x1261
 
+// I2C SMBUS Data Union
 union i2c_smbus_data {
     uint8_t byte;
     uint16_t word;
-    uint8_t block[34];
+    uint8_t block[34];  // block[0] = length, block[1...] = data
 };
 
+// I2C SMBUS IOCTL Structure
 struct i2c_smbus_ioctl_data {
     uint8_t read_write;
     uint8_t command;
@@ -33,7 +39,10 @@ struct i2c_smbus_ioctl_data {
     union i2c_smbus_data* data;
 };
 
-// CRC32 Table (Standard)
+// =============================================================
+//   CRC32 Table (Standard)
+// =============================================================
+
 static const uint32_t crc32_tab[] = {
     0x00000000, 0x77073096, 0xee0e612c, 0x990951ba, 0x076dc419, 0x706af48f,
     0xe963a535, 0x9e6495a3, 0x0edb8832, 0x79dcb8a4, 0xe0d5e91e, 0x97d2d988,
@@ -80,6 +89,10 @@ static const uint32_t crc32_tab[] = {
     0xb40bbe37, 0xc30c8ea1, 0x5a05df1b, 0x2d02ef8d
 };
 
+// =============================================================
+//   EepromBoard Implementation
+// =============================================================
+
 uint32_t EepromBoard::CalculateCRC(const uint8_t* data, size_t length) {
     uint32_t crc = 0xFFFFFFFF;
     for (size_t i = 0; i < length; i++) {
@@ -102,33 +115,14 @@ void EepromBoard::InitDefaults() {
     log_info("EepromBoard: Initializing default settings...");
     memset(m_data, 0, EEPROM_SIZE);
 
-    // Header Structure based on lindbergh-loader/eepromSettings.c
-    // 0x00: Signature? 
-    // 0x04: Size?
-    // 0x0C: CRC of following data
-
-    // Setting defaults similar to lindbergh-loader
-    // Note: Offsets are approximated from observed behavior if not explicit in .c
-    // Typically:
-    // 0x20: Region?
-    // 0x60: System Settings
-    // ...
-
-    // Magic/Header values commonly seen:
-    // (Adjusted based on standard SEGA eeprom layout)
-
-    // Since we don't have the exact struct definition from the empty header file,
-    // we use a safe zero-init which usually triggers the game to re-initialize it safely.
-    // Lindbergh games often re-create data if CRC is invalid.
-
-    // However, to ensure "file creation" works as requested:
+    // Save empty EEPROM - game will initialize it
     Save();
 }
 
 bool EepromBoard::Open() {
     log_info("EepromBoard: Open");
 
-    // Check if file exists using _access
+    // Check if file exists
     if (_access(EEPROM_FILENAME, 0) != 0) {
         log_warn("EepromBoard: %s not found. Creating new.", EEPROM_FILENAME);
         InitDefaults();
@@ -146,9 +140,9 @@ void EepromBoard::Close() {
 void EepromBoard::Load() {
     FILE* f = fopen(EEPROM_FILENAME, "rb");
     if (f) {
-        fread(m_data, 1, EEPROM_SIZE, f);
+        size_t bytesRead = fread(m_data, 1, EEPROM_SIZE, f);
         fclose(f);
-        log_info("EepromBoard: Loaded %s", EEPROM_FILENAME);
+        log_info("EepromBoard: Loaded %s (%zu bytes)", EEPROM_FILENAME, bytesRead);
     }
     else {
         log_error("EepromBoard: Load failed for %s", EEPROM_FILENAME);
@@ -156,118 +150,283 @@ void EepromBoard::Load() {
 }
 
 void EepromBoard::Save() {
+    log_info(">>> EepromBoard::Save() ENTRY");
     FILE* f = fopen(EEPROM_FILENAME, "wb");
     if (f) {
         fwrite(m_data, 1, EEPROM_SIZE, f);
         fclose(f);
-        // log_info("EepromBoard: Saved %s", EEPROM_FILENAME);
+        log_info(">>> EepromBoard::Save() EXIT - Success");
     }
     else {
         log_error("EepromBoard: Save failed for %s", EEPROM_FILENAME);
+        log_info(">>> EepromBoard::Save() EXIT - Failed");
     }
 }
 
 int EepromBoard::Read(void* buf, size_t count) {
-    // Direct read not typically used via I2C device node
-    return 0;
+    // Direct read - read from current address pointer
+    if (count > EEPROM_SIZE) count = EEPROM_SIZE;
+
+    size_t bytesRead = 0;
+    uint8_t* dst = (uint8_t*)buf;
+
+    for (size_t i = 0; i < count; i++) {
+        dst[i] = m_data[m_addressPointer];
+        m_addressPointer = (m_addressPointer + 1) % EEPROM_SIZE;
+        bytesRead++;
+    }
+
+    return (int)bytesRead;
 }
 
 int EepromBoard::Write(const void* buf, size_t count) {
-    // Direct write not typically used
-    return 0;
+    // Direct write - write to current address pointer
+    if (count > EEPROM_SIZE) count = EEPROM_SIZE;
+
+    const uint8_t* src = (const uint8_t*)buf;
+
+    for (size_t i = 0; i < count; i++) {
+        m_data[m_addressPointer] = src[i];
+        m_addressPointer = (m_addressPointer + 1) % EEPROM_SIZE;
+    }
+
+    Save();
+    return (int)count;
 }
 
 int EepromBoard::Ioctl(unsigned long request, void* data) {
+    log_info(">>> EepromBoard::Ioctl ENTRY: request=0x%lX", request);
+
     switch (request) {
+
+        // ---------------------------------------------------------
+        // I2C_SLAVE: Set slave address
+        // ---------------------------------------------------------
     case I2C_SLAVE:
         m_slaveAddress = (uint8_t)(uintptr_t)data;
+        log_debug("EepromBoard: I2C_SLAVE set to 0x%02X", m_slaveAddress);
+        log_info(">>> EepromBoard::Ioctl EXIT: I2C_SLAVE returning 0");
         return 0;
 
+        // ---------------------------------------------------------
+        // I2C_FUNCS: Report supported functionality
+        // ---------------------------------------------------------
     case I2C_FUNCS:
         if (data) {
             *(uint32_t*)data = 0xFFFFFFFF; // Support everything
         }
+        log_info(">>> EepromBoard::Ioctl EXIT: I2C_FUNCS returning 0");
         return 0;
 
+        // ---------------------------------------------------------
+        // I2C_BUFFER_CLEAR: Lindbergh-specific buffer clear
+        // ---------------------------------------------------------
+    case I2C_BUFFER_CLEAR:
+        log_trace("EepromBoard: I2C_BUFFER_CLEAR (0x1261) - OK");
+        log_info(">>> EepromBoard::Ioctl EXIT: I2C_BUFFER_CLEAR returning 0");
+        return 0;
+
+        // ---------------------------------------------------------
+        // I2C_SMBUS: SMBus protocol operations
+        // ---------------------------------------------------------
     case I2C_SMBUS:
     {
-        if (!data) return -1;
+        log_info(">>> EepromBoard::Ioctl: I2C_SMBUS processing START");
+
+        if (!data) {
+            log_info(">>> EepromBoard::Ioctl EXIT: I2C_SMBUS null data returning -1");
+            return -1;
+        }
         struct i2c_smbus_ioctl_data* smbus = (struct i2c_smbus_ioctl_data*)data;
 
-        // FD -1 Workaround Logic Integration:
-        // If address is 0x00, assume EEPROM (0x50) to catch bugged game calls
+        log_info(">>> SMBUS: read_write=%d, command=0x%02X, size=%d",
+            smbus->read_write, smbus->command, smbus->size);
+
+        // Check target address - accept both 0x50 and 0x57
         uint8_t targetAddr = m_slaveAddress;
-        if (targetAddr == 0x00) targetAddr = EEPROM_ADDR;
-
-        if (targetAddr != EEPROM_ADDR) {
-            return 0; // Ignore other devices
+        if (targetAddr != EEPROM_ADDR && targetAddr != EEPROM_ADDR_ALT) {
+            log_trace("SMBUS: Ignoring non-EEPROM address 0x%02X", targetAddr);
+            log_info(">>> EepromBoard::Ioctl EXIT: I2C_SMBUS ignored addr returning 0");
+            return 0;
         }
 
+        // =====================================================
+        // READ Operations
+        // =====================================================
         if (smbus->read_write == I2C_SMBUS_READ) {
+            log_info(">>> SMBUS READ: size=%d", smbus->size);
+
             switch (smbus->size) {
+
             case I2C_SMBUS_BYTE:
-                smbus->data->byte = m_data[m_addressPointer];
-                m_addressPointer = (m_addressPointer + 1) % EEPROM_SIZE;
-                break;
-            case I2C_SMBUS_BYTE_DATA:
-                smbus->data->byte = m_data[smbus->command];
-                break;
-            case I2C_SMBUS_WORD_DATA:
-                smbus->data->word = m_data[smbus->command] | (m_data[smbus->command + 1] << 8);
-                break;
-            case I2C_SMBUS_BLOCK_DATA: // Size 5
-            case I2C_SMBUS_I2C_BLOCK_BROKEN: // Size 6
-            case I2C_SMBUS_I2C_BLOCK_DATA:   // Size 8
             {
-                // Logic adapted from lindbergh-loader eeprom.c
-                // "size" 6 or 8 often used for block reads
-                uint8_t len = smbus->data->block[0];
-                if (len > 32) len = 32;
-
-                // For standard Block Read, command is the register
-                // For I2C Block Read, command is register, len comes from data
-
-                for (int i = 0; i < len; i++) {
-                    smbus->data->block[i + 1] = m_data[(smbus->command + i) % EEPROM_SIZE];
-                }
-                // Don't update block[0] (length) for return usually? 
-                // Lindbergh-loader does: data->block[0] = len; (explicitly setting it)
-                smbus->data->block[0] = len;
+                // Read single byte from current address pointer
+                smbus->data->byte = m_data[m_addressPointer % EEPROM_SIZE];
+                log_trace("SMBUS READ BYTE: addr=0x%04X -> 0x%02X",
+                    m_addressPointer, smbus->data->byte);
+                m_addressPointer = (m_addressPointer + 1) % EEPROM_SIZE;
+                log_info(">>> EepromBoard::Ioctl EXIT: SMBUS READ BYTE returning 0");
+                return 0;
             }
-            break;
-            }
-        }
-        else { // WRITE
-            switch (smbus->size) {
-            case I2C_SMBUS_BYTE:
-                m_addressPointer = smbus->command;
-                break;
+
             case I2C_SMBUS_BYTE_DATA:
-                m_data[smbus->command] = smbus->data->byte;
-                Save();
-                break;
+            {
+                // Read single byte from specified register
+                uint16_t addr = smbus->command;
+                smbus->data->byte = m_data[addr % EEPROM_SIZE];
+                log_trace("SMBUS READ BYTE_DATA: reg=0x%02X -> 0x%02X",
+                    smbus->command, smbus->data->byte);
+                log_info(">>> EepromBoard::Ioctl EXIT: SMBUS READ BYTE_DATA returning 0");
+                return 0;
+            }
+
             case I2C_SMBUS_WORD_DATA:
-                m_data[smbus->command] = smbus->data->word & 0xFF;
-                m_data[smbus->command + 1] = (smbus->data->word >> 8) & 0xFF;
-                Save();
-                break;
+            {
+                // Read word (2 bytes) from specified register
+                uint16_t addr = smbus->command;
+                smbus->data->word = m_data[addr % EEPROM_SIZE] |
+                    (m_data[(addr + 1) % EEPROM_SIZE] << 8);
+                log_trace("SMBUS READ WORD_DATA: reg=0x%02X -> 0x%04X",
+                    smbus->command, smbus->data->word);
+                log_info(">>> EepromBoard::Ioctl EXIT: SMBUS READ WORD_DATA returning 0");
+                return 0;
+            }
+
             case I2C_SMBUS_BLOCK_DATA:
             case I2C_SMBUS_I2C_BLOCK_BROKEN:
             case I2C_SMBUS_I2C_BLOCK_DATA:
             {
+                // Read block of data
                 uint8_t len = smbus->data->block[0];
                 if (len > 32) len = 32;
+
+                uint16_t baseAddr = smbus->command;
+
                 for (int i = 0; i < len; i++) {
-                    m_data[(smbus->command + i) % EEPROM_SIZE] = smbus->data->block[i + 1];
+                    smbus->data->block[i + 1] = m_data[(baseAddr + i) % EEPROM_SIZE];
                 }
-                Save();
+                smbus->data->block[0] = len;
+
+                log_trace("SMBUS READ BLOCK: reg=0x%02X len=%d -> [0x%02X 0x%02X 0x%02X ...]",
+                    smbus->command, len,
+                    len > 0 ? smbus->data->block[1] : 0,
+                    len > 1 ? smbus->data->block[2] : 0,
+                    len > 2 ? smbus->data->block[3] : 0);
+                log_info(">>> EepromBoard::Ioctl EXIT: SMBUS READ BLOCK returning 0");
+                return 0;
             }
-            break;
+
+            default:
+                log_warn("SMBUS READ: Unknown size %d", smbus->size);
+                log_info(">>> EepromBoard::Ioctl EXIT: SMBUS READ unknown size returning 0");
+                return 0;
             }
         }
+        // =====================================================
+        // WRITE Operations
+        // =====================================================
+        else {
+            log_info(">>> SMBUS WRITE: size=%d", smbus->size);
+
+            switch (smbus->size) {
+
+            case I2C_SMBUS_BYTE:
+            {
+                // Set address pointer (used before sequential reads)
+                m_addressPointer = smbus->command;
+                log_trace("SMBUS WRITE BYTE: Set address pointer to 0x%02X", smbus->command);
+                log_info(">>> EepromBoard::Ioctl EXIT: SMBUS WRITE BYTE returning 0");
+                return 0;
+            }
+
+            case I2C_SMBUS_BYTE_DATA:
+            {
+                // Write single byte to specified register
+                uint16_t addr = smbus->command;
+                log_trace("SMBUS WRITE BYTE_DATA: reg=0x%02X <- 0x%02X",
+                    smbus->command, smbus->data->byte);
+                m_data[addr % EEPROM_SIZE] = smbus->data->byte;
+                log_info(">>> SMBUS WRITE BYTE_DATA: calling Save()...");
+                Save();
+                log_info(">>> EepromBoard::Ioctl EXIT: SMBUS WRITE BYTE_DATA returning 0");
+                return 0;
+            }
+
+            case I2C_SMBUS_WORD_DATA:
+            {
+                // Write word (2 bytes) to specified register
+                uint16_t addr = smbus->command;
+                log_trace("SMBUS WRITE WORD_DATA: reg=0x%02X <- 0x%04X",
+                    smbus->command, smbus->data->word);
+                m_data[addr % EEPROM_SIZE] = smbus->data->word & 0xFF;
+                m_data[(addr + 1) % EEPROM_SIZE] = (smbus->data->word >> 8) & 0xFF;
+                log_info(">>> SMBUS WRITE WORD_DATA: calling Save()...");
+                Save();
+                log_info(">>> EepromBoard::Ioctl EXIT: SMBUS WRITE WORD_DATA returning 0");
+                return 0;
+            }
+
+            case I2C_SMBUS_BLOCK_DATA:
+            case I2C_SMBUS_I2C_BLOCK_BROKEN:
+            case I2C_SMBUS_I2C_BLOCK_DATA:
+            {
+                log_info(">>> SMBUS WRITE BLOCK: START processing");
+
+                // Lindbergh I2C Block Write Protocol:
+                // - smbus->command = page/bank selector (0x01, 0x03, 0x10, etc.)
+                // - block[0] = total length including address byte
+                // - block[1] = base address within EEPROM
+                // - block[2...] = actual data to write
+
+                uint8_t totalLen = smbus->data->block[0];
+                log_info(">>> SMBUS WRITE BLOCK: totalLen=%d", totalLen);
+
+                if (totalLen > 32) totalLen = 32;
+                if (totalLen < 1) {
+                    log_warn("SMBUS WRITE BLOCK: Invalid length %d", totalLen);
+                    log_info(">>> EepromBoard::Ioctl EXIT: SMBUS WRITE BLOCK invalid len returning 0");
+                    return 0;
+                }
+
+                // First byte of block data is the EEPROM address
+                uint8_t eepromAddr = smbus->data->block[1];
+                uint8_t dataLen = totalLen - 1;  // Subtract address byte
+
+                log_trace("SMBUS WRITE BLOCK: cmd=0x%02X addr=0x%02X len=%d <- [0x%02X 0x%02X 0x%02X ...]",
+                    smbus->command, eepromAddr, dataLen,
+                    dataLen > 0 ? smbus->data->block[2] : 0,
+                    dataLen > 1 ? smbus->data->block[3] : 0,
+                    dataLen > 2 ? smbus->data->block[4] : 0);
+
+                log_info(">>> SMBUS WRITE BLOCK: Writing %d bytes to addr 0x%02X", dataLen, eepromAddr);
+
+                // Write data to EEPROM (block[2] onwards is actual data)
+                for (int i = 0; i < dataLen; i++) {
+                    uint16_t writeAddr = ((uint16_t)eepromAddr + i) % EEPROM_SIZE;
+                    m_data[writeAddr] = smbus->data->block[i + 2];
+                }
+
+                log_info(">>> SMBUS WRITE BLOCK: calling Save()...");
+                Save();
+                log_info(">>> EepromBoard::Ioctl EXIT: SMBUS WRITE BLOCK returning 0");
+                return 0;
+            }
+
+            default:
+                log_warn("SMBUS WRITE: Unknown size %d", smbus->size);
+                log_info(">>> EepromBoard::Ioctl EXIT: SMBUS WRITE unknown size returning 0");
+                return 0;
+            }
+        }
+
+        // Should not reach here, but just in case
+        log_info(">>> EepromBoard::Ioctl EXIT: I2C_SMBUS end of function returning 0");
         return 0;
     }
+
     default:
+        log_warn("EepromBoard: Unknown ioctl request 0x%lX", request);
+        log_info(">>> EepromBoard::Ioctl EXIT: Unknown request returning -1");
         return -1;
     }
 }

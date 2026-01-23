@@ -5,7 +5,10 @@
 
 #define EEPROM_SIZE 1024
 #define EEPROM_FILENAME "eeprom.bin"
-#define EEPROM_ADDR 0x50
+
+// I2C EEPROM Addresses
+#define EEPROM_ADDR      0x50   // Standard EEPROM
+#define EEPROM_ADDR_ALT  0x57   // Serial ID EEPROM (used by Lindbergh games)
 
 class EepromBoard : public LindberghDevice {
 private:
