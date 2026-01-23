@@ -16,6 +16,7 @@ int main(int argc, char* argv[]) {
 
     log_info("==============================================");
     log_info("   Windy - Lindbergh Loader for Windows");
+    log_info("   Build Date: %s %s", __DATE__, __TIME__);
     log_info("==============================================");
 
     // COM initialization

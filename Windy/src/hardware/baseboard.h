@@ -3,6 +3,9 @@
 #include <stdint.h>
 #include <stdio.h>
 
+// Forward declaration to avoid circular include issues
+class JvsBoard;
+
 class BaseBoard : public LindberghDevice {
 private:
     // 32KB Shared Memory
@@ -12,6 +15,9 @@ private:
     // Persistent File Handle for SRAM
     FILE* m_sramFile = nullptr;
     const char* m_sramPath = "sram.bin";
+
+    // JVS Board Reference
+    JvsBoard* m_jvsBoard = nullptr;
 
     // Command State
     struct {
@@ -27,6 +33,9 @@ private:
 public:
     BaseBoard();
     virtual ~BaseBoard();
+
+    // Link JvsBoard instance
+    void SetJvsBoard(JvsBoard* board) { m_jvsBoard = board; }
 
     bool Open() override;
     void Close() override;

@@ -1,6 +1,7 @@
 #define _CRT_SECURE_NO_WARNINGS
 
 #include "BaseBoard.h"
+#include "JvsBoard.h" // Include full definition here
 #include "../src/core/log.h"
 #include <stdio.h>
 #include <string.h>
@@ -38,26 +39,16 @@ BaseBoard::~BaseBoard() {
 bool BaseBoard::Open() {
     log_info("BaseBoard::Open()");
 
-    // lindbergh-loader logic: Ensure file exists, then open rb+
-    m_sramFile = fopen(m_sramPath, "a"); // Append mode creates if not exists
-    if (m_sramFile) {
-        fclose(m_sramFile);
-    }
-    else {
-        log_error("BaseBoard: Cannot open/create %s", m_sramPath);
-        return false;
-    }
+    m_sramFile = fopen(m_sramPath, "a");
+    if (m_sramFile) fclose(m_sramFile);
 
     m_sramFile = fopen(m_sramPath, "rb+");
     if (!m_sramFile) {
-        log_error("BaseBoard: Failed to open %s in rb+", m_sramPath);
+        log_error("BaseBoard: Failed to open %s", m_sramPath);
         return false;
     }
 
-    // Ensure we are at start
     fseek(m_sramFile, 0, SEEK_SET);
-    log_debug("BaseBoard: SRAM file opened successfully");
-
     return true;
 }
 
@@ -70,7 +61,6 @@ void BaseBoard::Close() {
 }
 
 int BaseBoard::Read(void* buf, size_t count) {
-    // baseboardRead: memcpy from sharedMemory
     if (m_sharedMemoryIndex + count <= sizeof(m_sharedMemory)) {
         memcpy(buf, &m_sharedMemory[m_sharedMemoryIndex], count);
         return (int)count;
@@ -79,7 +69,6 @@ int BaseBoard::Read(void* buf, size_t count) {
 }
 
 int BaseBoard::Write(const void* buf, size_t count) {
-    // baseboardWrite: memcpy to sharedMemory
     if (m_sharedMemoryIndex + count <= sizeof(m_sharedMemory)) {
         memcpy(&m_sharedMemory[m_sharedMemoryIndex], buf, count);
         return (int)count;
@@ -107,16 +96,13 @@ int BaseBoard::Ioctl(unsigned long request, void* data) {
         return 0;
 
     case BASEBOARD_SEEK_SHM:
-        // The data argument IS the offset (cast to int/size_t)
         m_sharedMemoryIndex = (unsigned int)(uintptr_t)data;
-        log_trace("BaseBoard: Seek SHM to %u", m_sharedMemoryIndex);
+        // log_trace("BaseBoard: Seek SHM to %u", m_sharedMemoryIndex);
         return 0;
 
     case BASEBOARD_READ_SRAM:
         if (data && m_sramFile) {
-            struct ReadData { uint32_t ptr; uint32_t offset; uint32_t size; }*rd =
-                (ReadData*)data;
-
+            struct ReadData { uint32_t ptr; uint32_t offset; uint32_t size; }*rd = (ReadData*)data;
             fseek(m_sramFile, rd->offset, SEEK_SET);
             void* dest = (void*)(uintptr_t)rd->ptr;
             if (dest) {
@@ -128,9 +114,7 @@ int BaseBoard::Ioctl(unsigned long request, void* data) {
 
     case BASEBOARD_WRITE_SRAM:
         if (data && m_sramFile) {
-            struct WriteData { uint32_t offset; uint32_t ptr; uint32_t size; }*wd =
-                (WriteData*)data;
-
+            struct WriteData { uint32_t offset; uint32_t ptr; uint32_t size; }*wd = (WriteData*)data;
             fseek(m_sramFile, wd->offset, SEEK_SET);
             void* src = (void*)(uintptr_t)wd->ptr;
             if (src) {
@@ -163,14 +147,18 @@ int BaseBoard::Ioctl(unsigned long request, void* data) {
                 m_jvsCommand.destAddress = packet[3];
                 m_jvsCommand.destSize = packet[4];
 
-                if (m_jvsCommand.srcAddress + m_jvsCommand.srcSize <= sizeof(m_sharedMemory)) {
-                    memcpy(m_inputBuffer, &m_sharedMemory[m_jvsCommand.srcAddress], m_jvsCommand.srcSize);
+                if (m_jvsBoard && m_jvsCommand.srcAddress + m_jvsCommand.srcSize <= sizeof(m_sharedMemory)) {
+                    // Send data from shared memory to JVS board
+                    m_jvsBoard->Write(&m_sharedMemory[m_jvsCommand.srcAddress], m_jvsCommand.srcSize);
+                    // log_trace("BaseBoard: Sent %d bytes to JVS", m_jvsCommand.srcSize);
                 }
-                log_trace("BaseBoard: Request ProcessJVS");
+                else {
+                    log_warn("BaseBoard: ProcessJVS ignored (No JvsBoard or invalid address)");
+                }
                 break;
 
             case BASEBOARD_GET_SENSE_LINE:
-                log_trace("BaseBoard: Request GetSenseLine");
+                // handled in RECEIVE
                 break;
 
             default:
@@ -198,14 +186,32 @@ int BaseBoard::Ioctl(unsigned long request, void* data) {
 
             case BASEBOARD_GET_SENSE_LINE:
                 packet[2] = 1;
+                if (m_jvsBoard) {
+                    // JvsBoard からセンスラインの状態を取得（1=Ready, 3=Disconnected）
+                    packet[2] = m_jvsBoard->GetSenseLine();
+                }
                 packet[1] = 1;
-                log_trace("BaseBoard: Receive GetSenseLine -> Connected");
+                // log_trace("BaseBoard: Receive GetSenseLine -> %d", packet[2]);
                 break;
 
             case BASEBOARD_PROCESS_JVS:
                 packet[2] = m_jvsCommand.destAddress;
-                packet[3] = 0;
-                packet[1] = 1;
+                packet[3] = 0; // Default size 0
+
+                if (m_jvsBoard && m_jvsCommand.destAddress < sizeof(m_sharedMemory)) {
+                    // Calculate max safe size
+                    size_t maxLen = sizeof(m_sharedMemory) - m_jvsCommand.destAddress;
+                    if (maxLen > m_jvsCommand.destSize) maxLen = m_jvsCommand.destSize;
+
+                    // Read response from JVS board directly into shared memory
+                    int bytesRead = m_jvsBoard->Read(&m_sharedMemory[m_jvsCommand.destAddress], maxLen);
+
+                    if (bytesRead > 0) {
+                        packet[3] = bytesRead; // Set actual response size
+                        // log_trace("BaseBoard: Received %d bytes from JVS", bytesRead);
+                    }
+                }
+                packet[1] = 1; // Success flag
                 break;
 
             default:

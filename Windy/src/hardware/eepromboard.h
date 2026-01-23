@@ -1,20 +1,22 @@
 #pragma once
 #include "LindberghDevice.h"
 #include <stdint.h>
+#include <stdio.h>
 
-#define EEPROM_SIZE 2048  // 2KB EEPROM
+#define EEPROM_SIZE 1024
+#define EEPROM_FILENAME "eeprom.bin"
+#define EEPROM_ADDR 0x50
 
 class EepromBoard : public LindberghDevice {
 private:
-    uint8_t m_eepromData[EEPROM_SIZE];
+    uint8_t m_data[EEPROM_SIZE];
+    uint16_t m_addressPointer;
     uint8_t m_slaveAddress;
-    uint16_t m_currentOffset;
 
-    // Helper methods
-    uint8_t ReadByte(uint16_t offset);
-    void WriteByte(uint16_t offset, uint8_t value);
-    uint16_t ReadWord(uint16_t offset);
-    void WriteWord(uint16_t offset, uint16_t value);
+    void Load();
+    void Save();
+    void InitDefaults();
+    uint32_t CalculateCRC(const uint8_t* data, size_t length);
 
 public:
     EepromBoard();

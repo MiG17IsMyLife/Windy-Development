@@ -11,62 +11,129 @@
 #include <string.h>
 #include <map>
 #include <string>
+#include <algorithm>
+#include <vector>
 
 // Hardware emulation includes
 #include "../../hardware/BaseBoard.h"
 #include "../../hardware/EepromBoard.h"
 #include "../../hardware/JvsBoard.h"
+#include "../../hardware/SerialBoard.h"
+
+// =============================================================
+//   Unknown Device (Fallback for unhandled /dev/ nodes)
+// =============================================================
+class UnknownDevice : public LindberghDevice {
+public:
+    UnknownDevice() {}
+    virtual ~UnknownDevice() {}
+
+    bool Open() override { return true; }
+    void Close() override {}
+
+    int Read(void* buf, size_t count) override {
+        // Return 0 (EOF) to prevent blocking, but log just in case
+        // log_warn("UnknownDevice: Read of %zu bytes", count);
+        return 0;
+    }
+
+    int Write(const void* buf, size_t count) override {
+        // log_warn("UnknownDevice: Write of %zu bytes", count);
+        return (int)count;
+    }
+
+    int Ioctl(unsigned long request, void* data) override {
+        log_warn("UnknownDevice: Ioctl request 0x%lX", request);
+        return -1;
+    }
+};
 
 // =============================================================
 //   Virtual File Descriptor Management
 // =============================================================
 
-// Device types
 enum DeviceType {
     DEV_NONE = 0,
-    DEV_BASEBOARD,
-    DEV_EEPROM,
-    DEV_JVS,
-    DEV_SERIAL,
-    DEV_REAL_FILE
+    DEV_BASEBOARD,      // /dev/lbb
+    DEV_EEPROM,         // /dev/i2c/0
+    DEV_JVS,            // /dev/jvs
+    DEV_SERIAL,         // /dev/ttyS0
+    DEV_UNKNOWN,        // Any other /dev/ path
+    DEV_REAL_FILE       // Real file on Windows filesystem
 };
 
-struct VirtualFD {
+struct FileDescriptorEntry {
     DeviceType type;
     LindberghDevice* device;
-    int realFd;  // For real files
+    int hostFd;
     std::string path;
+    int flags;
 };
 
-static std::map<int, VirtualFD> g_fdMap;
-static int g_nextVirtualFd = 1000;  // Start virtual FDs at 1000 to avoid conflicts
+static std::map<int, FileDescriptorEntry> g_fdTable;
 
-// Device instances
+// Device singleton instances
 static BaseBoard g_baseBoard;
 static EepromBoard g_eepromBoard;
 static JvsBoard g_jvsBoard;
+static SerialBoard g_serialBoard;
+static UnknownDevice g_unknownDevice;
 static bool g_devicesInitialized = false;
 
-static void EnsureDevicesInitialized() {
-    if (!g_devicesInitialized) {
-        g_baseBoard.Open();
-        g_eepromBoard.Open();
-        g_jvsBoard.Open();
-        g_devicesInitialized = true;
-        log_debug("Hardware devices initialized");
+// Helper to stringify device types for logging
+static const char* GetDeviceName(DeviceType type) {
+    switch (type) {
+    case DEV_BASEBOARD: return "BaseBoard";
+    case DEV_EEPROM:    return "EEPROM";
+    case DEV_JVS:       return "JVS";
+    case DEV_SERIAL:    return "Serial";
+    case DEV_REAL_FILE: return "File";
+    default:            return "Unknown";
     }
 }
 
-// =============================================================
-//   Path to Device Mapping
-// =============================================================
+static void EnsureDevicesInitialized() {
+    if (!g_devicesInitialized) {
+        log_info("HardwareBridge: Initializing hardware devices...");
 
-static DeviceType GetDeviceType(const char* path) {
-    if (!path) return DEV_NONE;
-    if (strstr(path, "/dev/lbb") || strstr(path, "lbb")) return DEV_BASEBOARD;
-    if (strstr(path, "/dev/i2c") || strstr(path, "i2c/") || strstr(path, "i2c-")) return DEV_EEPROM;
-    if (strstr(path, "/dev/ttyS") || strstr(path, "ttyS")) return DEV_SERIAL;
-    if (strstr(path, "/dev/jvs") || strstr(path, "jvs")) return DEV_JVS;
+        // Link BaseBoard to JvsBoard
+        g_baseBoard.SetJvsBoard(&g_jvsBoard);
+
+        if (g_baseBoard.Open()) log_info(" - BaseBoard initialized");
+        if (g_eepromBoard.Open()) log_info(" - EepromBoard initialized");
+        if (g_jvsBoard.Open()) log_info(" - JvsBoard initialized");
+        if (g_serialBoard.Open()) log_info(" - SerialBoard initialized");
+
+        g_devicesInitialized = true;
+    }
+}
+
+static int AllocateGuestFd() {
+    for (int i = 3; i < 1024; ++i) {
+        if (g_fdTable.find(i) == g_fdTable.end()) {
+            return i;
+        }
+    }
+    log_error("HardwareBridge: FD table exhausted!");
+    return -1;
+}
+
+static DeviceType IdentifyDevice(const char* pathname) {
+    if (!pathname) return DEV_NONE;
+
+    std::string path = pathname;
+    std::replace(path.begin(), path.end(), '\\', '/');
+
+    if (path.find("/dev/lbb") != std::string::npos || path == "lbb") return DEV_BASEBOARD;
+    if (path.find("i2c") != std::string::npos) return DEV_EEPROM;
+    if (path.find("jvs") != std::string::npos) return DEV_JVS;
+    if (path.find("ttyS") != std::string::npos) return DEV_SERIAL;
+
+    // Catch-all for other /dev/ paths
+    if (path.find("/dev/") == 0) {
+        log_warn("IdentifyDevice: Unhandled device path '%s' -> Mapping to UNKNOWN", pathname);
+        return DEV_UNKNOWN;
+    }
 
     return DEV_REAL_FILE;
 }
@@ -74,147 +141,140 @@ static DeviceType GetDeviceType(const char* path) {
 static LindberghDevice* GetDeviceInstance(DeviceType type) {
     switch (type) {
     case DEV_BASEBOARD: return &g_baseBoard;
-    case DEV_EEPROM: return &g_eepromBoard;
-    case DEV_JVS: return &g_jvsBoard;
-    default: return nullptr;
+    case DEV_EEPROM:    return &g_eepromBoard;
+    case DEV_JVS:       return &g_jvsBoard;
+    case DEV_SERIAL:    return &g_serialBoard;
+    case DEV_UNKNOWN:   return &g_unknownDevice;
+    default:            return nullptr;
     }
 }
 
-// =============================================================
-//   Linux File Flag Conversion
-// =============================================================
-
-static int ConvertLinuxFlags(int linuxFlags) {
-    int winFlags = 0;
-
-    // Access mode
-    int accessMode = linuxFlags & 3;  // O_RDONLY=0, O_WRONLY=1, O_RDWR=2
-    if (accessMode == 0) winFlags |= _O_RDONLY;
-    else if (accessMode == 1) winFlags |= _O_WRONLY;
-    else if (accessMode == 2) winFlags |= _O_RDWR;
-
-    // Other flags
-    if (linuxFlags & 0x40) winFlags |= _O_CREAT;    // O_CREAT
-    if (linuxFlags & 0x200) winFlags |= _O_TRUNC;   // O_TRUNC
-    if (linuxFlags & 0x400) winFlags |= _O_APPEND;  // O_APPEND
-
-    winFlags |= _O_BINARY;  // Always binary mode
-
+static int ConvertFlags(int linuxFlags) {
+    int winFlags = _O_BINARY;
+    if ((linuxFlags & 3) == 0) winFlags |= _O_RDONLY;
+    else if ((linuxFlags & 3) == 1) winFlags |= _O_WRONLY;
+    else if ((linuxFlags & 3) == 2) winFlags |= _O_RDWR;
+    if (linuxFlags & 0x40) winFlags |= _O_CREAT;
+    if (linuxFlags & 0x200) winFlags |= _O_TRUNC;
+    if (linuxFlags & 0x400) winFlags |= _O_APPEND;
     return winFlags;
 }
 
 // =============================================================
-//   Implementation (extern "C")
+//   Extern C Interface (Hooked Functions)
 // =============================================================
 
 extern "C" {
 
     int my_open(const char* pathname, int flags, ...) {
-        log_debug("my_open called: path=\"%s\", flags=0x%X",
-            pathname ? pathname : "NULL", flags);
-
         EnsureDevicesInitialized();
 
-        DeviceType devType = GetDeviceType(pathname);
+        if (!pathname) return -1;
 
-        log_debug("open(\"%s\", 0x%X) -> device type %d", pathname, flags, devType);
+        DeviceType type = IdentifyDevice(pathname);
+        int guestFd = AllocateGuestFd();
+        if (guestFd < 0) return -1;
 
-        if (devType != DEV_REAL_FILE && devType != DEV_NONE) {
-            // Virtual device
-            int vfd = g_nextVirtualFd++;
-            VirtualFD vf;
-            vf.type = devType;
-            vf.device = GetDeviceInstance(devType);
-            vf.realFd = -1;
-            vf.path = pathname;
-            g_fdMap[vfd] = vf;
+        FileDescriptorEntry entry;
+        entry.type = type;
+        entry.path = pathname;
+        entry.flags = flags;
+        entry.device = nullptr;
+        entry.hostFd = -1;
 
-            log_debug("open: Virtual FD %d for device %s", vfd, pathname);
-            return vfd;
-        }
+        if (type == DEV_REAL_FILE) {
+            int winFlags = ConvertFlags(flags);
+            int hostFd = _open(pathname, winFlags, 0666);
 
-        // Real file
-        int winFlags = ConvertLinuxFlags(flags);
-        int fd = _open(pathname, winFlags, 0666);
-
-        if (fd >= 0) {
-            VirtualFD vf;
-            vf.type = DEV_REAL_FILE;
-            vf.device = nullptr;
-            vf.realFd = fd;
-            vf.path = pathname;
-            g_fdMap[fd] = vf;
-            log_trace("open: Real FD %d for file %s", fd, pathname);
+            if (hostFd < 0) {
+                if (strncmp(pathname, "/dev/", 5) == 0) {
+                    log_warn("open: Real file failed for '%s', forcing UNKNOWN device.", pathname);
+                    entry.type = DEV_UNKNOWN;
+                    entry.device = &g_unknownDevice;
+                    g_fdTable[guestFd] = entry;
+                    return guestFd;
+                }
+                log_debug("open: Failed to open real file '%s' (errno=%d)", pathname, errno);
+                return -1;
+            }
+            entry.hostFd = hostFd;
+            log_debug("open[%d]: Real file '%s' (HostFD: %d)", guestFd, pathname, hostFd);
         }
         else {
-            log_trace("open: Failed to open %s", pathname);
+            entry.device = GetDeviceInstance(type);
+            if (!entry.device) return -1;
+            log_info("open[%d]: Virtual Device '%s' (%s)", guestFd, pathname, GetDeviceName(type));
         }
 
-        return fd;
+        g_fdTable[guestFd] = entry;
+        return guestFd;
     }
 
     int my_close(int fd) {
-        auto it = g_fdMap.find(fd);
-        if (it == g_fdMap.end()) {
-            return _close(fd);
+        auto it = g_fdTable.find(fd);
+        if (it == g_fdTable.end()) {
+            if (fd >= 0 && fd <= 2) return 0;
+            return -1;
         }
 
-        VirtualFD& vf = it->second;
+        FileDescriptorEntry& entry = it->second;
 
-        if (vf.type == DEV_REAL_FILE) {
-            int result = _close(vf.realFd);
-            g_fdMap.erase(it);
-            return result;
+        if (entry.type == DEV_REAL_FILE) {
+            _close(entry.hostFd);
+            log_debug("close[%d]: Real file '%s'", fd, entry.path.c_str());
+        }
+        else {
+            if (entry.device) entry.device->Close();
+            log_info("close[%d]: Virtual Device '%s'", fd, entry.path.c_str());
         }
 
-        if (vf.type == DEV_EEPROM) {
-            log_debug("close: Keeping EEPROM device open (FD %d)", fd);
-            return 0;
-        }
-
-        log_trace("close: Virtual FD %d (%s)", fd, vf.path.c_str());
-        g_fdMap.erase(it);
+        g_fdTable.erase(it);
         return 0;
     }
 
     int my_read(int fd, void* buf, size_t count) {
-        auto it = g_fdMap.find(fd);
-        if (it == g_fdMap.end()) {
+        auto it = g_fdTable.find(fd);
+        if (it == g_fdTable.end()) {
             return _read(fd, buf, (unsigned int)count);
         }
 
-        VirtualFD& vf = it->second;
+        FileDescriptorEntry& entry = it->second;
+        int result = -1;
 
-        if (vf.type == DEV_REAL_FILE) {
-            return _read(vf.realFd, buf, (unsigned int)count);
+        if (entry.type == DEV_REAL_FILE) {
+            result = _read(entry.hostFd, buf, (unsigned int)count);
+        }
+        else if (entry.device) {
+            result = entry.device->Read(buf, count);
+
+            if (result > 0 && entry.type != DEV_EEPROM) {
+                log_debug("read[%d] (%s): %d bytes", fd, GetDeviceName(entry.type), result);
+            }
         }
 
-        // Virtual device
-        if (vf.device) {
-            return vf.device->Read(buf, count);
-        }
-
-        return -1;
+        return result;
     }
 
     int my_write(int fd, const void* buf, size_t count) {
-        auto it = g_fdMap.find(fd);
-        if (it == g_fdMap.end()) {
+        auto it = g_fdTable.find(fd);
+        if (it == g_fdTable.end()) {
             return _write(fd, buf, (unsigned int)count);
         }
 
-        VirtualFD& vf = it->second;
+        FileDescriptorEntry& entry = it->second;
+        int result = -1;
 
-        if (vf.type == DEV_REAL_FILE) {
-            return _write(vf.realFd, buf, (unsigned int)count);
+        if (entry.type == DEV_REAL_FILE) {
+            result = _write(entry.hostFd, buf, (unsigned int)count);
+        }
+        else if (entry.device) {
+            if (entry.type != DEV_EEPROM) {
+                log_debug("write[%d] (%s): %d bytes", fd, GetDeviceName(entry.type), count);
+            }
+            result = entry.device->Write(buf, count);
         }
 
-        // Virtual device
-        if (vf.device) {
-            return vf.device->Write(buf, count);
-        }
-
-        return -1;
+        return result;
     }
 
     int my_ioctl(int fd, unsigned long request, ...) {
@@ -223,60 +283,54 @@ extern "C" {
         void* data = va_arg(args, void*);
         va_end(args);
 
-        //Lazy implemention for I2C requests with FD -1 but, game will crash
+        // ==========================================================
+        // FD -1 Handling (Game Bug Workaround)
+        // ==========================================================
         if (fd == -1) {
-            // 0x720  = I2C_SMBUS_TRANSFER
-            // 0x1261 = I2C_BUFFER_CLEAR
-            // 0x703  = I2C_SET_SLAVE_MODE
-            // 0x705  = I2C_GET_FUNCTIONS
-            if (request == 0x720 || request == 0x1261 || request == 0x703 || request == 0x705) {
-                static int i2cLogCount = 0;
-                if (i2cLogCount < 10) {
-                    log_debug("ioctl: FD -1 with I2C request 0x%lX - returning success", request);
-                    i2cLogCount++;
-                }
-                return 0;
+            unsigned long reqCmd = request & 0xFFFF;
+            // 0x720=SMBUS, 0x703=SLAVE, 0x705=FUNCS, 0x1261=CLEAR
+            if (reqCmd == 0x0720 || reqCmd == 0x0703 || reqCmd == 0x0705 || reqCmd == 0x1261) {
+                EnsureDevicesInitialized();
+                log_debug("ioctl[-1]: Routing I2C request 0x%lX to EEPROM (Game Bug Workaround)", request);
+                return g_eepromBoard.Ioctl(request, data);
             }
+            log_error("ioctl[-1]: Unhandled request 0x%lX", request);
+            return -1;
+        }
 
-            static int otherWarnCount = 0;
-            if (otherWarnCount < 10) {
-                log_warn("ioctl: Unknown FD -1, request 0x%lX", request);
-                otherWarnCount++;
+        auto it = g_fdTable.find(fd);
+        if (it == g_fdTable.end()) {
+            log_error("ioctl[%d]: Invalid FD! (Req: 0x%lX)", fd, request);
+            return -1;
+        }
+
+        FileDescriptorEntry& entry = it->second;
+
+        if (entry.type == DEV_REAL_FILE) {
+            return -1;
+        }
+
+        if (entry.device) {
+            log_debug("ioctl[%d] (%s): Req 0x%lX", fd, GetDeviceName(entry.type), request);
+
+            int ret = entry.device->Ioctl(request, data);
+
+            if (ret != 0) {
+                log_warn("ioctl[%d] (%s): Req 0x%lX failed with %d", fd, GetDeviceName(entry.type), request, ret);
             }
-            return -1;
+            return ret;
         }
 
-        auto it = g_fdMap.find(fd);
-        if (it == g_fdMap.end()) {
-            log_warn("ioctl: Unknown FD %d, request 0x%lX", fd, request);
-            return -1;
-        }
-
-        VirtualFD& vf = it->second;
-
-        if (vf.type == DEV_REAL_FILE) {
-            log_warn("ioctl: Cannot ioctl real file FD %d", fd);
-            return -1;
-        }
-
-        // Virtual device
-        if (vf.device) {
-            return vf.device->Ioctl(request, data);
-        }
-
-        log_warn("ioctl: No device for FD %d", fd);
         return -1;
     }
 
     int my_writev(int fd, const struct iovec* iov, int iovcnt) {
         int totalWritten = 0;
-
         for (int i = 0; i < iovcnt; i++) {
-            int written = my_write(fd, iov[i].iov_base, iov[i].iov_len);
-            if (written < 0) return written;
-            totalWritten += written;
+            int res = my_write(fd, iov[i].iov_base, iov[i].iov_len);
+            if (res < 0) return (totalWritten > 0) ? totalWritten : -1;
+            totalWritten += res;
         }
-
         return totalWritten;
     }
 
