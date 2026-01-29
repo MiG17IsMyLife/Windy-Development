@@ -1,34 +1,22 @@
+#define _CRT_SECURE_NO_WARNINGS
+
 #include "JvsBoard.h"
-#include "../src/core/log.h"
+#include "../core/log.h"
 #include <cstring>
-#include <windows.h>
-#include <math.h>
+#include <cmath>
+#include <stdio.h>
+
+// Types
+#define SEGA_TYPE_1 0
+#define SEGA_TYPE_3 1
 
 JvsBoard::JvsBoard() {
-    m_address = 0;
-    m_senseLine = false; // Initially disconnected until Reset/Assign
-    m_coinCount[0] = 0;
-    m_coinCount[1] = 0;
-    m_coinPressed = false;
-
-    // Setup Capabilities (SEGA TYPE 3 emulation from lindbergh-loader)
-    m_caps.players = 2;
-    m_caps.switches = 14;
-    m_caps.coins = 2;
-    m_caps.analogueInChannels = 8;
-    m_caps.analogueInBits = 10;
-    m_caps.rotaryChannels = 0;
-    m_caps.keypad = 0;
-    m_caps.gunChannels = 0;
-    m_caps.generalPurposeInputs = 0;
-    m_caps.card = 0;
-    m_caps.hopper = 0;
-    m_caps.generalPurposeOutputs = 20;
-    m_caps.analogueOutChannels = 0;
-    m_caps.displayOutRows = 0;
-    m_caps.displayOutColumns = 0;
-    m_caps.backup = 0;
-    m_caps.name = "SEGA CORPORATION;I/O BD JVS;837-14572;Ver1.00;2005/10";
+    m_senseLine = 3; // Initially disconnected
+    m_deviceID = -1;
+    memset(&m_state, 0, sizeof(m_state));
+    memset(&m_caps, 0, sizeof(m_caps));
+    memset(&m_inputPacket, 0, sizeof(m_inputPacket));
+    memset(&m_outputPacket, 0, sizeof(m_outputPacket));
 }
 
 JvsBoard::~JvsBoard() {
@@ -36,319 +24,439 @@ JvsBoard::~JvsBoard() {
 
 bool JvsBoard::Open() {
     log_info("JvsBoard::Open()");
-    m_inputBuffer.reserve(1024);
-    m_outputBuffer.reserve(1024);
+    // Default to Type 3 (Lindbergh standard)
+    InitCapabilities(SEGA_TYPE_3);
     return true;
 }
 
 void JvsBoard::Close() {
-    log_debug("JvsBoard::Close()");
 }
 
-int JvsBoard::Read(void* buf, size_t count) {
-    if (m_outputBuffer.empty()) return 0;
-
-    size_t copySize = count;
-    if (copySize > m_outputBuffer.size()) {
-        copySize = m_outputBuffer.size();
+void JvsBoard::InitCapabilities(int type) {
+    // Ported from initJVS() in jvs.c
+    if (type == SEGA_TYPE_1) {
+        m_caps.switches = 13;
+        m_caps.coins = 2;
+        m_caps.players = 2;
+        m_caps.analogueInBits = 8;
+        m_caps.rightAlignBits = 0;
+        m_caps.analogueInChannels = 8;
+        m_caps.generalPurposeOutputs = 6;
+        m_caps.commandVersion = 17;
+        m_caps.jvsVersion = 48;
+        m_caps.commsVersion = 16;
+        strcpy(m_caps.name, "SEGA ENTERPRISESLTD.;I/O BD JVS;837-13551;Ver1.00;98/10");
+    }
+    else {
+        // SEGA_TYPE_3
+        m_caps.switches = 14;
+        m_caps.coins = 2;
+        m_caps.players = 2;
+        m_caps.analogueInBits = 10;
+        m_caps.rightAlignBits = 0;
+        m_caps.analogueInChannels = 8;
+        m_caps.generalPurposeOutputs = 20;
+        m_caps.commandVersion = 19;
+        m_caps.jvsVersion = 48;
+        m_caps.commsVersion = 16;
+        strcpy(m_caps.name, "SEGA CORPORATION;I/O BD JVS;837-14572;Ver1.00;2005/10");
     }
 
-    memcpy(buf, m_outputBuffer.data(), copySize);
+    if (!m_caps.rightAlignBits) {
+        m_analogueRestBits = 16 - m_caps.analogueInBits;
+    }
+    else {
+        m_analogueRestBits = 0;
+    }
 
-    // Remove read data from buffer
-    m_outputBuffer.erase(m_outputBuffer.begin(), m_outputBuffer.begin() + copySize);
+    m_analogueMax = (int)pow(2, m_caps.analogueInBits) - 1;
 
-    return (int)copySize;
+    // Center analogs
+    for (int i = 0; i < 8; ++i) m_state.analogueChannel[i] = 0x80;
+
+    // Ready for connection
+    m_senseLine = 3;
 }
 
-int JvsBoard::Write(const void* buf, size_t count) {
-    const uint8_t* bytes = (const uint8_t*)buf;
+void JvsBoard::SetSwitch(JVSPlayer player, int switchMask, bool on) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (player > m_caps.players) return;
 
-    // Accumulate raw bytes
-    for (size_t i = 0; i < count; i++) {
-        uint8_t b = bytes[i];
+    if (on) {
+        m_state.inputSwitch[player] |= switchMask;
+    }
+    else {
+        m_state.inputSwitch[player] &= ~switchMask;
+    }
+}
 
-        // SYNC detected, reset buffer
-        if (b == JVS_SYNC) {
-            m_inputBuffer.clear();
+void JvsBoard::IncrementCoin(JVSPlayer player, int amount) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (player == SYSTEM) return;
+    int idx = player - 1;
+    if (idx >= 0 && idx < JVS_MAX_STATE_SIZE) {
+        m_state.coinCount[idx] += amount;
+        if (m_state.coinCount[idx] > 16383) m_state.coinCount[idx] = 16383;
+    }
+}
+
+void JvsBoard::SetAnalogue(int channel, int value) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (channel >= 0 && channel < JVS_MAX_STATE_SIZE) {
+        m_state.analogueChannel[channel] = value;
+    }
+}
+
+bool JvsBoard::ReadPacket(const uint8_t* src, size_t srcLen) {
+    // Ported from readPacket
+    int escape = 0;
+    int phase = 0;
+    int dataIndex = 0;
+    unsigned char checksum = 0x00;
+
+    m_inputPacket.length = 0;
+
+    for (size_t i = 0; i < srcLen; ++i) {
+        uint8_t byte = src[i];
+
+        if (!escape && byte == JVS_SYNC) {
+            phase = 0;
+            dataIndex = 0;
+            checksum = 0;
+            continue;
+        }
+        if (!escape && byte == JVS_ESCAPE) {
+            escape = 1;
+            continue;
+        }
+        if (escape) {
+            byte++;
+            escape = 0;
         }
 
-        m_inputBuffer.push_back(b);
-    }
-
-    // Try to process packet if we have enough data
-    // Format: [SYNC][DEST][LEN][DATA...][SUM]
-    // Minimum: SYNC, DEST, LEN, SUM (4 bytes)
-    if (m_inputBuffer.size() >= 4) {
-        // Handle escaping to calculate real length
-        // In this simple emulation, we'll try to process once we have at least 'LEN' bytes + header
-        // Note: Real JVS requires careful unescaping first.
-
-        // Quick parse for unescaped packets (standard for emulators usually)
-        uint8_t len = m_inputBuffer[2];
-        if (m_inputBuffer.size() >= (size_t)(3 + len)) {
-            // Unescape packet
-            std::vector<uint8_t> packet;
-            bool escape = false;
-            for (size_t i = 0; i < m_inputBuffer.size(); i++) {
-                if (m_inputBuffer[i] == JVS_SYNC && i == 0) continue; // Skip SYNC
-                if (m_inputBuffer[i] == JVS_ESCAPE) {
-                    escape = true;
-                    continue;
+        switch (phase) {
+        case 0: // Dest
+            m_inputPacket.destination = byte;
+            checksum = (byte & 0xFF);
+            phase++;
+            break;
+        case 1: // Len
+            m_inputPacket.length = byte;
+            checksum = (checksum + byte) & 0xFF;
+            phase++;
+            break;
+        case 2: // Data
+            if (dataIndex == m_inputPacket.length - 1) {
+                // Checksum byte
+                if (checksum != byte) {
+                    log_warn("JvsBoard: Checksum Failure");
+                    return false;
                 }
-                if (escape) {
-                    packet.push_back(m_inputBuffer[i] + 1);
-                    escape = false;
-                }
-                else {
-                    packet.push_back(m_inputBuffer[i]);
-                }
+                return true; // Packet complete
             }
-
-            // Now packet contains [DEST][LEN][DATA...][SUM]
-            if (packet.size() >= 2 && packet.size() >= (size_t)(packet[1] + 1)) {
-                ProcessPacket(packet);
-                m_inputBuffer.clear(); // Consumed
+            if (dataIndex < JVS_MAX_PACKET_SIZE) {
+                m_inputPacket.data[dataIndex++] = byte;
+                checksum = (checksum + byte) & 0xFF;
             }
+            break;
         }
     }
-
-    return (int)count;
+    return false;
 }
 
-int JvsBoard::Ioctl(unsigned long request, void* data) {
-    return -1;
+void JvsBoard::WriteFeature(JVSPacket* packet, char cap, char arg0, char arg1, char arg2) {
+    if (packet->length + 4 >= JVS_MAX_PACKET_SIZE) return;
+    packet->data[packet->length++] = cap;
+    packet->data[packet->length++] = arg0;
+    packet->data[packet->length++] = arg1;
+    packet->data[packet->length++] = arg2;
 }
 
-void JvsBoard::WriteFeature(std::vector<uint8_t>& out, uint8_t cap, uint8_t arg1, uint8_t arg2, uint8_t arg3) {
-    out.push_back(cap);
-    out.push_back(arg1);
-    out.push_back(arg2);
-    out.push_back(arg3);
+void JvsBoard::WriteFeatures(JVSPacket* packet) {
+    packet->data[packet->length++] = REPORT_SUCCESS;
+
+    if (m_caps.players)
+        WriteFeature(packet, CAP_PLAYERS, m_caps.players, m_caps.switches, 0x00);
+    if (m_caps.coins)
+        WriteFeature(packet, CAP_COINS, m_caps.coins, 0x00, 0x00);
+    if (m_caps.analogueInChannels)
+        WriteFeature(packet, CAP_ANALOG_IN, m_caps.analogueInChannels, m_caps.analogueInBits, 0x00);
+    if (m_caps.rotaryChannels)
+        WriteFeature(packet, CAP_ROTARY, m_caps.rotaryChannels, 0x00, 0x00);
+    if (m_caps.keypad)
+        WriteFeature(packet, CAP_KEYPAD, 0x00, 0x00, 0x00);
+    if (m_caps.gunChannels)
+        WriteFeature(packet, CAP_LIGHTGUN, m_caps.gunXBits, m_caps.gunYBits, m_caps.gunChannels);
+    if (m_caps.generalPurposeInputs)
+        WriteFeature(packet, CAP_GPI, 0x00, m_caps.generalPurposeInputs, 0x00);
+    if (m_caps.card)
+        WriteFeature(packet, CAP_CARD, m_caps.card, 0x00, 0x00);
+    if (m_caps.hopper)
+        WriteFeature(packet, CAP_HOPPER, m_caps.hopper, 0x00, 0x00);
+    if (m_caps.generalPurposeOutputs)
+        WriteFeature(packet, CAP_GPO, m_caps.generalPurposeOutputs, 0x00, 0x00);
+    if (m_caps.analogueOutChannels)
+        WriteFeature(packet, CAP_ANALOG_OUT, m_caps.analogueOutChannels, 0x00, 0x00);
+    if (m_caps.displayOutColumns)
+        WriteFeature(packet, CAP_DISPLAY, m_caps.displayOutColumns, m_caps.displayOutRows, m_caps.displayOutEncodings);
+    if (m_caps.backup)
+        WriteFeature(packet, CAP_BACKUP, 0x00, 0x00, 0x00);
+
+    packet->data[packet->length++] = CAP_END;
 }
 
-void JvsBoard::ProcessPacket(const std::vector<uint8_t>& packet) {
-    // packet: [DEST][LEN][CMD...][SUM]
-    uint8_t dest = packet[0];
+void JvsBoard::WritePacket(uint8_t* dst, int* dstLen) {
+    // Ported from writePacket
+    m_outputPacket.length++; // Account for SUM byte in logic
 
-    // Check if packet is for us (or broadcast)
-    if (dest != JVS_BROADCAST && dest != m_address) {
+    int checksum = 0;
+    int outIdx = 0;
+
+    dst[outIdx++] = JVS_SYNC;
+
+    // Helper lambda for escaping
+    auto writeByte = [&](uint8_t b) {
+        if (b == JVS_SYNC || b == JVS_ESCAPE) {
+            dst[outIdx++] = JVS_ESCAPE;
+            dst[outIdx++] = b - 1;
+        }
+        else {
+            dst[outIdx++] = b;
+        }
+        checksum = (checksum + b) & 0xFF;
+        };
+
+    // Destination
+    writeByte(m_outputPacket.destination);
+
+    // Length
+    writeByte(m_outputPacket.length);
+
+    // Data
+    for (int i = 0; i < m_outputPacket.length - 1; i++) {
+        writeByte(m_outputPacket.data[i]);
+    }
+
+    // Checksum (write raw, apply escape if needed)
+    if (checksum == JVS_SYNC || checksum == JVS_ESCAPE) {
+        dst[outIdx++] = JVS_ESCAPE;
+        dst[outIdx++] = (uint8_t)(checksum - 1);
+    }
+    else {
+        dst[outIdx++] = (uint8_t)checksum;
+    }
+
+    *dstLen = outIdx;
+}
+
+void JvsBoard::ProcessPacket(const uint8_t* input, size_t inputSize, uint8_t* output, int* outputSize) {
+    if (!ReadPacket(input, inputSize)) {
+        *outputSize = 0;
         return;
     }
 
-    std::vector<uint8_t> response;
-    response.push_back(JVS_REPORT_SUCCESS); // Overall Status
+    // Check destination
+    if (m_inputPacket.destination != JVS_BROADCAST && m_inputPacket.destination != m_deviceID) {
+        // Not for us
+        *outputSize = 0;
+        return;
+    }
 
-    size_t cursor = 2; // Skip DEST, LEN
-    size_t end = packet.size() - 1; // Skip SUM
+    // Prepare Output
+    m_outputPacket.length = 0;
+    m_outputPacket.destination = JVS_BUS_MASTER;
 
-    while (cursor < end) {
-        uint8_t cmd = packet[cursor++];
+    // Status Success
+    m_outputPacket.data[m_outputPacket.length++] = STATUS_SUCCESS;
+
+    std::lock_guard<std::mutex> lock(m_mutex);
+
+    int index = 0;
+    // Loop through commands in the packet
+    // inputPacket.length includes the checksum byte, so iterate until length - 1
+    while (index < m_inputPacket.length - 1) {
+        uint8_t cmd = m_inputPacket.data[index++];
+        int size = 0; // Bytes consumed (args)
 
         switch (cmd) {
-        case CMD_RESET: {
-            cursor++; // Skip arg (0xD9)
-            m_address = 0;
-            m_senseLine = false; // Reset sense
-            log_info("JvsBoard: CMD_RESET");
-            // No response data for reset usually, or standard header
+        case CMD_RESET:
+            size = 1; // 0xD9
+            m_deviceID = -1;
+            m_senseLine = 3;
             break;
-        }
 
-        case CMD_ASSIGN_ADDR: {
-            uint8_t newAddr = packet[cursor++];
-            m_address = newAddr;
-            m_senseLine = true; // Address assigned, ready
-            response.push_back(JVS_REPORT_SUCCESS);
-            log_info("JvsBoard: CMD_ASSIGN_ADDR -> 0x%02X", newAddr);
+        case CMD_ASSIGN_ADDR:
+            size = 1;
+            m_deviceID = m_inputPacket.data[index];
+            m_outputPacket.data[m_outputPacket.length++] = REPORT_SUCCESS;
+            m_senseLine = 1;
             break;
-        }
 
-        case CMD_REQUEST_ID: {
-            response.push_back(JVS_REPORT_SUCCESS);
-            const char* id = m_caps.name.c_str();
-            while (*id) response.push_back((uint8_t)*id++);
-            response.push_back(0); // Null terminator
-            log_debug("JvsBoard: CMD_REQUEST_ID");
+        case CMD_REQUEST_ID:
+            m_outputPacket.data[m_outputPacket.length++] = REPORT_SUCCESS;
+            {
+                size_t len = strlen(m_caps.name);
+                memcpy(&m_outputPacket.data[m_outputPacket.length], m_caps.name, len + 1);
+                m_outputPacket.length += (unsigned char)(len + 1);
+            }
             break;
-        }
 
         case CMD_COMMAND_VERSION:
-            response.push_back(JVS_REPORT_SUCCESS);
-            response.push_back(0x13); // Ver 1.3
+            m_outputPacket.data[m_outputPacket.length++] = REPORT_SUCCESS;
+            m_outputPacket.data[m_outputPacket.length++] = m_caps.commandVersion;
             break;
 
         case CMD_JVS_VERSION:
-            response.push_back(JVS_REPORT_SUCCESS);
-            response.push_back(0x30); // Ver 3.0
+            m_outputPacket.data[m_outputPacket.length++] = REPORT_SUCCESS;
+            m_outputPacket.data[m_outputPacket.length++] = m_caps.jvsVersion;
             break;
 
         case CMD_COMMS_VERSION:
-            response.push_back(JVS_REPORT_SUCCESS);
-            response.push_back(0x10); // Ver 1.0
+            m_outputPacket.data[m_outputPacket.length++] = REPORT_SUCCESS;
+            m_outputPacket.data[m_outputPacket.length++] = m_caps.commsVersion;
             break;
 
-        case CMD_CAPABILITIES: {
-            log_debug("JvsBoard: CMD_CAPABILITIES");
-            response.push_back(JVS_REPORT_SUCCESS);
-
-            if (m_caps.players) WriteFeature(response, 1, m_caps.players, m_caps.switches, 0);
-            if (m_caps.coins)   WriteFeature(response, 2, m_caps.coins, 0, 0);
-            if (m_caps.analogueInChannels) WriteFeature(response, 3, m_caps.analogueInChannels, m_caps.analogueInBits, 0);
-            if (m_caps.generalPurposeOutputs) WriteFeature(response, 0x12, m_caps.generalPurposeOutputs, 0, 0);
-
-            response.push_back(0); // End
+        case CMD_CAPABILITIES:
+            WriteFeatures(&m_outputPacket);
             break;
-        }
 
-        case CMD_READ_SWITCHES: {
-            uint8_t numPlayers = packet[cursor++];
-            uint8_t bytesPerPlayer = packet[cursor++];
+        case CMD_READ_SWITCHES:
+        {
+            int numPlayers = m_inputPacket.data[index];
+            int bytesPer = m_inputPacket.data[index + 1];
+            size = 2;
 
-            response.push_back(JVS_REPORT_SUCCESS);
+            m_outputPacket.data[m_outputPacket.length++] = REPORT_SUCCESS;
+            m_outputPacket.data[m_outputPacket.length++] = (unsigned char)m_state.inputSwitch[0]; // System
 
-            // --- Input Polling (GetAsyncKeyState) ---
-
-            // System Byte: [TEST][0][0][0] [0][0][0][SERVICE]
-            uint8_t sys = 0;
-            if (GetAsyncKeyState('T') & 0x8000) sys |= SW_TEST;
-            if (GetAsyncKeyState('S') & 0x8000) sys |= SW_SERVICE;
-            response.push_back(sys);
-
-            // Player 1
-            if (numPlayers >= 1) {
-                uint8_t p1_1 = 0;
-                if (GetAsyncKeyState('1') & 0x8000)     p1_1 |= SW_START;
-                if (GetAsyncKeyState(VK_UP) & 0x8000)    p1_1 |= SW_UP;
-                if (GetAsyncKeyState(VK_DOWN) & 0x8000)  p1_1 |= SW_DOWN;
-                if (GetAsyncKeyState(VK_LEFT) & 0x8000)  p1_1 |= SW_LEFT;
-                if (GetAsyncKeyState(VK_RIGHT) & 0x8000) p1_1 |= SW_RIGHT;
-                if (GetAsyncKeyState('Z') & 0x8000)      p1_1 |= SW_BTN1;
-                if (GetAsyncKeyState('X') & 0x8000)      p1_1 |= SW_BTN2;
-                response.push_back(p1_1);
-
-                if (bytesPerPlayer > 1) {
-                    uint8_t p1_2 = 0;
-                    if (GetAsyncKeyState('C') & 0x8000)  p1_2 |= SW_BTN3;
-                    if (GetAsyncKeyState('V') & 0x8000)  p1_2 |= SW_BTN4;
-                    response.push_back(p1_2);
+            for (int i = 0; i < numPlayers; i++) {
+                int pVal = m_state.inputSwitch[i + 1];
+                for (int j = 0; j < bytesPer; j++) {
+                    // Shift out bytes, MSB first? Standard usually Player 1 Byte 1, Byte 2...
+                    // Lindbergh loader logic:
+                    // outputPacket.data[outputPacket.length++] = io.state.inputSwitch[i + 1] >> (8 - (j * 8));
+                    // If j=0, shift >> 8. If j=1, shift >> 0.
+                    int shift = 8 - (j * 8);
+                    if (shift < 0) shift = 0;
+                    m_outputPacket.data[m_outputPacket.length++] = (pVal >> shift) & 0xFF;
                 }
             }
-
-            // Player 2 (Stubbed)
-            if (numPlayers >= 2) {
-                response.push_back(0);
-                if (bytesPerPlayer > 1) response.push_back(0);
-            }
-            break;
         }
+        break;
 
-        case CMD_READ_COINS: {
-            uint8_t slots = packet[cursor++];
-            response.push_back(JVS_REPORT_SUCCESS);
-
-            // Coin Logic
-            bool coinNow = (GetAsyncKeyState('5') & 0x8000) != 0;
-            if (coinNow && !m_coinPressed) {
-                m_coinCount[0]++;
-                log_info("JvsBoard: Coin Inserted (Total: %d)", m_coinCount[0]);
+        case CMD_READ_COINS:
+        {
+            int slots = m_inputPacket.data[index];
+            size = 1;
+            m_outputPacket.data[m_outputPacket.length++] = REPORT_SUCCESS;
+            for (int i = 0; i < slots; i++) {
+                int val = m_state.coinCount[i];
+                m_outputPacket.data[m_outputPacket.length++] = (val >> 8) & 0x3F; // Top 6 bits? Spec typically 14 bits
+                m_outputPacket.data[m_outputPacket.length++] = val & 0xFF;
             }
-            m_coinPressed = coinNow;
+        }
+        break;
 
-            // Slot 1 (2 bytes, Big Endian)
-            response.push_back((m_coinCount[0] >> 8) & 0xFF);
-            response.push_back(m_coinCount[0] & 0xFF);
-
-            // Slot 2
-            if (slots > 1) {
-                response.push_back(0);
-                response.push_back(0);
+        case CMD_READ_ANALOGS:
+        {
+            int channels = m_inputPacket.data[index];
+            size = 1;
+            m_outputPacket.data[m_outputPacket.length++] = REPORT_SUCCESS;
+            for (int i = 0; i < channels; i++) {
+                int val = m_state.analogueChannel[i];
+                // Apply alignment
+                val = val << m_analogueRestBits;
+                m_outputPacket.data[m_outputPacket.length++] = (val >> 8) & 0xFF;
+                m_outputPacket.data[m_outputPacket.length++] = val & 0xFF;
             }
-            break;
         }
+        break;
 
-        case CMD_READ_ANALOGS: {
-            uint8_t channels = packet[cursor++];
-            response.push_back(JVS_REPORT_SUCCESS);
-
-            // Channel 0: Steering (0x0000 - 0xFFFF)
-            // Left=0000, Center=8000, Right=FFFF
-            uint16_t steering = 0x8000;
-            if (GetAsyncKeyState(VK_LEFT) & 0x8000)  steering = 0x0000;
-            if (GetAsyncKeyState(VK_RIGHT) & 0x8000) steering = 0xFFFF;
-
-            response.push_back((steering >> 8) & 0xFF);
-            response.push_back(steering & 0xFF);
-
-            // Channel 1: Gas (0000-FFFF)
-            uint16_t gas = 0;
-            if (GetAsyncKeyState(VK_UP) & 0x8000) gas = 0xFFFF;
-            response.push_back((gas >> 8) & 0xFF);
-            response.push_back(gas & 0xFF);
-
-            // Channel 2: Brake
-            uint16_t brake = 0;
-            if (GetAsyncKeyState(VK_DOWN) & 0x8000) brake = 0xFFFF;
-            response.push_back((brake >> 8) & 0xFF);
-            response.push_back(brake & 0xFF);
-
-            // Fill rest
-            for (int i = 3; i < channels; i++) {
-                response.push_back(0);
-                response.push_back(0);
+        case CMD_READ_ROTARY:
+        {
+            int channels = m_inputPacket.data[index];
+            size = 1;
+            m_outputPacket.data[m_outputPacket.length++] = REPORT_SUCCESS;
+            for (int i = 0; i < channels; i++) {
+                int val = m_state.rotaryChannel[i];
+                m_outputPacket.data[m_outputPacket.length++] = (val >> 8) & 0xFF;
+                m_outputPacket.data[m_outputPacket.length++] = val & 0xFF;
             }
-            break;
         }
+        break;
 
-        case CMD_WRITE_GPO: {
-            uint8_t len = packet[cursor++];
-            cursor += len; // Skip data
-            response.push_back(JVS_REPORT_SUCCESS);
+        case CMD_READ_KEYPAD:
+            m_outputPacket.data[m_outputPacket.length++] = REPORT_SUCCESS;
+            m_outputPacket.data[m_outputPacket.length++] = 0;
             break;
+
+        case CMD_READ_GPI:
+        {
+            int count = m_inputPacket.data[index];
+            size = 1;
+            m_outputPacket.data[m_outputPacket.length++] = REPORT_SUCCESS;
+            for (int i = 0; i < count; i++) {
+                m_outputPacket.data[m_outputPacket.length++] = 0;
+            }
         }
+        break;
+
+        case CMD_WRITE_GPO:
+            size = 1 + m_inputPacket.data[index]; // Arg byte + data bytes
+            m_outputPacket.data[m_outputPacket.length++] = REPORT_SUCCESS;
+            break;
+
+        case CMD_WRITE_ANALOG:
+            size = (m_inputPacket.data[index] * 2) + 1;
+            m_outputPacket.data[m_outputPacket.length++] = REPORT_SUCCESS;
+            break;
+
+        case CMD_WRITE_COINS:
+        {
+            // Slot index [index], Amount MSB [index+1], Amount LSB [index+2]
+            int slot = m_inputPacket.data[index] - 1;
+            int amount = (m_inputPacket.data[index + 1] << 8) | m_inputPacket.data[index + 2];
+            size = 3;
+
+            m_outputPacket.data[m_outputPacket.length++] = REPORT_SUCCESS;
+            IncrementCoin((JVSPlayer)(slot + 1), amount);
+        }
+        break;
+
+        case CMD_DECREASE_COINS:
+        {
+            int slot = m_inputPacket.data[index] - 1;
+            int amount = (m_inputPacket.data[index + 1] << 8) | m_inputPacket.data[index + 2];
+            size = 3;
+            m_outputPacket.data[m_outputPacket.length++] = REPORT_SUCCESS;
+
+            // Decrement logic internal
+            if (slot >= 0 && slot < JVS_MAX_STATE_SIZE) {
+                m_state.coinCount[slot] -= amount;
+                if (m_state.coinCount[slot] < 0) m_state.coinCount[slot] = 0;
+            }
+        }
+        break;
+
+        case CMD_CONVEY_ID:
+            // String follows
+        {
+            int k = index;
+            while (m_inputPacket.data[k] != 0 && k < m_inputPacket.length) {
+                k++;
+            }
+            size = (k - index) + 1; // +1 for null
+            m_outputPacket.data[m_outputPacket.length++] = REPORT_SUCCESS;
+        }
+        break;
 
         default:
-            log_warn("JvsBoard: Unhandled CMD 0x%02X", cmd);
-            response.push_back(JVS_STATUS_UNKNOWN_CMD);
-            // Rough estimation to skip arguments is hard without a table, 
-            // but loop might catch next command or fail. 
-            // For now assume single byte or exit.
+            log_warn("JvsBoard: Unknown CMD 0x%02X", cmd);
             break;
         }
+
+        index += size;
     }
 
-    WritePacket(response);
-}
-
-void JvsBoard::WritePacket(const std::vector<uint8_t>& data) {
-    std::vector<uint8_t> packet;
-    packet.push_back(JVS_SYNC);
-    packet.push_back(JVS_BUS_MASTER); // Dest
-    packet.push_back((uint8_t)(data.size() + 1)); // Len includes SUM
-
-    // Escaping
-    uint8_t sum = JVS_BUS_MASTER + (uint8_t)(data.size() + 1);
-
-    for (uint8_t b : data) {
-        sum = (sum + b) & 0xFF;
-        if (b == JVS_SYNC || b == JVS_ESCAPE) {
-            packet.push_back(JVS_ESCAPE);
-            packet.push_back(b - 1);
-        }
-        else {
-            packet.push_back(b);
-        }
-    }
-
-    // Write Sum
-    if (sum == JVS_SYNC || sum == JVS_ESCAPE) {
-        packet.push_back(JVS_ESCAPE);
-        packet.push_back(sum - 1);
-    }
-    else {
-        packet.push_back(sum);
-    }
-
-    // Append to Output Buffer
-    m_outputBuffer.insert(m_outputBuffer.end(), packet.begin(), packet.end());
+    WritePacket(output, outputSize);
 }

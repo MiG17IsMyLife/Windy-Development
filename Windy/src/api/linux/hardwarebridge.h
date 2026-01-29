@@ -1,36 +1,21 @@
 #pragma once
 
-#include "LinuxTypes.h" 
+#include <stdint.h>
 #include <stddef.h>
 
-// =============================================================
-//   Hardware & Low-Level I/O Emulation (extern "C")
-// =============================================================
+// LinuxTypes.h で定義されている iovec 等を使用します
+#include "LinuxTypes.h"
+
 extern "C" {
-
-    // ---------------------------------------------------------
-    // File / Device Access
-    // ---------------------------------------------------------
-
-    // open: Open a file or device
-    int my_open(const char* pathname, int flags, ...);
-
-    // close: Close a file or device
+    // ファイルI/OおよびLindberghハードウェアアクセス
+    int my_open(const char* pathname, int flags, int mode);
     int my_close(int fd);
-
-    // read: Reading
     int my_read(int fd, void* buf, size_t count);
-
-    // write: Writing
     int my_write(int fd, const void* buf, size_t count);
-
-    // ---------------------------------------------------------
-    // Device Control & Advanced I/O
-    // ---------------------------------------------------------
-
-    // ioctl: I/O Control
-    int my_ioctl(int fd, unsigned long request, ...);
-
-    // writev: Vector Write
+    int my_ioctl(int fd, unsigned long request, void* data);
     int my_writev(int fd, const struct iovec* iov, int iovcnt);
+
+    // ポートI/Oエミュレーション (SecurityBoard等で使用)
+    int HardwarePortRead(uint16_t port, uint32_t* data);
+    int HardwarePortWrite(uint16_t port, uint32_t data);
 }

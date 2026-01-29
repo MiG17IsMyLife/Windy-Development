@@ -4,11 +4,16 @@
 
 #include "../src/core/log.h"
 
-// --- Helper: Lazy Initialization ---
+// --- Helper: Lazy Initialization with Recursive Attribute ---
 
 static void EnsureMutexInitialized(pthread_mutex_t* wm) {
     if (*wm == NULL) {
-        pthread_mutex_init(wm, NULL);
+        pthread_mutexattr_t attr;
+        pthread_mutexattr_init(&attr);
+        pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+        pthread_mutex_init(wm, &attr);
+        pthread_mutexattr_destroy(&attr);
+        log_debug("PthreadBridge: Initialized recursive mutex at %p", wm);
     }
 }
 
@@ -21,14 +26,30 @@ static void EnsureCondInitialized(pthread_cond_t* wc) {
 // --- Mutex Wrappers ---
 
 int PthreadBridge::mutex_init_wrapper(void* mutex, const void* attr) {
+    if (attr == NULL) {
+        pthread_mutexattr_t recursiveAttr;
+        pthread_mutexattr_init(&recursiveAttr);
+        pthread_mutexattr_settype(&recursiveAttr, PTHREAD_MUTEX_RECURSIVE);
+        int ret = pthread_mutex_init((pthread_mutex_t*)mutex, &recursiveAttr);
+        pthread_mutexattr_destroy(&recursiveAttr);
+        return ret;
+    }
     return pthread_mutex_init((pthread_mutex_t*)mutex, (const pthread_mutexattr_t*)attr);
 }
 
 int PthreadBridge::mutex_lock_wrapper(void* mutex) {
-    log_info(">>> mutex_lock: %p", mutex);
     pthread_mutex_t* wm = (pthread_mutex_t*)mutex;
     EnsureMutexInitialized(wm);
-    return pthread_mutex_lock(wm);
+
+    log_info(">>> mutex_lock: %p", mutex);
+
+    int ret = pthread_mutex_lock(wm);
+
+    if (ret != 0) {
+        log_error("PthreadBridge: mutex_lock failed for %p (error: %d)", mutex, ret);
+    }
+
+    return ret;
 }
 
 int PthreadBridge::mutex_trylock_wrapper(void* mutex) {

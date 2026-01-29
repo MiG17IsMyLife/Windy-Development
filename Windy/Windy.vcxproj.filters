@@ -4,12 +4,6 @@
     <Filter Include="src">
       <UniqueIdentifier>{45b3d0c2-f439-41ac-93b7-92ad0d076bbd}</UniqueIdentifier>
     </Filter>
-    <Filter Include="include">
-      <UniqueIdentifier>{c5e524fa-5b99-49dc-adc5-40a3696069d6}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="deps">
-      <UniqueIdentifier>{86fe3938-18ec-4c57-a104-c16364ea1cbf}</UniqueIdentifier>
-    </Filter>
     <Filter Include="src\core">
       <UniqueIdentifier>{f97de3b3-2d81-41cd-a4f5-dc5b5619e4f4}</UniqueIdentifier>
     </Filter>
@@ -90,6 +84,13 @@
     <ClCompile Include="src\core\log.cpp">
       <Filter>src\core</Filter>
     </ClCompile>
+    <ClCompile Include="src\hardware\serialboard.cpp" />
+    <ClCompile Include="src\hardware\securityboard.cpp">
+      <Filter>src\hardware</Filter>
+    </ClCompile>
+    <ClCompile Include="src\hardware\lindberghdevice.cpp">
+      <Filter>src\hardware</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\api\sega\libsegaapi.h">
@@ -154,6 +155,13 @@
     </ClInclude>
     <ClInclude Include="src\core\log.h">
       <Filter>src\core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\hardware\serialboard.h" />
+    <ClInclude Include="src\hardware\securityboard.h">
+      <Filter>src\hardware</Filter>
+    </ClInclude>
+    <ClInclude Include="src\hardware\pciData.h">
+      <Filter>src\hardware</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

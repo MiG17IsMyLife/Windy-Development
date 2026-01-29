@@ -1,6 +1,9 @@
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
+#define _CRT_SECURE_NO_WARNINGS
 
 #include "LibcBridge.h"
+#include "../linux/HardwareBridge.h"
+#include "../../hardware/lindberghdevice.h" // 追加: 仮想デバイス制御用
 #include "../src/core/log.h"
 #include <iostream>
 #include <vector>
@@ -12,6 +15,24 @@
 #include <sys/utime.h>
 #include <csignal>
 #include <mutex>
+#include <stdarg.h>
+
+// --- Virtual File Pointer Logic (Sentinel approach) ---
+// Windows CRT(ucrtbased.dll)のチェックを回避するため、
+// 仮想FDには最上位ビット(0x80000000)を立てた偽のポインタを使用します。
+#define VFILE_SENTINEL 0x80000000
+
+static bool IsVirtual(FILE* f) {
+    return ((uintptr_t)f & VFILE_SENTINEL) != 0;
+}
+
+static int ToVfd(FILE* f) {
+    return (int)((uintptr_t)f & ~VFILE_SENTINEL);
+}
+
+static FILE* ToVPtr(int fd) {
+    return (FILE*)(uintptr_t)(fd | VFILE_SENTINEL);
+}
 
 // --- Helper Functions ---
 
@@ -31,11 +52,26 @@ static std::mutex g_net_mutex;
 // ========================================================================
 
 FILE* LibcBridge::fopen_wrapper(const char* filename, const char* mode) {
+    // 1. まず LindberghDevice を通して仮想デバイス（PCI/LBB等）としてハンドル
+    int linux_flags = 0;
+    if (strchr(mode, 'r')) linux_flags = 0; // O_RDONLY
+    if (strchr(mode, 'w')) linux_flags = 1; // O_WRONLY
+    if (strchr(mode, '+')) linux_flags = 2; // O_RDWR
+
+    int fd = LindberghDevice::Instance().Open(filename, linux_flags);
+
+    if (fd >= 0) {
+        log_debug("LibcBridge: fopen mapped to Virtual FD %d for path: %s", fd, filename);
+        // CRTに渡すとクラッシュするため、独自のセンチネルポインタを返す
+        return ToVPtr(fd);
+    }
+
+    // 2. 仮想デバイスでなければ、通常のホストファイルとして開く
     char winPath[MAX_PATH];
     ConvertPath(winPath, filename, MAX_PATH);
     FILE* f = fopen(winPath, mode);
     if (!f) {
-        log_trace("fopen failed: %s (%s)", filename, mode);
+        log_trace("fopen failed: %s (as %s) with mode %s", filename, winPath, mode);
     }
     return f;
 }
@@ -45,6 +81,11 @@ FILE* LibcBridge::fopen64_wrapper(const char* filename, const char* mode) {
 }
 
 int LibcBridge::fclose_wrapper(FILE* stream) {
+    if (!stream) return 0;
+
+    if (IsVirtual(stream)) {
+        return LindberghDevice::Instance().Close(ToVfd(stream));
+    }
     return fclose(stream);
 }
 
@@ -55,51 +96,95 @@ int LibcBridge::creat_wrapper(const char* pathname, int mode) {
 }
 
 size_t LibcBridge::fread_wrapper(void* ptr, size_t size, size_t nmemb, FILE* stream) {
+    if (IsVirtual(stream)) {
+        int bytesRead = LindberghDevice::Instance().Read(ToVfd(stream), ptr, size * nmemb);
+        return (size > 0 && bytesRead > 0) ? (bytesRead / size) : 0;
+    }
     return fread(ptr, size, nmemb, stream);
 }
 
 size_t LibcBridge::fwrite_wrapper(const void* ptr, size_t size, size_t nmemb, FILE* stream) {
+    if (IsVirtual(stream)) {
+        int bytesWritten = LindberghDevice::Instance().Write(ToVfd(stream), ptr, size * nmemb);
+        return (size > 0 && bytesWritten > 0) ? (bytesWritten / size) : 0;
+    }
     return fwrite(ptr, size, nmemb, stream);
 }
 
 int LibcBridge::fseek_wrapper(FILE* stream, long offset, int whence) {
+    if (IsVirtual(stream)) {
+        return LindberghDevice::Instance().Seek(ToVfd(stream), offset, whence);
+    }
     return fseek(stream, offset, whence);
 }
 
 long LibcBridge::ftell_wrapper(FILE* stream) {
+    if (IsVirtual(stream)) {
+        return LindberghDevice::Instance().Tell(ToVfd(stream));
+    }
     return ftell(stream);
 }
 
 int LibcBridge::fseeko64_wrapper(FILE* stream, off64_t offset, int whence) {
+    if (IsVirtual(stream)) {
+        return LindberghDevice::Instance().Seek(ToVfd(stream), (long)offset, whence);
+    }
     return _fseeki64(stream, offset, whence);
 }
 
 off64_t LibcBridge::ftello64_wrapper(FILE* stream) {
+    if (IsVirtual(stream)) {
+        return (off64_t)LindberghDevice::Instance().Tell(ToVfd(stream));
+    }
     return _ftelli64(stream);
 }
 
 void LibcBridge::rewind_wrapper(FILE* stream) {
-    rewind(stream);
+    fseek_wrapper(stream, 0, SEEK_SET);
 }
 
 int LibcBridge::fgetc_wrapper(FILE* stream) {
+    if (IsVirtual(stream)) {
+        uint8_t c;
+        if (LindberghDevice::Instance().Read(ToVfd(stream), &c, 1) == 1) return (int)c;
+        return EOF;
+    }
     return fgetc(stream);
 }
 
 char* LibcBridge::fgets_wrapper(char* s, int size, FILE* stream) {
+    if (IsVirtual(stream)) {
+        int i = 0;
+        for (; i < size - 1; i++) {
+            int c = fgetc_wrapper(stream);
+            if (c == EOF) break;
+            s[i] = (char)c;
+            if (c == '\n') { i++; break; }
+        }
+        s[i] = '\0';
+        return (i == 0) ? nullptr : s;
+    }
     return fgets(s, size, stream);
 }
 
 int LibcBridge::fputs_wrapper(const char* s, FILE* stream) {
+    if (IsVirtual(stream)) {
+        size_t len = strlen(s);
+        return (LindberghDevice::Instance().Write(ToVfd(stream), s, len) == (int)len) ? 0 : EOF;
+    }
     return fputs(s, stream);
 }
 
 int LibcBridge::fputc_wrapper(int c, FILE* stream) {
+    if (IsVirtual(stream)) {
+        uint8_t ch = (uint8_t)c;
+        return (LindberghDevice::Instance().Write(ToVfd(stream), &ch, 1) == 1) ? c : EOF;
+    }
     return fputc(c, stream);
 }
 
 int LibcBridge::putc_wrapper(int c, FILE* stream) {
-    return putc(c, stream);
+    return fputc_wrapper(c, stream);
 }
 
 int LibcBridge::putchar_wrapper(int c) {
@@ -111,30 +196,37 @@ int LibcBridge::puts_wrapper(const char* s) {
 }
 
 int LibcBridge::ungetc_wrapper(int c, FILE* stream) {
+    if (IsVirtual(stream)) return EOF;
     return ungetc(c, stream);
 }
 
 int LibcBridge::getc_wrapper(FILE* stream) {
-    return getc(stream);
+    return fgetc_wrapper(stream);
 }
 
 int LibcBridge::feof_wrapper(FILE* stream) {
+    if (IsVirtual(stream)) return 0;
     return feof(stream);
 }
 
 int LibcBridge::ferror_wrapper(FILE* stream) {
+    if (IsVirtual(stream)) return 0;
     return ferror(stream);
 }
 
 int LibcBridge::fflush_wrapper(FILE* stream) {
+    if (IsVirtual(stream)) return 0;
     return fflush(stream);
 }
 
 int LibcBridge::fileno_wrapper(FILE* stream) {
+    if (IsVirtual(stream)) return ToVfd(stream);
     return _fileno(stream);
 }
 
 FILE* LibcBridge::fdopen_wrapper(int fd, const char* mode) {
+    // 仮想FD(>=100)ならセンチネルポインタを返却、そうでなければ通常通り
+    if (fd >= 100) return ToVPtr(fd);
     return _fdopen(fd, mode);
 }
 
@@ -143,6 +235,7 @@ void LibcBridge::perror_wrapper(const char* s) {
 }
 
 int LibcBridge::setvbuf_wrapper(FILE* stream, char* buf, int mode, size_t size) {
+    if (IsVirtual(stream)) return 0;
     return setvbuf(stream, buf, mode, size);
 }
 
@@ -153,32 +246,25 @@ int LibcBridge::remove_wrapper(const char* pathname) {
 }
 
 // ========================================================================
-// --- Formatted I/O --- (Game output logged as LOG_GAME)
+// --- Formatted I/O ---
 // ========================================================================
 
 int LibcBridge::printf_wrapper(const char* format, ...) {
     va_list args;
     va_start(args, format);
-
-    // Format the message
     va_list args_copy;
     va_copy(args_copy, args);
     int size = vsnprintf(NULL, 0, format, args_copy);
     va_end(args_copy);
-
     if (size > 0) {
         char* buffer = (char*)malloc(size + 1);
         if (buffer) {
             vsnprintf(buffer, size + 1, format, args);
-            // Remove trailing newline for cleaner log output
-            if (size > 0 && buffer[size - 1] == '\n') {
-                buffer[size - 1] = '\0';
-            }
+            if (size > 0 && buffer[size - 1] == '\n') buffer[size - 1] = '\0';
             log_game("%s", buffer);
             free(buffer);
         }
     }
-
     va_end(args);
     return size;
 }
@@ -188,23 +274,20 @@ int LibcBridge::vprintf_wrapper(const char* format, va_list ap) {
     va_copy(args_copy, ap);
     int size = vsnprintf(NULL, 0, format, args_copy);
     va_end(args_copy);
-
     if (size > 0) {
         char* buffer = (char*)malloc(size + 1);
         if (buffer) {
             vsnprintf(buffer, size + 1, format, ap);
-            if (size > 0 && buffer[size - 1] == '\n') {
-                buffer[size - 1] = '\0';
-            }
+            if (size > 0 && buffer[size - 1] == '\n') buffer[size - 1] = '\0';
             log_game("%s", buffer);
             free(buffer);
         }
     }
-
     return size;
 }
 
 int LibcBridge::fprintf_wrapper(FILE* stream, const char* format, ...) {
+    if (IsVirtual(stream)) return 0;
     va_list args;
     va_start(args, format);
     int ret = vfprintf(stream, format, args);
@@ -213,10 +296,12 @@ int LibcBridge::fprintf_wrapper(FILE* stream, const char* format, ...) {
 }
 
 int LibcBridge::vfprintf_wrapper(FILE* stream, const char* format, va_list ap) {
+    if (IsVirtual(stream)) return 0;
     return vfprintf(stream, format, ap);
 }
 
 int LibcBridge::fscanf_wrapper(FILE* stream, const char* format, ...) {
+    if (IsVirtual(stream)) return 0;
     va_list args;
     va_start(args, format);
     int ret = vfscanf(stream, format, args);
@@ -260,37 +345,14 @@ int LibcBridge::sprintf_wrapper(char* str, const char* format, ...) {
 // --- String & Memory Operations ---
 // ========================================================================
 
-char* LibcBridge::strchr_wrapper(const char* s, int c) {
-    return (char*)strchr(s, c);
-}
-
-char* LibcBridge::strrchr_wrapper(const char* s, int c) {
-    return (char*)strrchr(s, c);
-}
-
-char* LibcBridge::strstr_wrapper(const char* haystack, const char* needle) {
-    return (char*)strstr(haystack, needle);
-}
-
-void* LibcBridge::memchr_wrapper(const void* s, int c, size_t n) {
-    return (void*)memchr(s, c, n);
-}
-
-char* LibcBridge::strtok_r_wrapper(char* s, const char* delim, char** saveptr) {
-    return strtok_s(s, delim, saveptr);
-}
-
-char* LibcBridge::strncat_wrapper(char* dest, const char* src, size_t n) {
-    return strncat(dest, src, n);
-}
-
-char* LibcBridge::strncpy_wrapper(char* dest, const char* src, size_t n) {
-    return strncpy(dest, src, n);
-}
-
-char* LibcBridge::strerror_wrapper(int errnum) {
-    return strerror(errnum);
-}
+char* LibcBridge::strchr_wrapper(const char* s, int c) { return (char*)strchr(s, c); }
+char* LibcBridge::strrchr_wrapper(const char* s, int c) { return (char*)strrchr(s, c); }
+char* LibcBridge::strstr_wrapper(const char* haystack, const char* needle) { return (char*)strstr(haystack, needle); }
+void* LibcBridge::memchr_wrapper(const void* s, int c, size_t n) { return (void*)memchr(s, c, n); }
+char* LibcBridge::strtok_r_wrapper(char* s, const char* delim, char** saveptr) { return strtok_s(s, delim, saveptr); }
+char* LibcBridge::strncat_wrapper(char* dest, const char* src, size_t n) { return strncat(dest, src, n); }
+char* LibcBridge::strncpy_wrapper(char* dest, const char* src, size_t n) { return strncpy(dest, src, n); }
+char* LibcBridge::strerror_wrapper(int errnum) { return strerror(errnum); }
 
 char* LibcBridge::strdup_wrapper(const char* s) {
     if (!s) return nullptr;
@@ -300,29 +362,13 @@ char* LibcBridge::strdup_wrapper(const char* s) {
     return (char*)ptr;
 }
 
-int LibcBridge::strcasecmp_wrapper(const char* s1, const char* s2) {
-    return _stricmp(s1, s2);
-}
+int LibcBridge::strcasecmp_wrapper(const char* s1, const char* s2) { return _stricmp(s1, s2); }
+void* LibcBridge::memmove_wrapper(void* dest, const void* src, size_t n) { return memmove(dest, src, n); }
+int LibcBridge::strcoll_wrapper(const char* s1, const char* s2) { return strcoll(s1, s2); }
+size_t LibcBridge::strxfrm_wrapper(char* dest, const char* src, size_t n) { return strxfrm(dest, src, n); }
 
-void* LibcBridge::memmove_wrapper(void* dest, const void* src, size_t n) {
-    return memmove(dest, src, n);
-}
-
-int LibcBridge::strcoll_wrapper(const char* s1, const char* s2) {
-    return strcoll(s1, s2);
-}
-
-size_t LibcBridge::strxfrm_wrapper(char* dest, const char* src, size_t n) {
-    return strxfrm(dest, src, n);
-}
-
-void* LibcBridge::malloc_wrapper(size_t size) {
-    return _aligned_malloc(size, 16);
-}
-
-void LibcBridge::free_wrapper(void* ptr) {
-    _aligned_free(ptr);
-}
+void* LibcBridge::malloc_wrapper(size_t size) { return _aligned_malloc(size, 16); }
+void LibcBridge::free_wrapper(void* ptr) { _aligned_free(ptr); }
 
 void* LibcBridge::calloc_wrapper(size_t nmemb, size_t size) {
     size_t total = nmemb * size;
@@ -331,57 +377,37 @@ void* LibcBridge::calloc_wrapper(size_t nmemb, size_t size) {
     return ptr;
 }
 
-void* LibcBridge::realloc_wrapper(void* ptr, size_t size) {
-    return _aligned_realloc(ptr, size, 16);
-}
-
-void* LibcBridge::memalign_wrapper(size_t alignment, size_t size) {
-    return _aligned_malloc(size, alignment);
-}
+void* LibcBridge::realloc_wrapper(void* ptr, size_t size) { return _aligned_realloc(ptr, size, 16); }
+void* LibcBridge::memalign_wrapper(size_t alignment, size_t size) { return _aligned_malloc(size, alignment); }
 
 // ========================================================================
 // --- Path & Directory Management ---
 // ========================================================================
 
 char* LibcBridge::getcwd_wrapper(char* buf, size_t size) {
-    if (buf != nullptr) {
-        return _getcwd(buf, (int)size);
+    if (buf != nullptr) return _getcwd(buf, (int)size);
+    char* tmp = _getcwd(NULL, 0);
+    if (!tmp) return nullptr;
+    size_t len = strlen(tmp) + 1;
+    if (size > 0 && size < len) len = size;
+    char* aligned_ptr = (char*)_aligned_malloc(len, 16);
+    if (aligned_ptr) {
+        strncpy(aligned_ptr, tmp, len);
+        aligned_ptr[len - 1] = '\0';
     }
-    else {
-        char* tmp = _getcwd(NULL, 0);
-        if (!tmp) return nullptr;
-
-        size_t len = strlen(tmp) + 1;
-        if (size > 0 && size < len) len = size;
-
-        char* aligned_ptr = (char*)_aligned_malloc(len, 16);
-        if (aligned_ptr) {
-            strncpy(aligned_ptr, tmp, len);
-            aligned_ptr[len - 1] = '\0';
-        }
-
-        free(tmp);
-        return aligned_ptr;
-    }
+    free(tmp);
+    return aligned_ptr;
 }
 
 char* LibcBridge::realpath_wrapper(const char* path, char* resolved_path) {
     char winPath[MAX_PATH];
     ConvertPath(winPath, path, MAX_PATH);
-
-    if (resolved_path) {
-        return _fullpath(resolved_path, winPath, MAX_PATH);
-    }
-    else {
-        char buffer[MAX_PATH];
-        if (_fullpath(buffer, winPath, MAX_PATH)) {
-            size_t len = strlen(buffer) + 1;
-            void* ptr = _aligned_malloc(len, 16);
-            if (ptr) {
-                memcpy(ptr, buffer, len);
-                return (char*)ptr;
-            }
-        }
+    if (resolved_path) return _fullpath(resolved_path, winPath, MAX_PATH);
+    char buffer[MAX_PATH];
+    if (_fullpath(buffer, winPath, MAX_PATH)) {
+        size_t len = strlen(buffer) + 1;
+        void* ptr = _aligned_malloc(len, 16);
+        if (ptr) { memcpy(ptr, buffer, len); return (char*)ptr; }
     }
     return nullptr;
 }
@@ -396,70 +422,39 @@ int LibcBridge::utime_wrapper(const char* filename, const void* times) {
     return _utime(winPath, (struct _utimbuf*)times);
 }
 
-size_t LibcBridge::strftime_wrapper(char* s, size_t max, const char* format, const struct tm* tm) {
-    return strftime(s, max, format, tm);
-}
-
-struct tm* LibcBridge::localtime_wrapper(const time_t* timep) {
-    return localtime(timep);
-}
-
-time_t LibcBridge::mktime_wrapper(struct tm* tm) {
-    return mktime(tm);
-}
+size_t LibcBridge::strftime_wrapper(char* s, size_t max, const char* format, const struct tm* tm) { return strftime(s, max, format, tm); }
+struct tm* LibcBridge::localtime_wrapper(const time_t* timep) { return localtime(timep); }
+time_t LibcBridge::mktime_wrapper(struct tm* tm) { return mktime(tm); }
 
 int LibcBridge::nanosleep_wrapper(const struct timespec* req, struct timespec* rem) {
-    if (req) {
-        DWORD ms = req->tv_sec * 1000 + (req->tv_nsec / 1000000);
-        Sleep(ms);
-    }
+    if (req) { DWORD ms = req->tv_sec * 1000 + (req->tv_nsec / 1000000); Sleep(ms); }
     return 0;
 }
 
 int LibcBridge::settimeofday_wrapper(const struct timeval* tv, const void* tz) {
     if (!tv) return -1;
-
     FILETIME ft;
-    unsigned __int64 ticks = (unsigned __int64)tv->tv_sec * 10000000ULL +
-        (unsigned __int64)tv->tv_usec * 10ULL +
-        116444736000000000ULL;
-    ft.dwLowDateTime = (DWORD)ticks;
-    ft.dwHighDateTime = (DWORD)(ticks >> 32);
-
+    unsigned __int64 ticks = (unsigned __int64)tv->tv_sec * 10000000ULL + (unsigned __int64)tv->tv_usec * 10ULL + 116444736000000000ULL;
+    ft.dwLowDateTime = (DWORD)ticks; ft.dwHighDateTime = (DWORD)(ticks >> 32);
     SYSTEMTIME st;
-    if (FileTimeToSystemTime(&ft, &st)) {
-        return SetSystemTime(&st) ? 0 : -1;
-    }
+    if (FileTimeToSystemTime(&ft, &st)) return SetSystemTime(&st) ? 0 : -1;
     return -1;
 }
 
 int LibcBridge::gettimeofday_wrapper(struct timeval* tv, void* tz) {
     if (tv) {
-        FILETIME ft;
-        GetSystemTimeAsFileTime(&ft);
+        FILETIME ft; GetSystemTimeAsFileTime(&ft);
         unsigned __int64 t = (unsigned __int64)ft.dwHighDateTime << 32 | ft.dwLowDateTime;
-        t -= 116444736000000000ULL;
-        t /= 10;
-        tv->tv_sec = (long)(t / 1000000);
-        tv->tv_usec = (long)(t % 1000000);
+        t -= 116444736000000000ULL; t /= 10;
+        tv->tv_sec = (long)(t / 1000000); tv->tv_usec = (long)(t % 1000000);
     }
     return 0;
 }
 
-int LibcBridge::usleep_wrapper(unsigned int usec) {
-    Sleep(usec / 1000);
-    return 0;
-}
-
-unsigned int LibcBridge::sleep_wrapper(unsigned int seconds) {
-    Sleep(seconds * 1000);
-    return 0;
-}
-
+int LibcBridge::usleep_wrapper(unsigned int usec) { Sleep(usec / 1000); return 0; }
+unsigned int LibcBridge::sleep_wrapper(unsigned int seconds) { Sleep(seconds * 1000); return 0; }
 struct tm* LibcBridge::localtime_r_wrapper(const time_t* timep, struct tm* result) {
-    if (localtime_s(result, timep) == 0) {
-        return result;
-    }
+    if (localtime_s(result, timep) == 0) return result;
     return nullptr;
 }
 
@@ -467,42 +462,14 @@ struct tm* LibcBridge::localtime_r_wrapper(const time_t* timep, struct tm* resul
 // --- Standard Library & System ---
 // ========================================================================
 
-int LibcBridge::rand_wrapper() {
-    return rand();
-}
-
-void LibcBridge::srand_wrapper(unsigned int seed) {
-    srand(seed);
-}
-
-char* LibcBridge::getenv_wrapper(const char* name) {
-    return getenv(name);
-}
-
-int LibcBridge::system_wrapper(const char* command) {
-    log_debug("system(\"%s\")", command);
-    return system(command);
-}
-
-void LibcBridge::abort_wrapper() {
-    log_fatal("abort() called!");
-    abort();
-}
-
-int LibcBridge::raise_wrapper(int sig) {
-    log_warn("raise(%d) called", sig);
-    return raise(sig);
-}
-
-void LibcBridge::_exit_wrapper(int status) {
-    log_info("_exit(%d)", status);
-    _exit(status);
-}
-
-void LibcBridge::exit_wrapper(int status) {
-    log_info("exit(%d)", status);
-    exit(status);
-}
+int LibcBridge::rand_wrapper() { return rand(); }
+void LibcBridge::srand_wrapper(unsigned int seed) { srand(seed); }
+char* LibcBridge::getenv_wrapper(const char* name) { return getenv(name); }
+int LibcBridge::system_wrapper(const char* command) { log_debug("system(\"%s\")", command); return system(command); }
+void LibcBridge::abort_wrapper() { log_fatal("abort() called!"); abort(); }
+int LibcBridge::raise_wrapper(int sig) { log_warn("raise(%d) called", sig); return raise(sig); }
+void LibcBridge::_exit_wrapper(int status) { log_info("_exit(%d)", status); _exit(status); }
+void LibcBridge::exit_wrapper(int status) { log_info("exit(%d)", status); exit(status); }
 
 struct linux_stat {
     uint32_t st_dev; uint16_t __pad1; uint32_t st_ino; uint32_t st_mode;
@@ -516,15 +483,11 @@ struct linux_stat {
 int LibcBridge::fxstat_wrapper(int ver, int fd, void* stat_buf) {
     struct _stat64 st;
     if (_fstat64(fd, &st) != 0) return -1;
-
     struct linux_stat* ls = (struct linux_stat*)stat_buf;
     memset(ls, 0, sizeof(linux_stat));
-    ls->st_mode = (uint32_t)st.st_mode;
-    ls->st_size = (uint32_t)st.st_size;
-    ls->st_atime = (uint32_t)st.st_atime;
-    ls->st_mtime = (uint32_t)st.st_mtime;
-    ls->st_ctime = (uint32_t)st.st_ctime;
-    ls->st_nlink = (uint32_t)st.st_nlink;
+    ls->st_mode = (uint32_t)st.st_mode; ls->st_size = (uint32_t)st.st_size;
+    ls->st_atime = (uint32_t)st.st_atime; ls->st_mtime = (uint32_t)st.st_mtime;
+    ls->st_ctime = (uint32_t)st.st_ctime; ls->st_nlink = (uint32_t)st.st_nlink;
     return 0;
 }
 
@@ -542,26 +505,16 @@ int LibcBridge::inet_aton_wrapper(const char* cp, struct in_addr* inp) {
 int LibcBridge::gethostbyname_r_wrapper(const char* name, void* ret, char* buf, size_t buflen, void** result, int* h_errnop) {
     std::lock_guard<std::mutex> lock(g_net_mutex);
     struct hostent* he = gethostbyname(name);
-    if (!he) {
-        if (h_errnop) *h_errnop = h_errno;
-        *result = nullptr;
-        return -1;
-    }
-    memcpy(ret, he, sizeof(struct hostent));
-    *result = ret;
+    if (!he) { if (h_errnop) *h_errnop = h_errno; *result = nullptr; return -1; }
+    memcpy(ret, he, sizeof(struct hostent)); *result = ret;
     return 0;
 }
 
 int LibcBridge::gethostbyaddr_r_wrapper(const void* addr, int len, int type, void* ret, char* buf, size_t buflen, void** result, int* h_errnop) {
     std::lock_guard<std::mutex> lock(g_net_mutex);
     struct hostent* he = gethostbyaddr((const char*)addr, len, type);
-    if (!he) {
-        if (h_errnop) *h_errnop = h_errno;
-        *result = nullptr;
-        return -1;
-    }
-    memcpy(ret, he, sizeof(struct hostent));
-    *result = ret;
+    if (!he) { if (h_errnop) *h_errnop = h_errno; *result = nullptr; return -1; }
+    memcpy(ret, he, sizeof(struct hostent)); *result = ret;
     return 0;
 }
 
@@ -569,89 +522,27 @@ int LibcBridge::gethostbyaddr_r_wrapper(const void* addr, int len, int type, voi
 // --- Locale & Wide Character Support ---
 // ========================================================================
 
-char* LibcBridge::setlocale_wrapper(int category, const char* locale) {
-    return setlocale(category, locale);
-}
-
-wint_t LibcBridge::btowc_wrapper(int c) {
-    return btowc(c);
-}
-
-int LibcBridge::wctob_wrapper(wint_t c) {
-    return wctob(c);
-}
-
-size_t LibcBridge::mbrtowc_wrapper(wchar_t* pwc, const char* s, size_t n, mbstate_t* ps) {
-    return mbrtowc(pwc, s, n, ps);
-}
-
-size_t LibcBridge::wcrtomb_wrapper(char* s, wchar_t wc, mbstate_t* ps) {
-    return wcrtomb(s, wc, ps);
-}
-
-wint_t LibcBridge::getwc_wrapper(FILE* stream) {
-    return getwc(stream);
-}
-
-wint_t LibcBridge::putwc_wrapper(wchar_t wc, FILE* stream) {
-    return putwc(wc, stream);
-}
-
-wint_t LibcBridge::ungetwc_wrapper(wint_t wc, FILE* stream) {
-    return ungetwc(wc, stream);
-}
-
-size_t LibcBridge::wcslen_wrapper(const wchar_t* s) {
-    return wcslen(s);
-}
-
-wchar_t* LibcBridge::wmemcpy_wrapper(wchar_t* dest, const wchar_t* src, size_t n) {
-    return wmemcpy(dest, src, n);
-}
-
-wchar_t* LibcBridge::wmemmove_wrapper(wchar_t* dest, const wchar_t* src, size_t n) {
-    return wmemmove(dest, src, n);
-}
-
-wchar_t* LibcBridge::wmemset_wrapper(wchar_t* wcs, wchar_t wc, size_t n) {
-    return wmemset(wcs, wc, n);
-}
-
-wchar_t* LibcBridge::wmemchr_wrapper(const wchar_t* wcs, wchar_t wc, size_t n) {
-    return (wchar_t*)wmemchr(wcs, wc, n);
-}
-
-int LibcBridge::wmemcmp_wrapper(const wchar_t* s1, const wchar_t* s2, size_t n) {
-    return wmemcmp(s1, s2, n);
-}
-
-int LibcBridge::wcscoll_wrapper(const wchar_t* s1, const wchar_t* s2) {
-    return wcscoll(s1, s2);
-}
-
-size_t LibcBridge::wcsxfrm_wrapper(wchar_t* dest, const wchar_t* src, size_t n) {
-    return wcsxfrm(dest, src, n);
-}
-
-size_t LibcBridge::wcsftime_wrapper(wchar_t* wcs, size_t maxsize, const wchar_t* format, const struct tm* tm) {
-    return wcsftime(wcs, maxsize, format, tm);
-}
-
-int LibcBridge::tolower_wrapper(int c) {
-    return tolower(c);
-}
-
-int LibcBridge::toupper_wrapper(int c) {
-    return toupper(c);
-}
-
-wint_t LibcBridge::towlower_wrapper(wint_t wc) {
-    return towlower(wc);
-}
-
-wint_t LibcBridge::towupper_wrapper(wint_t wc) {
-    return towupper(wc);
-}
+char* LibcBridge::setlocale_wrapper(int category, const char* locale) { return setlocale(category, locale); }
+wint_t LibcBridge::btowc_wrapper(int c) { return btowc(c); }
+int LibcBridge::wctob_wrapper(wint_t c) { return wctob(c); }
+size_t LibcBridge::mbrtowc_wrapper(wchar_t* pwc, const char* s, size_t n, mbstate_t* ps) { return mbrtowc(pwc, s, n, ps); }
+size_t LibcBridge::wcrtomb_wrapper(char* s, wchar_t wc, mbstate_t* ps) { return wcrtomb(s, wc, ps); }
+wint_t LibcBridge::getwc_wrapper(FILE* stream) { return getwc(stream); }
+wint_t LibcBridge::putwc_wrapper(wchar_t wc, FILE* stream) { return putwc(wc, stream); }
+wint_t LibcBridge::ungetwc_wrapper(wint_t wc, FILE* stream) { return ungetwc(wc, stream); }
+size_t LibcBridge::wcslen_wrapper(const wchar_t* s) { return wcslen(s); }
+wchar_t* LibcBridge::wmemcpy_wrapper(wchar_t* dest, const wchar_t* src, size_t n) { return wmemcpy(dest, src, n); }
+wchar_t* LibcBridge::wmemmove_wrapper(wchar_t* dest, const wchar_t* src, size_t n) { return wmemmove(dest, src, n); }
+wchar_t* LibcBridge::wmemset_wrapper(wchar_t* wcs, wchar_t wc, size_t n) { return wmemset(wcs, wc, n); }
+wchar_t* LibcBridge::wmemchr_wrapper(const wchar_t* wcs, wchar_t wc, size_t n) { return (wchar_t*)wmemchr(wcs, wc, n); }
+int LibcBridge::wmemcmp_wrapper(const wchar_t* s1, const wchar_t* s2, size_t n) { return wmemcmp(s1, s2, n); }
+int LibcBridge::wcscoll_wrapper(const wchar_t* s1, const wchar_t* s2) { return wcscoll(s1, s2); }
+size_t LibcBridge::wcsxfrm_wrapper(wchar_t* dest, const wchar_t* src, size_t n) { return wcsxfrm(dest, src, n); }
+size_t LibcBridge::wcsftime_wrapper(wchar_t* wcs, size_t maxsize, const wchar_t* format, const struct tm* tm) { return wcsftime(wcs, maxsize, format, tm); }
+int LibcBridge::tolower_wrapper(int c) { return tolower(c); }
+int LibcBridge::toupper_wrapper(int c) { return toupper(c); }
+wint_t LibcBridge::towlower_wrapper(wint_t wc) { return towlower(wc); }
+wint_t LibcBridge::towupper_wrapper(wint_t wc) { return towupper(wc); }
 
 wctype_t LibcBridge::wctype_wrapper(const char* property) {
     if (strcmp(property, "alnum") == 0) return _ALPHA | _DIGIT;
@@ -668,6 +559,4 @@ wctype_t LibcBridge::wctype_wrapper(const char* property) {
     return 0;
 }
 
-int LibcBridge::iswctype_wrapper(wint_t wc, wctype_t desc) {
-    return iswctype(wc, desc);
-}
+int LibcBridge::iswctype_wrapper(wint_t wc, wctype_t desc) { return iswctype(wc, desc); }

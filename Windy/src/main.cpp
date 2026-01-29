@@ -2,6 +2,8 @@
 #include "core/SymbolResolver.h"
 #include "core/LinuxStack.h"
 #include "core/log.h"
+#include "hardware/lindberghdevice.h"
+
 #include <iostream>
 #include <windows.h>
 #include <objbase.h>
@@ -11,8 +13,8 @@ static const char* DEFAULT_ARGV0 = "id5.elf";
 
 int main(int argc, char* argv[]) {
 
-    // Initialize logging system first
-    logInit();
+    // Initialize logging system
+    logInit(); // camelCase as defined in src/core/log.h
 
     log_info("==============================================");
     log_info("   Windy - Lindbergh Loader for Windows");
@@ -27,6 +29,19 @@ int main(int argc, char* argv[]) {
     else {
         log_debug("COM initialized successfully");
     }
+
+    // Hardware Initialization
+    log_info("Initializing Lindbergh Hardware...");
+    if (!LindberghDevice::Instance().Init()) {
+        log_fatal("Failed to initialize Lindbergh Device/Hardware.");
+        system("pause");
+        return 1;
+    }
+
+    // Configure Hardware Defaults
+    // Note: EepromBoard methods are void, so no return check needed
+    LindberghDevice::Instance().GetEepromBoard()->SetFreeplay(true);
+    LindberghDevice::Instance().GetEepromBoard()->SetRegion(1); // US Region
 
     if (argc < 2) {
         log_error("No ELF file path specified.");
@@ -46,7 +61,7 @@ int main(int argc, char* argv[]) {
 
     log_info("ELF loaded successfully, resolving symbols...");
 
-    // Perform dynamic linking (GOT patching)
+    // Resolve Symbols
     SymbolResolver::ResolveAll(
         loader.GetJmpRel(),
         loader.GetSymTab(),
@@ -56,14 +71,14 @@ int main(int argc, char* argv[]) {
 
     log_info("Symbol resolution complete.");
 
-    // Prepare Linux-style stack
+    // Setup Stack
     uint32_t finalEsp = LinuxStack::Setup(STACK_SIZE, DEFAULT_ARGV0);
     uint32_t entry = loader.GetHeader().e_entry;
 
     log_info("Jumping to ELF entry point: 0x%08X", entry);
     log_info("==============================================");
 
-    // Switch stack and jump to ELF entry
+    // Jump to Game
     __asm {
         mov esp, finalEsp
         xor eax, eax
@@ -73,5 +88,6 @@ int main(int argc, char* argv[]) {
         jmp entry
     }
 
+    LindberghDevice::Instance().Cleanup();
     return 0;
 }

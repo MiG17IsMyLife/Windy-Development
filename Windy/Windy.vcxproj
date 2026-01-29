@@ -37,6 +37,8 @@
     <ClCompile Include="src\hardware\baseboard.cpp" />
     <ClCompile Include="src\hardware\eepromboard.cpp" />
     <ClCompile Include="src\hardware\jvsboard.cpp" />
+    <ClCompile Include="src\hardware\lindberghdevice.cpp" />
+    <ClCompile Include="src\hardware\securityboard.cpp" />
     <ClCompile Include="src\hardware\serialboard.cpp" />
     <ClCompile Include="src\main.cpp" />
   </ItemGroup>
@@ -62,6 +64,8 @@
     <ClInclude Include="src\hardware\eepromboard.h" />
     <ClInclude Include="src\hardware\jvsboard.h" />
     <ClInclude Include="src\hardware\lindberghdevice.h" />
+    <ClInclude Include="src\hardware\pciData.h" />
+    <ClInclude Include="src\hardware\securityboard.h" />
     <ClInclude Include="src\hardware\serialboard.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">

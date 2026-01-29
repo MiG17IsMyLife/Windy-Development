@@ -1,14 +1,18 @@
 #pragma once
-#include "LindberghDevice.h"
 
-class SerialBoard : public LindberghDevice {
+#include <stdint.h>
+#include <stddef.h>
+
+class SerialBoard {
 public:
     SerialBoard();
-    virtual ~SerialBoard();
+    ~SerialBoard();
 
-    bool Open() override;
-    void Close() override;
-    int Read(void* buf, size_t count) override;
-    int Write(const void* buf, size_t count) override;
-    int Ioctl(unsigned long request, void* data) override;
+    bool Open();
+    void Close();
+    int Ioctl(unsigned long request, void* data);
+    int Read(void* buf, size_t count);
+    int Write(const void* buf, size_t count);
+
+private:
 };
