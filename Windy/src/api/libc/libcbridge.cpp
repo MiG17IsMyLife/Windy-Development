@@ -3,7 +3,7 @@
 
 #include "LibcBridge.h"
 #include "../linux/HardwareBridge.h"
-#include "../../hardware/lindberghdevice.h" // 追加: 仮想デバイス制御用
+#include "../../hardware/lindberghdevice.h"
 #include "../src/core/log.h"
 #include <iostream>
 #include <vector>
@@ -17,9 +17,7 @@
 #include <mutex>
 #include <stdarg.h>
 
-// --- Virtual File Pointer Logic (Sentinel approach) ---
-// Windows CRT(ucrtbased.dll)のチェックを回避するため、
-// 仮想FDには最上位ビット(0x80000000)を立てた偽のポインタを使用します。
+// --- Virtual File Pointer Logic ---
 #define VFILE_SENTINEL 0x80000000
 
 static bool IsVirtual(FILE* f) {
@@ -52,7 +50,6 @@ static std::mutex g_net_mutex;
 // ========================================================================
 
 FILE* LibcBridge::fopen_wrapper(const char* filename, const char* mode) {
-    // 1. まず LindberghDevice を通して仮想デバイス（PCI/LBB等）としてハンドル
     int linux_flags = 0;
     if (strchr(mode, 'r')) linux_flags = 0; // O_RDONLY
     if (strchr(mode, 'w')) linux_flags = 1; // O_WRONLY
@@ -62,11 +59,9 @@ FILE* LibcBridge::fopen_wrapper(const char* filename, const char* mode) {
 
     if (fd >= 0) {
         log_debug("LibcBridge: fopen mapped to Virtual FD %d for path: %s", fd, filename);
-        // CRTに渡すとクラッシュするため、独自のセンチネルポインタを返す
         return ToVPtr(fd);
     }
 
-    // 2. 仮想デバイスでなければ、通常のホストファイルとして開く
     char winPath[MAX_PATH];
     ConvertPath(winPath, filename, MAX_PATH);
     FILE* f = fopen(winPath, mode);

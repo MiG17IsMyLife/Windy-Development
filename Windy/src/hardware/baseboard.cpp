@@ -9,7 +9,6 @@
 
 #define SERIAL_STRING "FE11-X018012022X"
 
-// lindbergh-loader の構造体定義に準拠
 typedef struct {
     uint32_t* data;
     uint32_t offset;
@@ -44,7 +43,6 @@ BaseBoard::~BaseBoard() {
 bool BaseBoard::Open() {
     log_info("BaseBoard: Initializing (SRAM: %s)", m_sramPath);
 
-    // ファイルが存在しない場合は作成
     m_sramFile = fopen(m_sramPath, "a");
     if (m_sramFile == nullptr) {
         log_error("BaseBoard: Cannot open %s", m_sramPath);
@@ -52,7 +50,6 @@ bool BaseBoard::Open() {
     }
     fclose(m_sramFile);
 
-    // 読み書きモードで開き直し
     m_sramFile = fopen(m_sramPath, "rb+");
     if (!m_sramFile) return false;
     fseek(m_sramFile, 0, SEEK_SET);
@@ -62,7 +59,6 @@ bool BaseBoard::Open() {
 }
 
 void BaseBoard::UpdateSerialString() {
-    // initBaseboard() の誕生日ロジックを移植
     time_t t = time(NULL);
     struct tm* tm_info = localtime(&t);
     int month = tm_info->tm_mon + 1;
@@ -83,13 +79,11 @@ void BaseBoard::Close() {
 }
 
 int BaseBoard::Read(void* buf, size_t count) {
-    // baseboardRead() を移植
     memcpy(buf, &m_sharedMemory[m_sharedMemoryIndex], count);
     return (int)count;
 }
 
 int BaseBoard::Write(const void* buf, size_t count) {
-    // baseboardWrite() を移植
     memcpy(&m_sharedMemory[m_sharedMemoryIndex], buf, count);
     return (int)count;
 }
@@ -106,11 +100,11 @@ int BaseBoard::Ioctl(unsigned long request, void* data) {
         return 0;
 
     case BASEBOARD_READY:
-        m_selectReply = 0; // selectReply を 0 に設定
+        m_selectReply = 0;
         return 0;
 
     case BASEBOARD_SEEK_SHM:
-        // 引数 data を直接インデックス値として使用
+
         m_sharedMemoryIndex = (unsigned int)(uintptr_t)data;
         return 0;
 
@@ -152,7 +146,7 @@ int BaseBoard::Ioctl(unsigned long request, void* data) {
             break;
 
         case BASEBOARD_GET_SENSE_LINE:
-            // リクエスト段階では特に処理なし
+
             break;
 
         case BASEBOARD_WRITE_FLASH:
@@ -163,7 +157,6 @@ int BaseBoard::Ioctl(unsigned long request, void* data) {
             log_warn("BaseBoard: Unknown command %X", _data[0]);
             break;
         }
-        // コマンド受理を示す ACK ビットをセット
         _data[0] |= 0xF0000000;
         return 0;
     }
@@ -172,26 +165,23 @@ int BaseBoard::Ioctl(unsigned long request, void* data) {
         uint32_t* _data = (uint32_t*)data;
         switch (_data[0] & 0xFFF) {
         case BASEBOARD_GET_SERIAL:
-            // シリアル文字列を共有メモリにコピー
             if (m_serialCommand.destAddress + 96 + strlen(m_serialString) <= sizeof(m_sharedMemory)) {
                 memcpy(&m_sharedMemory[m_serialCommand.destAddress + 96], m_serialString, strlen(m_serialString));
             }
-            _data[1] = 1; // ステータスを成功に設定
+            _data[1] = 1;
             break;
 
         case BASEBOARD_GET_SENSE_LINE:
-            // JvsBoard からセンスラインの状態を取得して返却
             _data[2] = m_jvsBoard ? m_jvsBoard->GetSenseLine() : 3;
-            _data[1] = 1; // ステータスを成功に設定
+            _data[1] = 1;
             break;
 
         case BASEBOARD_PROCESS_JVS:
-            // JVS 出力パケットを共有メモリに書き戻し
             if (m_jvsCommand.destAddress + m_jvsPacketSize <= sizeof(m_sharedMemory)) {
                 memcpy(&m_sharedMemory[m_jvsCommand.destAddress], m_outputBuffer, m_jvsPacketSize);
                 _data[2] = m_jvsCommand.destAddress;
                 _data[3] = m_jvsPacketSize;
-                _data[1] = 1; // ステータスを成功に設定
+                _data[1] = 1;
             }
             break;
 
@@ -199,7 +189,6 @@ int BaseBoard::Ioctl(unsigned long request, void* data) {
             log_warn("BaseBoard: Unknown receive command %X", _data[0] & 0xFFF);
             break;
         }
-        // 受信完了を示す ACK ビットをセット
         _data[0] |= 0xF0000000;
         return 0;
     }

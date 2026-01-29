@@ -5,6 +5,15 @@
 
 #include "pciData.h"
 
+// ========================================================================
+// --- PCI Configuration Space Ports ---
+// ========================================================================
+#define PCI_CONFIG_ADDRESS  0x0CF8
+#define PCI_CONFIG_DATA     0x0CFC
+
+// Static PCI address register (shared state)
+static uint32_t g_pciConfigAddress = 0;
+
 LindberghDevice& LindberghDevice::Instance() {
     static LindberghDevice instance;
     return instance;
@@ -43,6 +52,9 @@ bool LindberghDevice::Init() {
     if (!m_serialBoard.Open()) {
         log_warn("LindberghDevice: Failed to open Serial Board");
     }
+
+    // 5. Security Board (DIP switches for resolution)
+    m_securityBoard.SetDipResolution(1360, 768);
 
     log_info("LindberghDevice: Hardware Initialized.");
     return true;
@@ -165,35 +177,243 @@ long LindberghDevice::Tell(int fd) {
 // ========================================================================
 
 int LindberghDevice::PortRead(uint16_t port, uint32_t* data) {
-    // 診断用ログ
-    log_debug("PortRead: Port 0x%04X", port);
+    *data = 0xFFFFFFFF; // Default: all bits high (typical for non-existent hardware)
 
-    // 1. Security Board
-    if (port == 0x38 || port == 0x1038) {
-        return m_securityBoard.In(port, data);
-    }
+    switch (port) {
+        // ====================================================================
+        // PCI Configuration Space Access
+        // ====================================================================
+    case PCI_CONFIG_ADDRESS:
+        *data = g_pciConfigAddress;
+        log_trace("PortRead: PCI_CONFIG_ADDRESS -> 0x%08X", *data);
+        return 0;
 
-    // 2. クラッシュが発生していたポート 0x2C (Intel チップセット関連)
-    if (port == 0x2C) {
-        *data = 0x00000000; // 暫定的に 0 を返す
+    case PCI_CONFIG_DATA:
+    case PCI_CONFIG_DATA + 1:
+    case PCI_CONFIG_DATA + 2:
+    case PCI_CONFIG_DATA + 3:
+    {
+        // Extract bus/device/function/register from the address
+        int offset = port - PCI_CONFIG_DATA;
+        int reg = (g_pciConfigAddress & 0xFC) + offset;
+        int func = (g_pciConfigAddress >> 8) & 0x07;
+        int dev = (g_pciConfigAddress >> 11) & 0x1F;
+        int bus = (g_pciConfigAddress >> 16) & 0xFF;
+        bool enabled = (g_pciConfigAddress & 0x80000000) != 0;
+
+        *data = 0xFFFFFFFF;
+
+        if (enabled) {
+            if (bus == 0 && dev == 0x1F && func == 0) {
+                // ICH (LPC Controller) - 00:1f.0
+                if (reg < (int)sizeof(pci_1f0)) {
+                    *data = 0;
+                    memcpy(data, &pci_1f0[reg], 4);
+                }
+            }
+            else if (bus == 0 && dev == 0 && func == 0) {
+                // Host Bridge - 00:00.0
+                if (reg < (int)sizeof(pci_000)) {
+                    *data = 0;
+                    memcpy(data, &pci_000[reg], 4);
+                }
+            }
+            log_trace("PortRead: PCI Config [%02X:%02X.%X] reg=0x%02X -> 0x%08X",
+                bus, dev, func, reg, *data);
+        }
         return 0;
     }
 
-    // 3. その他、よく使われるポートへのダミー応答
-    // 不明なポートは 0xFFFFFFFF (未接続) を返してフリーズを防ぐ
-    *data = 0xFFFFFFFF;
-    return 0;
+    // ====================================================================
+    // Security Board (DIP Switches / Front Panel)
+    // ====================================================================
+    case 0x38:
+    case 0x1038:
+        m_securityBoard.In(port, data);
+        log_trace("PortRead: SecurityBoard port=0x%04X -> 0x%08X", port, *data);
+        return 0;
+
+        // ====================================================================
+        // LPC / ICH Related Ports (Intel Chipset)
+        // ====================================================================
+    case 0x2C:  // LPC Decode Range Register / Super I/O Index
+    case 0x2D:  // Super I/O Data
+    case 0x2E:  // Super I/O Config Index
+    case 0x2F:  // Super I/O Config Data
+        *data = 0x00;
+        log_trace("PortRead: LPC/SuperIO port=0x%04X -> 0x%08X", port, *data);
+        return 0;
+
+        // ====================================================================
+        // DMA Controller Ports (often accessed during init)
+        // ====================================================================
+    case 0x00: case 0x01: case 0x02: case 0x03:
+    case 0x04: case 0x05: case 0x06: case 0x07:
+    case 0x08: case 0x09: case 0x0A: case 0x0B:
+    case 0x0C: case 0x0D: case 0x0E: case 0x0F:
+    case 0xC0: case 0xC2: case 0xC4: case 0xC6:
+    case 0xC8: case 0xCA: case 0xCC: case 0xCE:
+    case 0xD0: case 0xD2: case 0xD4: case 0xD6:
+    case 0xD8: case 0xDA: case 0xDC: case 0xDE:
+        *data = 0x00;
+        log_trace("PortRead: DMA port=0x%04X -> 0x%08X", port, *data);
+        return 0;
+
+        // ====================================================================
+        // PIC (Programmable Interrupt Controller)
+        // ====================================================================
+    case 0x20: case 0x21:  // Master PIC
+    case 0xA0: case 0xA1:  // Slave PIC
+        *data = 0x00;
+        log_trace("PortRead: PIC port=0x%04X -> 0x%08X", port, *data);
+        return 0;
+
+        // ====================================================================
+        // PIT (Programmable Interval Timer)
+        // ====================================================================
+    case 0x40: case 0x41: case 0x42: case 0x43:
+        *data = 0x00;
+        log_trace("PortRead: PIT port=0x%04X -> 0x%08X", port, *data);
+        return 0;
+
+        // ====================================================================
+        // RTC (Real Time Clock) / CMOS
+        // ====================================================================
+    case 0x70: case 0x71:
+    case 0x72: case 0x73:
+        *data = 0x00;
+        log_trace("PortRead: RTC/CMOS port=0x%04X -> 0x%08X", port, *data);
+        return 0;
+
+        // ====================================================================
+        // PS/2 Controller
+        // ====================================================================
+    case 0x60: case 0x64:
+        *data = 0x00;
+        log_trace("PortRead: PS/2 port=0x%04X -> 0x%08X", port, *data);
+        return 0;
+
+        // ====================================================================
+        // ISA Bridge / Other Legacy Ports
+        // ====================================================================
+    case 0x61:  // System Control Port B
+        *data = 0x00;
+        log_trace("PortRead: System Control B -> 0x%08X", *data);
+        return 0;
+
+    case 0x80:  // POST Diagnostic Port
+        *data = 0x00;
+        return 0;
+
+        // ====================================================================
+        // Default: Unknown Port
+        // ====================================================================
+    default:
+        // Only log unknown ports at debug level to avoid spam
+        log_debug("PortRead: Unknown port=0x%04X -> 0x%08X (default)", port, *data);
+        return 0;
+    }
 }
 
 int LindberghDevice::PortWrite(uint16_t port, uint32_t data) {
-    log_debug("PortWrite: Port 0x%04X, Data 0x%08X", port, data);
+    switch (port) {
+        // ====================================================================
+        // PCI Configuration Space Access
+        // ====================================================================
+    case PCI_CONFIG_ADDRESS:
+        g_pciConfigAddress = data;
+        log_trace("PortWrite: PCI_CONFIG_ADDRESS <- 0x%08X", data);
+        return 0;
 
-    // Security Board
-    if (port == 0x38 || port == 0x1038) {
-        return m_securityBoard.Out(port, &data);
+    case PCI_CONFIG_DATA:
+    case PCI_CONFIG_DATA + 1:
+    case PCI_CONFIG_DATA + 2:
+    case PCI_CONFIG_DATA + 3:
+        // PCI config writes are typically ignored in emulation
+        log_trace("PortWrite: PCI_CONFIG_DATA port=0x%04X <- 0x%08X (ignored)", port, data);
+        return 0;
+
+        // ====================================================================
+        // Security Board
+        // ====================================================================
+    case 0x38:
+    case 0x1038:
+        m_securityBoard.Out(port, &data);
+        log_trace("PortWrite: SecurityBoard port=0x%04X <- 0x%08X", port, data);
+        return 0;
+
+        // ====================================================================
+        // LPC / Super I/O
+        // ====================================================================
+    case 0x2C:
+    case 0x2D:
+    case 0x2E:
+    case 0x2F:
+        log_trace("PortWrite: LPC/SuperIO port=0x%04X <- 0x%08X (ignored)", port, data);
+        return 0;
+
+        // ====================================================================
+        // DMA Controller
+        // ====================================================================
+    case 0x00: case 0x01: case 0x02: case 0x03:
+    case 0x04: case 0x05: case 0x06: case 0x07:
+    case 0x08: case 0x09: case 0x0A: case 0x0B:
+    case 0x0C: case 0x0D: case 0x0E: case 0x0F:
+    case 0xC0: case 0xC2: case 0xC4: case 0xC6:
+    case 0xC8: case 0xCA: case 0xCC: case 0xCE:
+    case 0xD0: case 0xD2: case 0xD4: case 0xD6:
+    case 0xD8: case 0xDA: case 0xDC: case 0xDE:
+        log_trace("PortWrite: DMA port=0x%04X <- 0x%08X", port, data);
+        return 0;
+
+        // ====================================================================
+        // PIC
+        // ====================================================================
+    case 0x20: case 0x21:
+    case 0xA0: case 0xA1:
+        log_trace("PortWrite: PIC port=0x%04X <- 0x%08X", port, data);
+        return 0;
+
+        // ====================================================================
+        // PIT
+        // ====================================================================
+    case 0x40: case 0x41: case 0x42: case 0x43:
+        log_trace("PortWrite: PIT port=0x%04X <- 0x%08X", port, data);
+        return 0;
+
+        // ====================================================================
+        // RTC / CMOS
+        // ====================================================================
+    case 0x70: case 0x71:
+    case 0x72: case 0x73:
+        log_trace("PortWrite: RTC/CMOS port=0x%04X <- 0x%08X", port, data);
+        return 0;
+
+        // ====================================================================
+        // PS/2 Controller
+        // ====================================================================
+    case 0x60: case 0x64:
+        log_trace("PortWrite: PS/2 port=0x%04X <- 0x%08X", port, data);
+        return 0;
+
+        // ====================================================================
+        // System Control / POST
+        // ====================================================================
+    case 0x61:
+        log_trace("PortWrite: System Control B <- 0x%08X", data);
+        return 0;
+
+    case 0x80:  // POST code - useful for debugging
+        log_trace("PortWrite: POST code <- 0x%02X", data & 0xFF);
+        return 0;
+
+        // ====================================================================
+        // Default
+        // ====================================================================
+    default:
+        log_debug("PortWrite: Unknown port=0x%04X <- 0x%08X", port, data);
+        return 0;
     }
-
-    return 0;
 }
 
 int LindberghDevice::Write(int fd, const void* buf, size_t count) {

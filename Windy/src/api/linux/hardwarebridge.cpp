@@ -18,6 +18,9 @@
 #define LINUX_O_TRUNC     01000
 #define LINUX_O_APPEND    02000
 
+// VEH Handle for cleanup
+static PVOID g_vehHandle = nullptr;
+
 static int ConvertFlags(int linuxFlags) {
     int winFlags = _O_BINARY;
     if ((linuxFlags & LINUX_O_RDWR) == LINUX_O_RDWR) winFlags |= _O_RDWR;
@@ -31,66 +34,207 @@ static int ConvertFlags(int linuxFlags) {
 }
 
 // ========================================================================
-// --- Vectored Exception Handler (Port I/O Emulation) ---
+// --- IN/OUT Instruction Decoder ---
 // ========================================================================
 
 /**
- * @brief 特権命令(IN/OUT)をトラップしてエミュレーションを行うハンドラ
+ *
+ * Opcodes:
+ *   0xE4 ib    - IN AL, imm8     (2 bytes)
+ *   0xE5 ib    - IN EAX, imm8    (2 bytes) / IN AX, imm8 with 0x66 prefix (3 bytes)
+ *   0xEC       - IN AL, DX       (1 byte)
+ *   0xED       - IN EAX, DX      (1 byte) / IN AX, DX with 0x66 prefix (2 bytes)
+ *
+ * @param code
+ * @param port
+ * @param dataSize
+ * @param usesDX
+ * @return
  */
+static int DecodeInInstruction(uint8_t* code, uint16_t* port, int* dataSize, bool* usesDX) {
+    int idx = 0;
+    bool has66Prefix = false;
+
+    if (code[idx] == 0x66) {
+        has66Prefix = true;
+        idx++;
+    }
+
+    uint8_t opcode = code[idx];
+
+    switch (opcode) {
+    case 0xE4: // IN AL, imm8
+        *port = code[idx + 1];
+        *dataSize = 1;
+        *usesDX = false;
+        return idx + 2;
+
+    case 0xE5: // IN AX/EAX, imm8
+        *port = code[idx + 1];
+        *dataSize = has66Prefix ? 2 : 4;
+        *usesDX = false;
+        return idx + 2;
+
+    case 0xEC: // IN AL, DX
+        *port = 0;
+        *dataSize = 1;
+        *usesDX = true;
+        return idx + 1;
+
+    case 0xED: // IN AX/EAX, DX
+        *port = 0;
+        *dataSize = has66Prefix ? 2 : 4;
+        *usesDX = true;
+        return idx + 1;
+
+    default:
+        return 0; // NOT an IN instruction
+    }
+}
+
+/**
+ *
+ * Opcodes:
+ *   0xE6 ib    - OUT imm8, AL    (2 bytes)
+ *   0xE7 ib    - OUT imm8, EAX   (2 bytes) / OUT imm8, AX with 0x66 prefix (3 bytes)
+ *   0xEE       - OUT DX, AL      (1 byte)
+ *   0xEF       - OUT DX, EAX     (1 byte) / OUT DX, AX with 0x66 prefix (2 bytes)
+ *
+ * @param code 
+ * @param port
+ * @param dataSiz
+ * @param usesDX
+ * @return
+ */
+static int DecodeOutInstruction(uint8_t* code, uint16_t* port, int* dataSize, bool* usesDX) {
+    int idx = 0;
+    bool has66Prefix = false;
+
+    if (code[idx] == 0x66) {
+        has66Prefix = true;
+        idx++;
+    }
+
+    uint8_t opcode = code[idx];
+
+    switch (opcode) {
+    case 0xE6: // OUT imm8, AL
+        *port = code[idx + 1];
+        *dataSize = 1;
+        *usesDX = false;
+        return idx + 2;
+
+    case 0xE7: // OUT imm8, AX/EAX
+        *port = code[idx + 1];
+        *dataSize = has66Prefix ? 2 : 4;
+        *usesDX = false;
+        return idx + 2;
+
+    case 0xEE: // OUT DX, AL
+        *port = 0;
+        *dataSize = 1;
+        *usesDX = true;
+        return idx + 1;
+
+    case 0xEF: // OUT DX, AX/EAX
+        *port = 0;
+        *dataSize = has66Prefix ? 2 : 4;
+        *usesDX = true;
+        return idx + 1;
+
+    default:
+        return 0;
+    }
+}
+
+// ========================================================================
+// --- Vectored Exception Handler (Port I/O Emulation) ---
+// ========================================================================
+
 LONG CALLBACK PortIoVectoredHandler(PEXCEPTION_POINTERS ExceptionInfo) {
     // 0xC0000096: Privileged instruction
-    if (ExceptionInfo->ExceptionRecord->ExceptionCode == EXCEPTION_PRIV_INSTRUCTION) {
-
-        PBYTE eip = (PBYTE)ExceptionInfo->ContextRecord->Eip;
-        uint8_t opcode = *eip;
-
-        // 命令で使用されるポート番号(DX)とデータ(EAX)のコンテキストを取得
-        uint16_t port = (uint16_t)ExceptionInfo->ContextRecord->Edx;
-        uint32_t& eax = (uint32_t&)ExceptionInfo->ContextRecord->Eax;
-
-        bool handled = false;
-
-        switch (opcode) {
-        case 0xEC: // IN AL, DX
-        case 0xED: // IN EAX, DX
-        {
-            uint32_t data = 0xFFFFFFFF;
-            LindberghDevice::Instance().PortRead(port, &data);
-
-            if (opcode == 0xEC) {
-                eax = (eax & 0xFFFFFF00) | (data & 0xFF);
-            }
-            else {
-                eax = data;
-            }
-            handled = true;
-            break;
-        }
-
-        case 0xEE: // OUT DX, AL
-        case 0xEF: // OUT DX, EAX
-        {
-            uint32_t data = (opcode == 0xEE) ? (eax & 0xFF) : eax;
-            LindberghDevice::Instance().PortWrite(port, data);
-            handled = true;
-            break;
-        }
-        }
-
-        if (handled) {
-            // 命令を処理したため、命令ポインタを1バイト進めて実行を継続
-            ExceptionInfo->ContextRecord->Eip += 1;
-            return EXCEPTION_CONTINUE_EXECUTION;
-        }
+    if (ExceptionInfo->ExceptionRecord->ExceptionCode != EXCEPTION_PRIV_INSTRUCTION) {
+        return EXCEPTION_CONTINUE_SEARCH;
     }
+
+    PCONTEXT ctx = ExceptionInfo->ContextRecord;
+    uint8_t* code = (uint8_t*)ctx->Eip;
+
+    uint16_t port;
+    int dataSize;
+    bool usesDX;
+    int instrLen;
+
+    instrLen = DecodeInInstruction(code, &port, &dataSize, &usesDX);
+    if (instrLen > 0) {
+
+        if (usesDX) {
+            port = (uint16_t)(ctx->Edx & 0xFFFF);
+        }
+
+        uint32_t data = 0xFFFFFFFF;
+        LindberghDevice::Instance().PortRead(port, &data);
+
+        switch (dataSize) {
+        case 1:
+            ctx->Eax = (ctx->Eax & 0xFFFFFF00) | (data & 0xFF);
+            break;
+        case 2:
+            ctx->Eax = (ctx->Eax & 0xFFFF0000) | (data & 0xFFFF);
+            break;
+        case 4:
+            ctx->Eax = data;
+            break;
+        }
+
+        ctx->Eip += instrLen;
+        return EXCEPTION_CONTINUE_EXECUTION;
+    }
+
+    instrLen = DecodeOutInstruction(code, &port, &dataSize, &usesDX);
+    if (instrLen > 0) {
+        if (usesDX) {
+            port = (uint16_t)(ctx->Edx & 0xFFFF);
+        }
+
+        uint32_t data;
+        switch (dataSize) {
+        case 1:
+            data = ctx->Eax & 0xFF;
+            break;
+        case 2:
+            data = ctx->Eax & 0xFFFF;
+            break;
+        default:
+            data = ctx->Eax;
+            break;
+        }
+
+        LindberghDevice::Instance().PortWrite(port, data);
+
+        ctx->Eip += instrLen;
+        return EXCEPTION_CONTINUE_EXECUTION;
+    }
+
+    log_error("VEH: Unhandled privileged instruction at 0x%08X: %02X %02X %02X %02X",
+        ctx->Eip, code[0], code[1], code[2], code[3]);
 
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
+// ========================================================================
+// --- Initialization / Cleanup ---
+// ========================================================================
+
 void InitHardwareBridge() {
-    // 例外ハンドラを登録
-    AddVectoredExceptionHandler(1, PortIoVectoredHandler);
-    log_info("HardwareBridge: Vectored Exception Handler registered for Port I/O.");
+    // VEH登録
+    g_vehHandle = AddVectoredExceptionHandler(1, PortIoVectoredHandler);
+    if (g_vehHandle) {
+        log_info("HardwareBridge: Vectored Exception Handler registered for Port I/O.");
+    }
+    else {
+        log_error("HardwareBridge: Failed to register VEH!");
+    }
 
     // デバイス群の初期化
     if (!LindberghDevice::Instance().Init()) {
@@ -98,16 +242,26 @@ void InitHardwareBridge() {
     }
 }
 
+void CleanupHardwareBridge() {
+    if (g_vehHandle) {
+        RemoveVectoredExceptionHandler(g_vehHandle);
+        g_vehHandle = nullptr;
+        log_info("HardwareBridge: VEH removed.");
+    }
+}
+
+// ========================================================================
+// --- File I/O Functions ---
+// ========================================================================
+
 extern "C" {
 
     int my_open(const char* pathname, int flags, int mode) {
-        // 1. Lindbergh仮想デバイスへの振り分け
         int fd = LindberghDevice::Instance().Open(pathname, flags);
         if (fd >= 0) {
             return fd;
         }
 
-        // 2. ホストファイルシステムへのフォールバック
         char winPath[MAX_PATH];
         strncpy(winPath, pathname, MAX_PATH);
         winPath[MAX_PATH - 1] = 0;
@@ -147,7 +301,6 @@ extern "C" {
         int res = LindberghDevice::Instance().Ioctl(fd, request, data);
         if (res != -1) return res;
 
-        // ハンドルされないioctlはエラーを返す
         errno = ENOTTY;
         return -1;
     }

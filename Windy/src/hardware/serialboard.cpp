@@ -16,7 +16,7 @@ void SerialBoard::Close() {
 }
 
 int SerialBoard::Ioctl(unsigned long request, void* data) {
-    // 必要なIOCTL処理があればここに記述
+
     return 0;
 }
 

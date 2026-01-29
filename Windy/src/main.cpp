@@ -8,13 +8,16 @@
 #include <windows.h>
 #include <objbase.h>
 
+extern void InitHardwareBridge();
+extern void CleanupHardwareBridge();
+
 static const size_t STACK_SIZE = 1024 * 1024;
 static const char* DEFAULT_ARGV0 = "id5.elf";
 
 int main(int argc, char* argv[]) {
 
     // Initialize logging system
-    logInit(); // camelCase as defined in src/core/log.h
+    logInit();
 
     log_info("==============================================");
     log_info("   Windy - Lindbergh Loader for Windows");
@@ -30,16 +33,13 @@ int main(int argc, char* argv[]) {
         log_debug("COM initialized successfully");
     }
 
-    // Hardware Initialization
-    log_info("Initializing Lindbergh Hardware...");
-    if (!LindberghDevice::Instance().Init()) {
-        log_fatal("Failed to initialize Lindbergh Device/Hardware.");
-        system("pause");
-        return 1;
-    }
+    // ============================================================
+    // Hardware Bridge Initialization (VEH + Lindbergh Hardware)
+    // ============================================================
+    log_info("Initializing Hardware Bridge...");
+    InitHardwareBridge();
 
     // Configure Hardware Defaults
-    // Note: EepromBoard methods are void, so no return check needed
     LindberghDevice::Instance().GetEepromBoard()->SetFreeplay(true);
     LindberghDevice::Instance().GetEepromBoard()->SetRegion(1); // US Region
 
@@ -88,6 +88,7 @@ int main(int argc, char* argv[]) {
         jmp entry
     }
 
-    LindberghDevice::Instance().Cleanup();
+    // Cleanup 
+    CleanupHardwareBridge();
     return 0;
 }

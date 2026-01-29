@@ -11,7 +11,7 @@
 // Forward declaration
 class JvsBoard;
 
-// --- IOCTL Definitions (Aligned with lindbergh-loader baseBoard.c) ---
+// --- IOCTL Definitions ---
 #define BASEBOARD_INIT          0x300
 #define BASEBOARD_GET_VERSION   0x8004BC02
 #define BASEBOARD_SEEK_SHM      0x400
