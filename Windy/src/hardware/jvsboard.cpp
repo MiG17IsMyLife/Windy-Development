@@ -6,13 +6,13 @@
 #include <cmath>
 #include <stdio.h>
 
-// Types
-#define SEGA_TYPE_1 0
-#define SEGA_TYPE_3 1
-
-JvsBoard::JvsBoard() {
-    m_senseLine = 3; // Initially disconnected
-    m_deviceID = -1;
+JvsBoard::JvsBoard()
+    : m_senseLine(3)
+    , m_deviceID(-1)
+    , m_ioType(SEGA_TYPE_3)
+    , m_analogueRestBits(6)
+    , m_analogueMax(1023)
+{
     memset(&m_state, 0, sizeof(m_state));
     memset(&m_caps, 0, sizeof(m_caps));
     memset(&m_inputPacket, 0, sizeof(m_inputPacket));
@@ -32,9 +32,18 @@ bool JvsBoard::Open() {
 void JvsBoard::Close() {
 }
 
+void JvsBoard::SetIOType(int type) {
+    log_info("JvsBoard::SetIOType(%d)", type);
+    m_ioType = type;
+    InitCapabilities(type);
+}
+
 void JvsBoard::InitCapabilities(int type) {
-    // Ported from initJVS() in jvs.c
+    // Ported from initJVS() in Lindbergh-loader jvs.c
+    memset(&m_caps, 0, sizeof(m_caps));
+
     if (type == SEGA_TYPE_1) {
+        // After Burner Climax / SEGA Type 1 I/O
         m_caps.switches = 13;
         m_caps.coins = 2;
         m_caps.players = 2;
@@ -42,13 +51,14 @@ void JvsBoard::InitCapabilities(int type) {
         m_caps.rightAlignBits = 0;
         m_caps.analogueInChannels = 8;
         m_caps.generalPurposeOutputs = 6;
-        m_caps.commandVersion = 17;
-        m_caps.jvsVersion = 48;
-        m_caps.commsVersion = 16;
-        strcpy(m_caps.name, "SEGA ENTERPRISESLTD.;I/O BD JVS;837-13551;Ver1.00;98/10");
+        m_caps.commandVersion = 17;  // 0x11
+        m_caps.jvsVersion = 48;      // 0x30
+        m_caps.commsVersion = 16;    // 0x10
+        strcpy(m_caps.name, "SEGA ENTERPRISES,LTD.;I/O BD JVS;837-13551 ;Ver1.00;98/10");
+        log_info("JvsBoard: Initialized as SEGA_TYPE_1 (After Burner Climax)");
     }
     else {
-        // SEGA_TYPE_3
+        // SEGA_TYPE_3 - Standard Lindbergh I/O
         m_caps.switches = 14;
         m_caps.coins = 2;
         m_caps.players = 2;
@@ -56,12 +66,14 @@ void JvsBoard::InitCapabilities(int type) {
         m_caps.rightAlignBits = 0;
         m_caps.analogueInChannels = 8;
         m_caps.generalPurposeOutputs = 20;
-        m_caps.commandVersion = 19;
-        m_caps.jvsVersion = 48;
-        m_caps.commsVersion = 16;
+        m_caps.commandVersion = 19;  // 0x13
+        m_caps.jvsVersion = 48;      // 0x30
+        m_caps.commsVersion = 16;    // 0x10
         strcpy(m_caps.name, "SEGA CORPORATION;I/O BD JVS;837-14572;Ver1.00;2005/10");
+        log_info("JvsBoard: Initialized as SEGA_TYPE_3 (Standard Lindbergh)");
     }
 
+    // Calculate analog bit shifting
     if (!m_caps.rightAlignBits) {
         m_analogueRestBits = 16 - m_caps.analogueInBits;
     }
@@ -71,8 +83,11 @@ void JvsBoard::InitCapabilities(int type) {
 
     m_analogueMax = (int)pow(2, m_caps.analogueInBits) - 1;
 
-    // Center analogs
-    for (int i = 0; i < 8; ++i) m_state.analogueChannel[i] = 0x80;
+    // Center analogs (0x80 for 8-bit, 0x200 for 10-bit)
+    int centerValue = m_analogueMax / 2;
+    for (int i = 0; i < 8; ++i) {
+        m_state.analogueChannel[i] = centerValue;
+    }
 
     // Ready for connection
     m_senseLine = 3;
@@ -97,18 +112,37 @@ void JvsBoard::IncrementCoin(JVSPlayer player, int amount) {
     if (idx >= 0 && idx < JVS_MAX_STATE_SIZE) {
         m_state.coinCount[idx] += amount;
         if (m_state.coinCount[idx] > 16383) m_state.coinCount[idx] = 16383;
+        if (m_state.coinCount[idx] < 0) m_state.coinCount[idx] = 0;
     }
 }
 
 void JvsBoard::SetAnalogue(int channel, int value) {
     std::lock_guard<std::mutex> lock(m_mutex);
     if (channel >= 0 && channel < JVS_MAX_STATE_SIZE) {
+        // Clamp to max value
+        if (value > m_analogueMax) value = m_analogueMax;
+        if (value < 0) value = 0;
         m_state.analogueChannel[channel] = value;
     }
 }
 
+void JvsBoard::SetGun(int player, int x, int y) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (player >= 0 && player < 2) {
+        m_state.gunChannel[player * 2] = x;
+        m_state.gunChannel[player * 2 + 1] = y;
+    }
+}
+
+void JvsBoard::SetRotary(int channel, int value) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    if (channel >= 0 && channel < JVS_MAX_STATE_SIZE) {
+        m_state.rotaryChannel[channel] = value;
+    }
+}
+
 bool JvsBoard::ReadPacket(const uint8_t* src, size_t srcLen) {
-    // Ported from readPacket
+    // Ported from readPacket in Lindbergh-loader jvs.c
     int escape = 0;
     int phase = 0;
     int dataIndex = 0;
@@ -135,12 +169,12 @@ bool JvsBoard::ReadPacket(const uint8_t* src, size_t srcLen) {
         }
 
         switch (phase) {
-        case 0: // Dest
+        case 0: // Destination
             m_inputPacket.destination = byte;
             checksum = (byte & 0xFF);
             phase++;
             break;
-        case 1: // Len
+        case 1: // Length
             m_inputPacket.length = byte;
             checksum = (checksum + byte) & 0xFF;
             phase++;
@@ -149,7 +183,7 @@ bool JvsBoard::ReadPacket(const uint8_t* src, size_t srcLen) {
             if (dataIndex == m_inputPacket.length - 1) {
                 // Checksum byte
                 if (checksum != byte) {
-                    log_warn("JvsBoard: Checksum Failure");
+                    log_warn("JvsBoard: Checksum Failure (expected 0x%02X, got 0x%02X)", checksum, byte);
                     return false;
                 }
                 return true; // Packet complete
@@ -206,8 +240,8 @@ void JvsBoard::WriteFeatures(JVSPacket* packet) {
 }
 
 void JvsBoard::WritePacket(uint8_t* dst, int* dstLen) {
-    // Ported from writePacket
-    m_outputPacket.length++; // Account for SUM byte in logic
+    // Ported from writePacket in Lindbergh-loader jvs.c
+    m_outputPacket.length++; // Account for checksum byte in protocol
 
     int checksum = 0;
     int outIdx = 0;
@@ -237,7 +271,7 @@ void JvsBoard::WritePacket(uint8_t* dst, int* dstLen) {
         writeByte(m_outputPacket.data[i]);
     }
 
-    // Checksum (write raw, apply escape if needed)
+    // Checksum (write with escape if needed)
     if (checksum == JVS_SYNC || checksum == JVS_ESCAPE) {
         dst[outIdx++] = JVS_ESCAPE;
         dst[outIdx++] = (uint8_t)(checksum - 1);
@@ -280,7 +314,7 @@ void JvsBoard::ProcessPacket(const uint8_t* input, size_t inputSize, uint8_t* ou
 
         switch (cmd) {
         case CMD_RESET:
-            size = 1; // 0xD9
+            size = 1; // 0xD9 follows
             m_deviceID = -1;
             m_senseLine = 3;
             break;
@@ -332,10 +366,7 @@ void JvsBoard::ProcessPacket(const uint8_t* input, size_t inputSize, uint8_t* ou
             for (int i = 0; i < numPlayers; i++) {
                 int pVal = m_state.inputSwitch[i + 1];
                 for (int j = 0; j < bytesPer; j++) {
-                    // Shift out bytes, MSB first? Standard usually Player 1 Byte 1, Byte 2...
-                    // Lindbergh loader logic:
-                    // outputPacket.data[outputPacket.length++] = io.state.inputSwitch[i + 1] >> (8 - (j * 8));
-                    // If j=0, shift >> 8. If j=1, shift >> 0.
+                    // Shift out bytes, MSB first
                     int shift = 8 - (j * 8);
                     if (shift < 0) shift = 0;
                     m_outputPacket.data[m_outputPacket.length++] = (pVal >> shift) & 0xFF;
@@ -351,7 +382,7 @@ void JvsBoard::ProcessPacket(const uint8_t* input, size_t inputSize, uint8_t* ou
             m_outputPacket.data[m_outputPacket.length++] = REPORT_SUCCESS;
             for (int i = 0; i < slots; i++) {
                 int val = m_state.coinCount[i];
-                m_outputPacket.data[m_outputPacket.length++] = (val >> 8) & 0x3F; // Top 6 bits? Spec typically 14 bits
+                m_outputPacket.data[m_outputPacket.length++] = (val >> 8) & 0x3F;
                 m_outputPacket.data[m_outputPacket.length++] = val & 0xFF;
             }
         }
@@ -381,6 +412,22 @@ void JvsBoard::ProcessPacket(const uint8_t* input, size_t inputSize, uint8_t* ou
                 int val = m_state.rotaryChannel[i];
                 m_outputPacket.data[m_outputPacket.length++] = (val >> 8) & 0xFF;
                 m_outputPacket.data[m_outputPacket.length++] = val & 0xFF;
+            }
+        }
+        break;
+
+        case CMD_READ_LIGHTGUN:
+        {
+            int channels = m_inputPacket.data[index];
+            size = 1;
+            m_outputPacket.data[m_outputPacket.length++] = REPORT_SUCCESS;
+            for (int i = 0; i < channels; i++) {
+                int x = m_state.gunChannel[i * 2];
+                int y = m_state.gunChannel[i * 2 + 1];
+                m_outputPacket.data[m_outputPacket.length++] = (x >> 8) & 0xFF;
+                m_outputPacket.data[m_outputPacket.length++] = x & 0xFF;
+                m_outputPacket.data[m_outputPacket.length++] = (y >> 8) & 0xFF;
+                m_outputPacket.data[m_outputPacket.length++] = y & 0xFF;
             }
         }
         break;
@@ -419,7 +466,10 @@ void JvsBoard::ProcessPacket(const uint8_t* input, size_t inputSize, uint8_t* ou
             size = 3;
 
             m_outputPacket.data[m_outputPacket.length++] = REPORT_SUCCESS;
-            IncrementCoin((JVSPlayer)(slot + 1), amount);
+            if (slot >= 0 && slot < JVS_MAX_STATE_SIZE) {
+                m_state.coinCount[slot] += amount;
+                if (m_state.coinCount[slot] > 16383) m_state.coinCount[slot] = 16383;
+            }
         }
         break;
 
@@ -430,7 +480,6 @@ void JvsBoard::ProcessPacket(const uint8_t* input, size_t inputSize, uint8_t* ou
             size = 3;
             m_outputPacket.data[m_outputPacket.length++] = REPORT_SUCCESS;
 
-            // Decrement logic internal
             if (slot >= 0 && slot < JVS_MAX_STATE_SIZE) {
                 m_state.coinCount[slot] -= amount;
                 if (m_state.coinCount[slot] < 0) m_state.coinCount[slot] = 0;

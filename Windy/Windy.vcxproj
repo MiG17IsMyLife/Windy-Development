@@ -29,7 +29,9 @@
     <ClCompile Include="src\api\linux\ipcbridge.cpp" />
     <ClCompile Include="src\api\linux\processbridge.cpp" />
     <ClCompile Include="src\api\sega\libsegaapi.c" />
+    <ClCompile Include="src\core\config.cpp" />
     <ClCompile Include="src\core\elfloader.cpp" />
+    <ClCompile Include="src\core\iniparser.cpp" />
     <ClCompile Include="src\core\linuxstack.cpp" />
     <ClCompile Include="src\core\log.cpp" />
     <ClCompile Include="src\core\memorymanager.cpp" />
@@ -55,7 +57,10 @@
     <ClInclude Include="src\api\linux\processbridge.h" />
     <ClInclude Include="src\api\sega\libsegaapi.h" />
     <ClInclude Include="src\core\common.h" />
+    <ClInclude Include="src\core\config.h" />
     <ClInclude Include="src\core\elfloader.h" />
+    <ClInclude Include="src\core\gamedata.h" />
+    <ClInclude Include="src\core\iniparser.h" />
     <ClInclude Include="src\core\linuxstack.h" />
     <ClInclude Include="src\core\log.h" />
     <ClInclude Include="src\core\memorymanager.h" />

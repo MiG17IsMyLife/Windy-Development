@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include <mutex>
 
+#include "../core/config.h"  // For JVSIOType (SEGA_TYPE_1, SEGA_TYPE_3)
+
 // JVS Constants
 #define JVS_MAX_PACKET_SIZE 255
 #define JVS_MAX_STATE_SIZE 100
@@ -99,6 +101,7 @@ struct JVSState {
     int inputSwitch[JVS_MAX_STATE_SIZE];
     int analogueChannel[JVS_MAX_STATE_SIZE];
     int rotaryChannel[JVS_MAX_STATE_SIZE];
+    int gunChannel[JVS_MAX_STATE_SIZE];  // Lightgun X/Y pairs
 };
 
 struct JVSCapabilities {
@@ -149,13 +152,24 @@ public:
     int GetSenseLine() const { return m_senseLine; }
     void SetSenseLine(int sense) { m_senseLine = sense; }
 
+    // I/O Type Configuration (called from main.cpp based on game detection)
+    // type: SEGA_TYPE_1 (0) for ABC, SEGA_TYPE_3 (1) for standard
+    void SetIOType(int type);
+    int GetIOType() const { return m_ioType; }
+
     // Input Simulation (Thread-safe)
     void SetSwitch(JVSPlayer player, int switchMask, bool on);
-    void IncrementCoin(JVSPlayer player, int amount);
+    void IncrementCoin(JVSPlayer player, int amount = 1);
     void SetAnalogue(int channel, int value);
+    void SetGun(int player, int x, int y);
+    void SetRotary(int channel, int value);
+
+    // Direct state access (for input handlers)
+    JVSState& GetState() { return m_state; }
+    const JVSCapabilities& GetCapabilities() const { return m_caps; }
 
 private:
-    void InitCapabilities(int type); // 0=Type1, 1=Type3
+    void InitCapabilities(int type);
 
     // Packet helpers
     bool ReadPacket(const uint8_t* src, size_t srcLen);
@@ -166,6 +180,7 @@ private:
     // Internal state
     int m_senseLine;
     int m_deviceID;
+    int m_ioType;  // SEGA_TYPE_1 or SEGA_TYPE_3
 
     JVSState m_state;
     JVSCapabilities m_caps;

@@ -1,39 +1,24 @@
 #define _CRT_SECURE_NO_WARNINGS
 
-#include "BaseBoard.h"
-#include "JvsBoard.h"
+#include "baseboard.h"
+#include "jvsboard.h"
 #include "../core/log.h"
-#include <stdio.h>
-#include <string.h>
-#include <time.h>
+#include <cstring>
+#include <cstdio>
 
-#define SERIAL_STRING "FE11-X018012022X"
-
-typedef struct {
-    uint32_t* data;
-    uint32_t offset;
-    uint32_t size;
-} readData_t;
-
-typedef struct {
-    uint32_t offset;
-    uint32_t* data;
-    uint32_t size;
-} writeData_t;
+// IOCTL commands
+#define BASEBOARD_IOCTL_GET_VERSION     0x4C00
+#define BASEBOARD_IOCTL_SET_GAMEINFO    0x4C01
+#define BASEBOARD_IOCTL_JVS_EXCHANGE    0x4C02
+#define BASEBOARD_IOCTL_SRAM_READ       0x4C03
+#define BASEBOARD_IOCTL_SRAM_WRITE      0x4C04
+#define BASEBOARD_IOCTL_GET_SERIAL      0x4C05
 
 BaseBoard::BaseBoard()
-    : m_sharedMemoryIndex(0)
-    , m_sramFile(nullptr)
-    , m_jvsBoard(nullptr)
-    , m_jvsPacketSize(-1)
-    , m_selectReply(-1)
+    : m_jvsBoard(nullptr)
+    , m_sramSize(sizeof(m_sram))
 {
-    memset(m_sharedMemory, 0, sizeof(m_sharedMemory));
-    memset(&m_jvsCommand, 0, sizeof(m_jvsCommand));
-    memset(&m_serialCommand, 0, sizeof(m_serialCommand));
-    memset(m_inputBuffer, 0, sizeof(m_inputBuffer));
-    memset(m_outputBuffer, 0, sizeof(m_outputBuffer));
-    strcpy(m_serialString, SERIAL_STRING);
+    memset(m_sram, 0, sizeof(m_sram));
 }
 
 BaseBoard::~BaseBoard() {
@@ -41,161 +26,137 @@ BaseBoard::~BaseBoard() {
 }
 
 bool BaseBoard::Open() {
-    log_info("BaseBoard: Initializing (SRAM: %s)", m_sramPath);
+    log_info("BaseBoard: Opening...");
 
-    m_sramFile = fopen(m_sramPath, "a");
-    if (m_sramFile == nullptr) {
-        log_error("BaseBoard: Cannot open %s", m_sramPath);
-        return false;
+    // Load SRAM from file if exists
+    if (!m_sramPath.empty()) {
+        FILE* f = fopen(m_sramPath.c_str(), "rb");
+        if (f) {
+            size_t read = fread(m_sram, 1, sizeof(m_sram), f);
+            fclose(f);
+            log_info("BaseBoard: Loaded SRAM from %s (%zu bytes)", m_sramPath.c_str(), read);
+        }
     }
-    fclose(m_sramFile);
 
-    m_sramFile = fopen(m_sramPath, "rb+");
-    if (!m_sramFile) return false;
-    fseek(m_sramFile, 0, SEEK_SET);
-
-    UpdateSerialString();
     return true;
 }
 
-void BaseBoard::UpdateSerialString() {
-    time_t t = time(NULL);
-    struct tm* tm_info = localtime(&t);
-    int month = tm_info->tm_mon + 1;
-    int day = tm_info->tm_mday;
-
-    strcpy(m_serialString, SERIAL_STRING);
-
-    if ((month == 1 && day == 18) || (month == 5 && day == 20) || (month == 5 && day == 21)) {
-        strcpy(m_serialString, "HAPPY BIRTHDAY!!");
-    }
-}
-
 void BaseBoard::Close() {
-    if (m_sramFile) {
-        fclose(m_sramFile);
-        m_sramFile = nullptr;
+    // Save SRAM to file
+    if (!m_sramPath.empty()) {
+        FILE* f = fopen(m_sramPath.c_str(), "wb");
+        if (f) {
+            fwrite(m_sram, 1, sizeof(m_sram), f);
+            fclose(f);
+            log_info("BaseBoard: Saved SRAM to %s", m_sramPath.c_str());
+        }
     }
 }
 
-int BaseBoard::Read(void* buf, size_t count) {
-    memcpy(buf, &m_sharedMemory[m_sharedMemoryIndex], count);
+int BaseBoard::Read(char* buf, size_t count) {
+    // Not typically used for baseboard
+    (void)buf;
+    (void)count;
+    return 0;
+}
+
+int BaseBoard::Write(const char* buf, size_t count) {
+    // Not typically used for baseboard
+    (void)buf;
+    (void)count;
     return (int)count;
 }
 
-int BaseBoard::Write(const void* buf, size_t count) {
-    memcpy(&m_sharedMemory[m_sharedMemoryIndex], buf, count);
-    return (int)count;
-}
-
-int BaseBoard::Ioctl(unsigned long request, void* data) {
+int BaseBoard::Ioctl(unsigned int request, void* data) {
     switch (request) {
-    case BASEBOARD_GET_VERSION: {
-        uint8_t versionData[4] = { 0x00, 0x19, 0x20, 0x07 };
-        memcpy(data, versionData, 4);
-        return 0;
-    }
-
-    case BASEBOARD_INIT:
-        return 0;
-
-    case BASEBOARD_READY:
-        m_selectReply = 0;
-        return 0;
-
-    case BASEBOARD_SEEK_SHM:
-
-        m_sharedMemoryIndex = (unsigned int)(uintptr_t)data;
-        return 0;
-
-    case BASEBOARD_READ_SRAM: {
-        readData_t* _data = (readData_t*)data;
-        fseek(m_sramFile, _data->offset, SEEK_SET);
-        fread(_data->data, 1, _data->size, m_sramFile);
-        return 0;
-    }
-
-    case BASEBOARD_WRITE_SRAM: {
-        writeData_t* _data = (writeData_t*)data;
-        fseek(m_sramFile, _data->offset, SEEK_SET);
-        fwrite(_data->data, 1, _data->size, m_sramFile);
-        fflush(m_sramFile);
-        return 0;
-    }
-
-    case BASEBOARD_REQUEST: {
-        uint32_t* _data = (uint32_t*)data;
-        switch (_data[0]) {
-        case BASEBOARD_GET_SERIAL:
-            m_serialCommand.destAddress = _data[1];
-            m_serialCommand.destSize = _data[2];
-            break;
-
-        case BASEBOARD_PROCESS_JVS:
-            m_jvsCommand.srcAddress = _data[1];
-            m_jvsCommand.srcSize = _data[2];
-            m_jvsCommand.destAddress = _data[3];
-            m_jvsCommand.destSize = _data[4];
-
-            if (m_jvsCommand.srcAddress + m_jvsCommand.srcSize <= sizeof(m_sharedMemory)) {
-                memcpy(m_inputBuffer, &m_sharedMemory[m_jvsCommand.srcAddress], m_jvsCommand.srcSize);
-                if (m_jvsBoard) {
-                    m_jvsBoard->ProcessPacket(m_inputBuffer, m_jvsCommand.srcSize, m_outputBuffer, &m_jvsPacketSize);
-                }
-            }
-            break;
-
-        case BASEBOARD_GET_SENSE_LINE:
-
-            break;
-
-        case BASEBOARD_WRITE_FLASH:
-            log_warn("BaseBoard: The game attempted to write to the baseboard flash");
-            break;
-
-        default:
-            log_warn("BaseBoard: Unknown command %X", _data[0]);
-            break;
+    case BASEBOARD_IOCTL_GET_VERSION:
+    {
+        // Return baseboard version
+        if (data) {
+            uint32_t* version = (uint32_t*)data;
+            *version = 0x00010000;  // Version 1.0
         }
-        _data[0] |= 0xF0000000;
         return 0;
     }
 
-    case BASEBOARD_RECEIVE: {
-        uint32_t* _data = (uint32_t*)data;
-        switch (_data[0] & 0xFFF) {
-        case BASEBOARD_GET_SERIAL:
-            if (m_serialCommand.destAddress + 96 + strlen(m_serialString) <= sizeof(m_sharedMemory)) {
-                memcpy(&m_sharedMemory[m_serialCommand.destAddress + 96], m_serialString, strlen(m_serialString));
-            }
-            _data[1] = 1;
-            break;
+    case BASEBOARD_IOCTL_JVS_EXCHANGE:
+    {
+        // JVS packet exchange
+        if (!m_jvsBoard || !data) return -1;
 
-        case BASEBOARD_GET_SENSE_LINE:
-            _data[2] = m_jvsBoard ? m_jvsBoard->GetSenseLine() : 3;
-            _data[1] = 1;
-            break;
+        struct JvsExchange {
+            uint8_t* input;
+            size_t inputSize;
+            uint8_t* output;
+            int* outputSize;
+        };
 
-        case BASEBOARD_PROCESS_JVS:
-            if (m_jvsCommand.destAddress + m_jvsPacketSize <= sizeof(m_sharedMemory)) {
-                memcpy(&m_sharedMemory[m_jvsCommand.destAddress], m_outputBuffer, m_jvsPacketSize);
-                _data[2] = m_jvsCommand.destAddress;
-                _data[3] = m_jvsPacketSize;
-                _data[1] = 1;
-            }
-            break;
+        JvsExchange* ex = (JvsExchange*)data;
+        m_jvsBoard->ProcessPacket(ex->input, ex->inputSize, ex->output, ex->outputSize);
+        return 0;
+    }
 
-        default:
-            log_warn("BaseBoard: Unknown receive command %X", _data[0] & 0xFFF);
-            break;
+    case BASEBOARD_IOCTL_SRAM_READ:
+    {
+        // SRAM read
+        struct SramAccess {
+            uint32_t offset;
+            uint32_t size;
+            uint8_t* data;
+        };
+
+        if (!data) return -1;
+        SramAccess* acc = (SramAccess*)data;
+
+        if (acc->offset + acc->size > sizeof(m_sram)) {
+            return -1;
         }
-        _data[0] |= 0xF0000000;
+
+        memcpy(acc->data, m_sram + acc->offset, acc->size);
+        return 0;
+    }
+
+    case BASEBOARD_IOCTL_SRAM_WRITE:
+    {
+        // SRAM write
+        struct SramAccess {
+            uint32_t offset;
+            uint32_t size;
+            uint8_t* data;
+        };
+
+        if (!data) return -1;
+        SramAccess* acc = (SramAccess*)data;
+
+        if (acc->offset + acc->size > sizeof(m_sram)) {
+            return -1;
+        }
+
+        memcpy(m_sram + acc->offset, acc->data, acc->size);
+        return 0;
+    }
+
+    case BASEBOARD_IOCTL_GET_SERIAL:
+    {
+        // Return serial number
+        if (data) {
+            char* serial = (char*)data;
+            strcpy(serial, "AAA-01A12345");  // Dummy serial
+        }
         return 0;
     }
 
     default:
-        log_warn("BaseBoard: Unknown Ioctl %lX", request);
-        break;
+        log_warn("BaseBoard: Unknown IOCTL 0x%04X", request);
+        return -1;
     }
-    return -1;
+}
+
+void BaseBoard::SetSramPath(const char* path) {
+    if (path) {
+        m_sramPath = path;
+    }
+    else {
+        m_sramPath.clear();
+    }
 }

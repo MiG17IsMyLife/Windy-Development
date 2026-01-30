@@ -1,29 +1,54 @@
 #pragma once
 
 #include <stdint.h>
-#include "jvsboard.h" // For JVSInput enum
 
+/**
+ * @brief Security Board / DIP Switch emulation
+ *
+ * Handles I/O port access for:
+ * - DIP switch configuration
+ * - Resolution settings
+ * - Security chip emulation
+ *
+ * Port addresses (from Lindbergh-loader):
+ * - 0x38: Primary security port
+ * - 0x3F: Secondary security port
+ */
 class SecurityBoard {
 public:
     SecurityBoard();
     ~SecurityBoard();
 
-    // Port I/O wrappers
-    int In(uint16_t port, uint32_t* data);
-    int Out(uint16_t port, uint32_t* data);
+    /**
+     * @brief Read from I/O port
+     * @param port Port address
+     * @param data Output data
+     * @return 0 on success
+     */
+    int PortRead(uint16_t port, uint32_t* data);
 
-    // Input & Configuration
-    void SetSwitch(JVSInput switchNumber, int value);
-    void SetDipSwitch(int switchNumber, int value);
+    /**
+     * @brief Write to I/O port
+     * @param port Port address
+     * @param data Data to write
+     * @return 0 on success
+     */
+    int PortWrite(uint16_t port, uint32_t data);
+
+    /**
+     * @brief Set DIP switch resolution
+     * @param width Display width
+     * @param height Display height
+     */
     void SetDipResolution(int width, int height);
-    void SetRotation(int rotation);
+
+    /**
+     * @brief Get current DIP switch value
+     */
+    uint8_t GetDipSwitch() const { return m_dipSwitch; }
 
 private:
-    void SetResolutionDips(int dip4, int dip5, int dip6);
-
-    int m_serviceSwitch;
-    int m_testSwitch;
-
-    // DIP Switches (Index 1-8 used to match loader logic)
-    int m_dipSwitch[9];
+    uint8_t m_dipSwitch;
+    int m_width;
+    int m_height;
 };

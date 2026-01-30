@@ -1,112 +1,90 @@
-#include "SecurityBoard.h"
+#include "securityboard.h"
 #include "../core/log.h"
-#include <stdio.h>
-#include <cstring>
 
-// Port Definitions
-#define SECURITY_BOARD_FRONT_PANEL 0x38
-#define SECURITY_BOARD_FRONT_PANEL_NON_ROOT 0x1038
-
-// Dip Switch Constants
-#define DIP_SWITCH_ROTATION 3
+// I/O Port addresses
+#define PORT_SECURITY_PRIMARY   0x38
+#define PORT_SECURITY_SECONDARY 0x3F
 
 SecurityBoard::SecurityBoard()
-    : m_serviceSwitch(0)
-    , m_testSwitch(0)
+    : m_dipSwitch(0)
+    , m_width(640)
+    , m_height(480)
 {
-    // Initialize DIP switches (Index 1-8)
-    for (int i = 0; i < 9; i++) {
-        m_dipSwitch[i] = 0;
-    }
 }
 
 SecurityBoard::~SecurityBoard() {
 }
 
-void SecurityBoard::SetResolutionDips(int dip4, int dip5, int dip6) {
-    m_dipSwitch[4] = dip4;
-    m_dipSwitch[5] = dip5;
-    m_dipSwitch[6] = dip6;
+int SecurityBoard::PortRead(uint16_t port, uint32_t* data) {
+    if (!data) return -1;
+
+    switch (port) {
+    case PORT_SECURITY_PRIMARY:
+    case PORT_SECURITY_SECONDARY:
+        *data = m_dipSwitch;
+        return 0;
+
+    default:
+        // Unknown port - return 0xFF (typical for unconnected I/O)
+        *data = 0xFF;
+        return 0;
+    }
+}
+
+int SecurityBoard::PortWrite(uint16_t port, uint32_t data) {
+    switch (port) {
+    case PORT_SECURITY_PRIMARY:
+    case PORT_SECURITY_SECONDARY:
+        // DIP switch writes are typically ignored (read-only hardware)
+        log_debug("SecurityBoard: Write to port 0x%02X: 0x%02X (ignored)", port, data);
+        return 0;
+
+    default:
+        return 0;
+    }
 }
 
 void SecurityBoard::SetDipResolution(int width, int height) {
-    if (width == 640 && height == 480)
-        SetResolutionDips(0, 0, 0);
-    else if (width == 800 && height == 600)
-        SetResolutionDips(0, 0, 1);
-    else if (width == 1024 && height == 768)
-        SetResolutionDips(0, 1, 0);
-    else if (width == 1280 && height == 1024)
-        SetResolutionDips(0, 1, 1);
-    else if (width == 800 && height == 480)
-        SetResolutionDips(1, 0, 0);
-    else if (width == 1024 && height == 600)
-        SetResolutionDips(1, 0, 1);
-    else if (width == 1280 && height == 768)
-        SetResolutionDips(1, 1, 0);
-    else if (width == 1360 && height == 768)
-        SetResolutionDips(1, 1, 1);
+    m_width = width;
+    m_height = height;
+
+    // Calculate DIP switch setting based on resolution
+    // (Matches Lindbergh-loader's getConfig()->lindpiSwitch logic)
+
+    // Resolution DIP encoding (bits 0-3):
+    // 0x00 = 640x480
+    // 0x01 = 800x480 (OutRun2 wide)
+    // 0x02 = 1024x600
+    // 0x03 = 1024x768
+    // 0x04 = 1280x720
+    // 0x05 = 1280x768
+    // 0x06 = 1360x768
+    // 0x07 = 1920x1080
+
+    if (width <= 640 && height <= 480) {
+        m_dipSwitch = 0x00;
+    }
+    else if (width <= 800 && height <= 480) {
+        m_dipSwitch = 0x01;
+    }
+    else if (width <= 1024 && height <= 600) {
+        m_dipSwitch = 0x02;
+    }
+    else if (width <= 1024 && height <= 768) {
+        m_dipSwitch = 0x03;
+    }
+    else if (width <= 1280 && height <= 720) {
+        m_dipSwitch = 0x04;
+    }
+    else if (width <= 1280 && height <= 768) {
+        m_dipSwitch = 0x05;
+    }
+    else if (width <= 1360 && height <= 768) {
+        m_dipSwitch = 0x06;
+    }
     else {
-        log_warn("SecurityBoard: Resolution %dx%d not original, setting dips to 640x480.", width, height);
-        SetResolutionDips(0, 0, 0);
+        m_dipSwitch = 0x07;  // 1920x1080 or higher
     }
-}
 
-void SecurityBoard::SetRotation(int rotation) {
-    m_dipSwitch[DIP_SWITCH_ROTATION] = rotation;
-}
-
-void SecurityBoard::SetDipSwitch(int switchNumber, int value) {
-    if (switchNumber < 1 || switchNumber > 8) {
-        log_error("SecurityBoard: Dip Switch index %d out of range (1-8)", switchNumber);
-        return;
-    }
-    m_dipSwitch[switchNumber] = value;
-}
-
-void SecurityBoard::SetSwitch(JVSInput switchNumber, int value) {
-    switch (switchNumber) {
-    case BUTTON_TEST:
-        m_testSwitch = value;
-        break;
-    case BUTTON_SERVICE:
-        m_serviceSwitch = value;
-        break;
-    default:
-        log_warn("SecurityBoard: Attempted to set incorrect switch on security board");
-        break;
-    }
-}
-
-int SecurityBoard::Out(uint16_t port, uint32_t* data) {
-    return 0;
-}
-
-int SecurityBoard::In(uint16_t port, uint32_t* data) {
-    switch (port) {
-    case SECURITY_BOARD_FRONT_PANEL_NON_ROOT:
-    case SECURITY_BOARD_FRONT_PANEL:
-    {
-        uint32_t result = 0xFFFFFFFF;
-
-        if (m_dipSwitch[6]) result &= ~0x800;
-        if (m_dipSwitch[5]) result &= ~0x400;
-        if (m_dipSwitch[4]) result &= ~0x200;
-        if (m_dipSwitch[3]) result &= ~0x100;
-        if (m_dipSwitch[2]) result &= ~0x80;
-        if (m_dipSwitch[1]) result &= ~0x40;
-        if (m_dipSwitch[8]) result &= ~0x20;
-        if (m_dipSwitch[7]) result &= ~0x10;
-
-        if (m_serviceSwitch) result &= ~0x08;
-        if (m_testSwitch)    result &= ~0x04;
-
-        *data = result;
-    }
-    break;
-
-    default:
-        break;
-    }
-    return 0;
+    log_info("SecurityBoard: DIP switch set to 0x%02X for %dx%d", m_dipSwitch, width, height);
 }

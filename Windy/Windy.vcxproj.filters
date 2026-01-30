@@ -84,11 +84,19 @@
     <ClCompile Include="src\core\log.cpp">
       <Filter>src\core</Filter>
     </ClCompile>
-    <ClCompile Include="src\hardware\serialboard.cpp" />
     <ClCompile Include="src\hardware\securityboard.cpp">
       <Filter>src\hardware</Filter>
     </ClCompile>
     <ClCompile Include="src\hardware\lindberghdevice.cpp">
+      <Filter>src\hardware</Filter>
+    </ClCompile>
+    <ClCompile Include="src\core\config.cpp">
+      <Filter>src\core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\core\iniparser.cpp">
+      <Filter>src\core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\hardware\serialboard.cpp">
       <Filter>src\hardware</Filter>
     </ClCompile>
   </ItemGroup>
@@ -156,11 +164,22 @@
     <ClInclude Include="src\core\log.h">
       <Filter>src\core</Filter>
     </ClInclude>
-    <ClInclude Include="src\hardware\serialboard.h" />
     <ClInclude Include="src\hardware\securityboard.h">
       <Filter>src\hardware</Filter>
     </ClInclude>
     <ClInclude Include="src\hardware\pciData.h">
+      <Filter>src\hardware</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\gamedata.h">
+      <Filter>src\core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\config.h">
+      <Filter>src\core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\iniparser.h">
+      <Filter>src\core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\hardware\serialboard.h">
       <Filter>src\hardware</Filter>
     </ClInclude>
   </ItemGroup>

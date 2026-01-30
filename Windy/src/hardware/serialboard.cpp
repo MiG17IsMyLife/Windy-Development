@@ -8,22 +8,28 @@ SerialBoard::~SerialBoard() {
 }
 
 bool SerialBoard::Open() {
-    log_info("SerialBoard: Open");
+    log_debug("SerialBoard: Open (stub)");
     return true;
 }
 
 void SerialBoard::Close() {
+    log_debug("SerialBoard: Close (stub)");
 }
 
-int SerialBoard::Ioctl(unsigned long request, void* data) {
-
+int SerialBoard::Read(char* buf, unsigned int count) {
+    (void)buf;
+    (void)count;
     return 0;
 }
 
-int SerialBoard::Read(void* buf, size_t count) {
-    return 0;
+int SerialBoard::Write(const char* buf, unsigned int count) {
+    (void)buf;
+    (void)count;
+    return (int)count;
 }
 
-int SerialBoard::Write(const void* buf, size_t count) {
+int SerialBoard::Ioctl(unsigned int request, void* data) {
+    (void)request;
+    (void)data;
     return 0;
 }
