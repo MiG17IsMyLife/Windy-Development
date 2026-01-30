@@ -36,4 +36,8 @@ private:
     std::string m_sramPath;
     uint8_t m_sram[32768];  // 32KB SRAM
     size_t m_sramSize;
+
+    // JVS response buffer
+    uint8_t m_jvsResponse[256];
+    int m_jvsResponseLen;
 };

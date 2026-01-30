@@ -37,20 +37,6 @@ static int ConvertFlags(int linuxFlags) {
 // --- IN/OUT Instruction Decoder ---
 // ========================================================================
 
-/**
- *
- * Opcodes:
- *   0xE4 ib    - IN AL, imm8     (2 bytes)
- *   0xE5 ib    - IN EAX, imm8    (2 bytes) / IN AX, imm8 with 0x66 prefix (3 bytes)
- *   0xEC       - IN AL, DX       (1 byte)
- *   0xED       - IN EAX, DX      (1 byte) / IN AX, DX with 0x66 prefix (2 bytes)
- *
- * @param code
- * @param port
- * @param dataSize
- * @param usesDX
- * @return
- */
 static int DecodeInInstruction(uint8_t* code, uint16_t* port, int* dataSize, bool* usesDX) {
     int idx = 0;
     bool has66Prefix = false;
@@ -92,20 +78,6 @@ static int DecodeInInstruction(uint8_t* code, uint16_t* port, int* dataSize, boo
     }
 }
 
-/**
- *
- * Opcodes:
- *   0xE6 ib    - OUT imm8, AL    (2 bytes)
- *   0xE7 ib    - OUT imm8, EAX   (2 bytes) / OUT imm8, AX with 0x66 prefix (3 bytes)
- *   0xEE       - OUT DX, AL      (1 byte)
- *   0xEF       - OUT DX, EAX     (1 byte) / OUT DX, AX with 0x66 prefix (2 bytes)
- *
- * @param code 
- * @param port
- * @param dataSiz
- * @param usesDX
- * @return
- */
 static int DecodeOutInstruction(uint8_t* code, uint16_t* port, int* dataSize, bool* usesDX) {
     int idx = 0;
     bool has66Prefix = false;
@@ -227,7 +199,6 @@ LONG CALLBACK PortIoVectoredHandler(PEXCEPTION_POINTERS ExceptionInfo) {
 // ========================================================================
 
 void InitHardwareBridge() {
-    // VEH“o˜^
     g_vehHandle = AddVectoredExceptionHandler(1, PortIoVectoredHandler);
     if (g_vehHandle) {
         log_info("HardwareBridge: Vectored Exception Handler registered for Port I/O.");
@@ -236,7 +207,6 @@ void InitHardwareBridge() {
         log_error("HardwareBridge: Failed to register VEH!");
     }
 
-    // ƒfƒoƒCƒXŒQ‚Ì‰Šú‰»
     if (!LindberghDevice::Instance().Init()) {
         log_fatal("Failed to initialize LindberghDevice");
     }
@@ -251,14 +221,17 @@ void CleanupHardwareBridge() {
 }
 
 // ========================================================================
-// --- File I/O Functions ---
+// --- File I/O Functions (with debug logging)
 // ========================================================================
 
 extern "C" {
 
     int my_open(const char* pathname, int flags, int mode) {
+        log_debug(">>> my_open ENTRY: path=%s, flags=0x%X", pathname, flags);
+
         int fd = LindberghDevice::Instance().Open(pathname, flags);
         if (fd >= 0) {
+            log_debug(">>> my_open EXIT: virtual fd=%d", fd);
             return fd;
         }
 
@@ -273,45 +246,79 @@ extern "C" {
         int pmode = _S_IREAD | _S_IWRITE;
 
         fd = _open(winPath, winFlags, pmode);
+        log_debug(">>> my_open EXIT: real fd=%d for %s", fd, winPath);
         return fd;
     }
 
     int my_close(int fd) {
+        log_debug(">>> my_close ENTRY: fd=%d", fd);
+
         if (LindberghDevice::Instance().Close(fd) == 0) {
+            log_debug(">>> my_close EXIT: virtual fd closed");
             return 0;
         }
-        return _close(fd);
+
+        int ret = _close(fd);
+        log_debug(">>> my_close EXIT: ret=%d", ret);
+        return ret;
     }
 
     int my_read(int fd, void* buf, size_t count) {
-        int res = LindberghDevice::Instance().Read(fd, buf, count);
-        if (res != -1) return res;
+        log_debug(">>> my_read ENTRY: fd=%d, count=%zu", fd, count);
 
-        return _read(fd, buf, (unsigned int)count);
+        int res = LindberghDevice::Instance().Read(fd, buf, count);
+        if (res != -1) {
+            log_debug(">>> my_read EXIT: virtual read returned %d", res);
+            return res;
+        }
+
+        res = _read(fd, buf, (unsigned int)count);
+        log_debug(">>> my_read EXIT: real read returned %d", res);
+        return res;
     }
 
     int my_write(int fd, const void* buf, size_t count) {
-        int res = LindberghDevice::Instance().Write(fd, buf, count);
-        if (res != -1) return res;
+        log_debug(">>> my_write ENTRY: fd=%d, count=%zu", fd, count);
 
-        return _write(fd, buf, (unsigned int)count);
+        int res = LindberghDevice::Instance().Write(fd, buf, count);
+        if (res != -1) {
+            log_debug(">>> my_write EXIT: virtual write returned %d", res);
+            return res;
+        }
+
+        res = _write(fd, buf, (unsigned int)count);
+        log_debug(">>> my_write EXIT: real write returned %d", res);
+        return res;
     }
 
     int my_ioctl(int fd, unsigned long request, void* data) {
-        int res = LindberghDevice::Instance().Ioctl(fd, request, data);
-        if (res != -1) return res;
+        log_debug(">>> my_ioctl ENTRY: fd=%d, request=0x%lX", fd, request);
 
+        int res = LindberghDevice::Instance().Ioctl(fd, request, data);
+        if (res != -1) {
+            log_debug(">>> my_ioctl EXIT: virtual ioctl returned %d", res);
+            return res;
+        }
+
+        log_debug(">>> my_ioctl EXIT: returning -1 (ENOTTY)");
         errno = ENOTTY;
         return -1;
     }
 
     int my_writev(int fd, const struct iovec* iov, int iovcnt) {
+        log_debug(">>> my_writev ENTRY: fd=%d, iovcnt=%d", fd, iovcnt);
+
         int total = 0;
         for (int i = 0; i < iovcnt; ++i) {
             int written = my_write(fd, iov[i].iov_base, iov[i].iov_len);
-            if (written < 0) return (total > 0) ? total : -1;
+            if (written < 0) {
+                log_debug(">>> my_writev EXIT: error, total=%d", total);
+                return (total > 0) ? total : -1;
+            }
             total += written;
         }
+
+        log_debug(">>> my_writev EXIT: total=%d", total);
         return total;
     }
 

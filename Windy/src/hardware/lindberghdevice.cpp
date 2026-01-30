@@ -8,7 +8,8 @@
 
 // Device path constants
 static const char* DEV_BASEBOARD = "/dev/lbb";
-static const char* DEV_EEPROM = "/dev/i2c-";
+static const char* DEV_EEPROM_DASH = "/dev/i2c-";    // /dev/i2c-0, /dev/i2c-1, etc.
+static const char* DEV_EEPROM_SLASH = "/dev/i2c/";   // /dev/i2c/0, /dev/i2c/1, etc.
 static const char* DEV_SERIAL = "/dev/ttyS";
 static const char* DEV_PCI_1F0 = "/proc/bus/pci/00/1f.0";
 static const char* DEV_PCI_000 = "/proc/bus/pci/00/00.0";
@@ -84,7 +85,7 @@ void LindberghDevice::Cleanup() {
     m_jvsBoard.Close();
     m_eepromBoard.Close();
     m_serialBoard.Close();
-    
+
     m_fileDescriptors.clear();
 
     log_info("LindberghDevice: Shutdown complete");
@@ -104,9 +105,10 @@ int LindberghDevice::Open(const char* path, int flags) {
         type = DEVICE_BASEBOARD;
         log_debug("LindberghDevice::Open: BaseBoard (%s)", path);
     }
-    else if (strncmp(path, DEV_EEPROM, strlen(DEV_EEPROM)) == 0) {
+    else if (strncmp(path, DEV_EEPROM_DASH, strlen(DEV_EEPROM_DASH)) == 0 ||
+        strncmp(path, DEV_EEPROM_SLASH, strlen(DEV_EEPROM_SLASH)) == 0) {
         type = DEVICE_EEPROM;
-        log_debug("LindberghDevice::Open: EEPROM (%s)", path);
+        log_debug("LindberghDevice::Open: EEPROM/I2C (%s)", path);
     }
     else if (strncmp(path, DEV_SERIAL, strlen(DEV_SERIAL)) == 0) {
         type = DEVICE_SERIAL;
@@ -159,33 +161,34 @@ int LindberghDevice::Read(int fd, void* buf, size_t count) {
     FdInfo& info = it->second;
 
     switch (info.type) {
-        case DEVICE_BASEBOARD:
-            return m_baseBoard.Read((char*)buf, count);
+    case DEVICE_BASEBOARD:
+        return m_baseBoard.Read((char*)buf, count);
 
-        case DEVICE_PCI_1F0:
-        case DEVICE_PCI_000:
-        {
-            // PCI config space read emulation
-            // Return dummy data for Intel ICH9 (0x29408086)
-            if (count >= 4) {
-                uint32_t* data = (uint32_t*)buf;
-                if (info.type == DEVICE_PCI_1F0) {
-                    // ICH9 LPC Interface
-                    *data = 0x29448086;
-                } else {
-                    // Intel MCH
-                    *data = 0x29408086;
-                }
-                return 4;
+    case DEVICE_PCI_1F0:
+    case DEVICE_PCI_000:
+    {
+        // PCI config space read emulation
+        // Return dummy data for Intel ICH9 (0x29408086)
+        if (count >= 4) {
+            uint32_t* data = (uint32_t*)buf;
+            if (info.type == DEVICE_PCI_1F0) {
+                // ICH9 LPC Interface
+                *data = 0x29448086;
             }
-            return 0;
+            else {
+                // Intel MCH
+                *data = 0x29408086;
+            }
+            return 4;
         }
+        return 0;
+    }
 
-        case DEVICE_SERIAL:
-            return m_serialBoard.Read((char*)buf, count);
+    case DEVICE_SERIAL:
+        return m_serialBoard.Read((char*)buf, (unsigned int)count);
 
-        default:
-            return -1;
+    default:
+        return -1;
     }
 }
 
@@ -202,19 +205,19 @@ int LindberghDevice::Write(int fd, const void* buf, size_t count) {
     FdInfo& info = it->second;
 
     switch (info.type) {
-        case DEVICE_BASEBOARD:
-            return m_baseBoard.Write((const char*)buf, count);
+    case DEVICE_BASEBOARD:
+        return m_baseBoard.Write((const char*)buf, count);
 
-        case DEVICE_SERIAL:
-            return m_serialBoard.Write((const char*)buf, count);
+    case DEVICE_SERIAL:
+        return m_serialBoard.Write((const char*)buf, (unsigned int)count);
 
-        case DEVICE_PCI_1F0:
-        case DEVICE_PCI_000:
-            // PCI config writes are ignored
-            return (int)count;
+    case DEVICE_PCI_1F0:
+    case DEVICE_PCI_000:
+        // PCI config writes are ignored
+        return (int)count;
 
-        default:
-            return -1;
+    default:
+        return -1;
     }
 }
 
@@ -231,18 +234,18 @@ int LindberghDevice::Ioctl(int fd, unsigned long request, void* data) {
     FdInfo& info = it->second;
 
     switch (info.type) {
-        case DEVICE_BASEBOARD:
-            return m_baseBoard.Ioctl((unsigned int)request, data);
+    case DEVICE_BASEBOARD:
+        return m_baseBoard.Ioctl((unsigned int)request, data);
 
-        case DEVICE_EEPROM:
-            return m_eepromBoard.Ioctl((unsigned int)request, data);
+    case DEVICE_EEPROM:
+        return m_eepromBoard.Ioctl((unsigned int)request, data);
 
-        case DEVICE_SERIAL:
-            return m_serialBoard.Ioctl((unsigned int)request, data);
+    case DEVICE_SERIAL:
+        return m_serialBoard.Ioctl((unsigned int)request, data);
 
-        default:
-            log_warn("LindberghDevice::Ioctl: Unhandled device type for fd %d", fd);
-            return -1;
+    default:
+        log_warn("LindberghDevice::Ioctl: Unhandled device type for fd %d", fd);
+        return -1;
     }
 }
 
@@ -259,18 +262,18 @@ int LindberghDevice::Seek(int fd, long offset, int whence) {
     FdInfo& info = it->second;
 
     switch (whence) {
-        case SEEK_SET:
-            info.offset = offset;
-            break;
-        case SEEK_CUR:
-            info.offset += offset;
-            break;
-        case SEEK_END:
-            // For PCI config space, end is typically 256 bytes
-            info.offset = 256 + offset;
-            break;
-        default:
-            return -1;
+    case SEEK_SET:
+        info.offset = offset;
+        break;
+    case SEEK_CUR:
+        info.offset += offset;
+        break;
+    case SEEK_END:
+        // For PCI config space, end is typically 256 bytes
+        info.offset = 256 + offset;
+        break;
+    default:
+        return -1;
     }
 
     return 0;

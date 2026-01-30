@@ -73,6 +73,37 @@ extern "C" int my_stub_success() { return 0; }
 extern "C" int my_stub_fail() { return -1; }
 extern "C" void* my_stub_null() { return NULL; }
 
+// =============================================================
+//   Semaphore Wrappers with Logging
+// =============================================================
+
+extern "C" int my_sem_init(sem_t* sem, int pshared, unsigned int value) {
+    log_info(">>> sem_init: sem=%p, pshared=%d, value=%u", sem, pshared, value);
+    int ret = sem_init(sem, pshared, value);
+    log_info(">>> sem_init EXIT: ret=%d", ret);
+    return ret;
+}
+
+extern "C" int my_sem_wait(sem_t* sem) {
+    log_info(">>> sem_wait ENTRY: sem=%p (THIS MAY BLOCK!)", sem);
+    int ret = sem_wait(sem);
+    log_info(">>> sem_wait EXIT: ret=%d", ret);
+    return ret;
+}
+
+extern "C" int my_sem_trywait(sem_t* sem) {
+    log_debug(">>> sem_trywait: sem=%p", sem);
+    int ret = sem_trywait(sem);
+    log_debug(">>> sem_trywait EXIT: ret=%d", ret);
+    return ret;
+}
+
+extern "C" int my_sem_post(sem_t* sem) {
+    log_debug(">>> sem_post: sem=%p", sem);
+    int ret = sem_post(sem);
+    return ret;
+}
+
 void __declspec(naked) UnimplementedStub() {
     __asm { pushad }
     MessageBoxA(NULL, "Unimplemented Function Called", "Error", MB_OK);
@@ -787,18 +818,18 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("pthread_cond_init", PthreadBridge::cond_init_wrapper);
     MAP("pthread_cond_destroy", PthreadBridge::cond_destroy_wrapper);
     MAP("pthread_cond_wait", PthreadBridge::cond_wait_wrapper);
-    MAP("pthread_cond_timedwait", pthread_cond_timedwait);
+    MAP("pthread_cond_timedwait", PthreadBridge::cond_timedwait_wrapper);
     MAP("pthread_cond_signal", PthreadBridge::cond_signal_wrapper);
     MAP("pthread_cond_broadcast", PthreadBridge::cond_broadcast_wrapper);
     MAP("pthread_key_create", pthread_key_create);
     MAP("pthread_key_delete", pthread_key_delete);
     MAP("pthread_setspecific", pthread_setspecific);
     MAP("pthread_getspecific", pthread_getspecific);
-    MAP("sem_init", sem_init);
+    MAP("sem_init", my_sem_init);
     MAP("sem_destroy", sem_destroy);
-    MAP("sem_wait", sem_wait);
-    MAP("sem_trywait", sem_trywait);
-    MAP("sem_post", sem_post);
+    MAP("sem_wait", my_sem_wait);
+    MAP("sem_trywait", my_sem_trywait);
+    MAP("sem_post", my_sem_post);
     MAP("sem_getvalue", sem_getvalue);
 
     // Sega API
