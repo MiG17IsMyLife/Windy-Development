@@ -69,7 +69,8 @@ void CreateSDLWindowIfNeeded() {
     }
     else {
         log_info("SDL Window created (%dx%d)", g_windowWidth, g_windowHeight);
-        if (g_windowX != -1 && g_windowY != -1) {
+
+        if (g_windowX > 0 || g_windowY > 0) {
             SDL_SetWindowPosition(g_sdlWindow, g_windowX, g_windowY);
         }
         else {
@@ -216,8 +217,49 @@ void GLXBridge::glutInit(int* argcp, char** argv) {
 void GLXBridge::glutInitDisplayMode(unsigned int mode) {
     log_debug("glutInitDisplayMode(0x%X)", mode);
     EnsureSDLInitialized();
-    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
-    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+
+    // GLUT Constants
+    const unsigned int GLUT_DOUBLE = 2;
+    const unsigned int GLUT_ACCUM = 4;
+    const unsigned int GLUT_ALPHA = 8;
+    const unsigned int GLUT_DEPTH = 16;
+    const unsigned int GLUT_STENCIL = 32;
+    const unsigned int GLUT_MULTISAMPLE = 128;
+    const unsigned int GLUT_STEREO = 256;
+
+    // Double Buffer
+    if (mode & GLUT_DOUBLE) {
+        SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+    }
+    else {
+        SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 0);
+    }
+
+    // Depth Buffer
+    if (mode & GLUT_DEPTH) {
+        SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+    }
+
+    // Stencil Buffer
+    if (mode & GLUT_STENCIL) {
+        SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
+    }
+
+    // Alpha
+    if (mode & GLUT_ALPHA) {
+        SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 8);
+    }
+
+    // Multisample
+    if (mode & GLUT_MULTISAMPLE) {
+        SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
+        SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 4);
+    }
+
+    // Stereo
+    if (mode & GLUT_STEREO) {
+        SDL_GL_SetAttribute(SDL_GL_STEREO, 1);
+    }
 }
 
 void GLXBridge::glutInitWindowSize(int width, int height) {
@@ -244,6 +286,16 @@ int GLXBridge::glutEnterGameMode() {
 void GLXBridge::glutLeaveGameMode() {
     log_info("glutLeaveGameMode called");
     if (g_sdlWindow) SDL_SetWindowFullscreen(g_sdlWindow, 0);
+}
+
+int GLXBridge::glutCreateWindow(const char* title) {
+    log_info("glutCreateWindow called: \"%s\"", title ? title : "NULL");
+    CreateSDLWindowIfNeeded();
+    if (g_sdlWindow && title) {
+        SDL_SetWindowTitle(g_sdlWindow, title);
+    }
+    // Return dummy Window ID (standard GLUT uses integers starting from 1)
+    return 1;
 }
 
 void GLXBridge::glutMainLoop() {

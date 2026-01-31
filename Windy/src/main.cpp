@@ -376,6 +376,8 @@ int main(int argc, char* argv[]) {
     // -------------------------------------------------
     // Jump to ELF Entry Point
     // -------------------------------------------------
+    #pragma warning(push)
+    #pragma warning(disable: 4731)
     __asm {
         mov eax, entryPoint
         mov esp, finalEsp
@@ -386,9 +388,10 @@ int main(int argc, char* argv[]) {
         xor esi, esi
         xor edi, edi
 
-        xor ebp, ebp 
+        xor ebp, ebp
         jmp eax
     }
+    #pragma warning(pop)
 
     // -------------------------------------------------
     // Cleanup (unreachable in normal flow)

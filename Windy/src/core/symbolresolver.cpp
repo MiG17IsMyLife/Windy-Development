@@ -472,6 +472,7 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("glutInitWindowPosition", GLXBridge::glutInitWindowPosition);
     MAP("glutEnterGameMode", GLXBridge::glutEnterGameMode);
     MAP("glutLeaveGameMode", GLXBridge::glutLeaveGameMode);
+    MAP("glutCreateWindow", GLXBridge::glutCreateWindow);
     MAP("glutMainLoop", GLXBridge::glutMainLoop);
     MAP("glutDisplayFunc", GLXBridge::glutDisplayFunc);
     MAP("glutIdleFunc", GLXBridge::glutIdleFunc);
@@ -581,6 +582,8 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("shmctl", my_shmctl);
     MAP("shmdt", my_shmdt);
 
+
+
     // ============================================================
     // Process
     // ============================================================
@@ -589,8 +592,8 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("vfork", my_vfork);
     MAP("daemon", my_daemon);
     MAP("execlp", my_execlp);
-    MAP("kill", my_stub_success);
-    MAP("wait", my_stub_success);
+    MAP("kill", LibcBridge::kill_wrapper);
+    MAP("wait", LibcBridge::wait_wrapper);
 
     // ============================================================
     // Filesystem
@@ -612,7 +615,7 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("__lxstat", __lxstat);
     MAP("__fxstat", __fxstat);
     MAP("__fxstat64", __fxstat64);
-    MAP("__xmknod", my_stub_success);
+    MAP("__xmknod", LibcBridge::__xmknod_wrapper);
     MAP("fcntl", my_fcntl);
 
     // ============================================================
@@ -773,16 +776,58 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("gethostbyname_r", LibcBridge::gethostbyname_r_wrapper);
     MAP("gethostbyaddr_r", LibcBridge::gethostbyaddr_r_wrapper);
 
-    // Stubs (poll now has proper implementation)
-    MAP("poll", my_poll);
-    MAP("tcgetattr", my_stub_success);
-    MAP("tcsetattr", my_stub_success);
-    MAP("tcflush", my_stub_success);
-    MAP("tcdrain", my_stub_success);
+    // Termios (Serial)
+    MAP("tcgetattr", LibcBridge::tcgetattr_wrapper);
+    MAP("tcsetattr", LibcBridge::tcsetattr_wrapper);
+    MAP("tcflush", LibcBridge::tcflush_wrapper);
+    MAP("tcdrain", LibcBridge::tcdrain_wrapper);
     MAP("cfgetispeed", my_stub_success);
     MAP("cfgetospeed", my_stub_success);
-    MAP("cfsetspeed", my_stub_success);
+    MAP("cfsetispeed", LibcBridge::cfsetispeed_wrapper);
+    MAP("cfsetospeed", LibcBridge::cfsetospeed_wrapper);
+    MAP("cfsetspeed", LibcBridge::cfsetospeed_wrapper);
+
+    // Stubs
+    MAP("poll", my_poll);
     MAP("iopl", my_stub_success);
+
+    // XF86VidMode
+    MAP("XF86VidModeQueryExtension", X11Bridge::VidModeQueryExtension);
+    MAP("XF86VidModeGetAllModeLines", X11Bridge::VidModeGetAllModeLines);
+    MAP("XF86VidModeGetModeLine", X11Bridge::VidModeGetModeLine);
+    MAP("XF86VidModeSwitchToMode", X11Bridge::VidModeSwitchToMode);
+    MAP("XF86VidModeSetViewPort", X11Bridge::VidModeSetViewPort);
+    MAP("XF86VidModeGetViewPort", X11Bridge::VidModeGetViewPort);
+    MAP("XF86VidModeLockModeSwitch", X11Bridge::VidModeLockModeSwitch);
+
+    //X11 Misc
+    MAP("XOpenDisplay", X11Bridge::OpenDisplay);
+    MAP("XCloseDisplay", X11Bridge::CloseDisplay);
+    MAP("XInitThreads", X11Bridge::InitThreads);
+    MAP("XLockDisplay", X11Bridge::LockDisplay);
+    MAP("XUnlockDisplay", X11Bridge::UnlockDisplay);
+    MAP("XSync", X11Bridge::Sync);
+    MAP("XFlush", X11Bridge::Flush);
+
+    MAP("XSetErrorHandler", X11Bridge::SetErrorHandler);
+    MAP("XGetErrorText", X11Bridge::GetErrorText);
+
+    MAP("XCreatePixmapCursor", X11Bridge::CreatePixmapCursor);
+    MAP("XCreatePixmapFromBitmapData", X11Bridge::CreatePixmapFromBitmapData);
+    MAP("XFreePixmap", X11Bridge::FreePixmap);
+    MAP("XFreeCursor", X11Bridge::FreeCursor);
+    MAP("XDefineCursor", X11Bridge::DefineCursor);
+
+    MAP("XSetInputFocus", X11Bridge::SetInputFocus);
+    MAP("XSetWMProtocols", X11Bridge::SetWMProtocols);
+    MAP("XSetWMProperties", X11Bridge::SetWMProperties);
+    MAP("XStringListToTextProperty", X11Bridge::StringListToTextProperty);
+    MAP("XSetCloseDownMode", X11Bridge::SetCloseDownMode);
+    MAP("XAutoRepeatOn", X11Bridge::AutoRepeatOn);
+
+    MAP("XGrabKeyboard", X11Bridge::GrabKeyboard);
+    MAP("XUngrabKeyboard", X11Bridge::UngrabKeyboard);
+
 
     // Pthreads
     MAP("pthread_create", PthreadBridge::create_wrapper);

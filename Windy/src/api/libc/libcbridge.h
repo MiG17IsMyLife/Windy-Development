@@ -175,4 +175,33 @@ public:
     static wint_t towupper_wrapper(wint_t wc);
     static wctype_t wctype_wrapper(const char* property);
     static int    iswctype_wrapper(wint_t wc, wctype_t desc);
+
+    // ========================================================================
+    // --- Termios (Serial Port) Support (Added) ---
+    // ========================================================================
+    struct linux_termios {
+        unsigned int c_iflag; // input mode flags
+        unsigned int c_oflag; // output mode flags
+        unsigned int c_cflag; // control mode flags
+        unsigned int c_lflag; // local mode flags
+        unsigned char c_line; // line discipline
+        unsigned char c_cc[32]; // control characters
+        unsigned int c_ispeed; // input speed
+        unsigned int c_ospeed; // output speed
+    };
+
+    static int tcgetattr_wrapper(int fd, struct linux_termios* termios_p);
+    static int tcsetattr_wrapper(int fd, int optional_actions, const struct linux_termios* termios_p);
+    static int tcflush_wrapper(int fd, int queue_selector);
+    static int tcdrain_wrapper(int fd);
+    static int cfsetispeed_wrapper(struct linux_termios* termios_p, unsigned int speed);
+    static int cfsetospeed_wrapper(struct linux_termios* termios_p, unsigned int speed);
+
+    // ========================================================================
+    // --- Process Management ---
+    // ========================================================================
+    static int kill_wrapper(int pid, int sig);
+
+    static int wait_wrapper(int* wstatus);
+    static int __xmknod_wrapper(int ver, const char* path, unsigned int mode, void* dev);
 };

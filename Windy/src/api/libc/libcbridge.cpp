@@ -2,12 +2,13 @@
 #define _CRT_SECURE_NO_WARNINGS
 
 #include "LibcBridge.h"
-#include "../linux/HardwareBridge.h"
-#include "../../hardware/lindberghdevice.h"
 #include "../src/core/log.h"
+#include "../../hardware/lindberghdevice.h"
+
 #include <iostream>
 #include <vector>
 #include <algorithm>
+#include <map>
 #include <io.h>
 #include <fcntl.h>
 #include <direct.h>
@@ -55,6 +56,7 @@ FILE* LibcBridge::fopen_wrapper(const char* filename, const char* mode) {
     if (strchr(mode, 'w')) linux_flags = 1; // O_WRONLY
     if (strchr(mode, '+')) linux_flags = 2; // O_RDWR
 
+    // Try to open via LindberghDevice (virtual filesystem) first
     int fd = LindberghDevice::Instance().Open(filename, linux_flags);
 
     if (fd >= 0) {
@@ -62,6 +64,7 @@ FILE* LibcBridge::fopen_wrapper(const char* filename, const char* mode) {
         return ToVPtr(fd);
     }
 
+    // Fallback to Windows filesystem
     char winPath[MAX_PATH];
     ConvertPath(winPath, filename, MAX_PATH);
     FILE* f = fopen(winPath, mode);
@@ -92,7 +95,7 @@ int LibcBridge::creat_wrapper(const char* pathname, int mode) {
 
 size_t LibcBridge::fread_wrapper(void* ptr, size_t size, size_t nmemb, FILE* stream) {
     if (IsVirtual(stream)) {
-        int bytesRead = LindberghDevice::Instance().Read(ToVfd(stream), ptr, size * nmemb);
+        int bytesRead = LindberghDevice::Instance().Read(ToVfd(stream), ptr, (int)(size * nmemb));
         return (size > 0 && bytesRead > 0) ? (bytesRead / size) : 0;
     }
     return fread(ptr, size, nmemb, stream);
@@ -100,7 +103,7 @@ size_t LibcBridge::fread_wrapper(void* ptr, size_t size, size_t nmemb, FILE* str
 
 size_t LibcBridge::fwrite_wrapper(const void* ptr, size_t size, size_t nmemb, FILE* stream) {
     if (IsVirtual(stream)) {
-        int bytesWritten = LindberghDevice::Instance().Write(ToVfd(stream), ptr, size * nmemb);
+        int bytesWritten = LindberghDevice::Instance().Write(ToVfd(stream), ptr, (int)(size * nmemb));
         return (size > 0 && bytesWritten > 0) ? (bytesWritten / size) : 0;
     }
     return fwrite(ptr, size, nmemb, stream);
@@ -165,7 +168,7 @@ char* LibcBridge::fgets_wrapper(char* s, int size, FILE* stream) {
 int LibcBridge::fputs_wrapper(const char* s, FILE* stream) {
     if (IsVirtual(stream)) {
         size_t len = strlen(s);
-        return (LindberghDevice::Instance().Write(ToVfd(stream), s, len) == (int)len) ? 0 : EOF;
+        return (LindberghDevice::Instance().Write(ToVfd(stream), s, (int)len) == (int)len) ? 0 : EOF;
     }
     return fputs(s, stream);
 }
@@ -191,7 +194,7 @@ int LibcBridge::puts_wrapper(const char* s) {
 }
 
 int LibcBridge::ungetc_wrapper(int c, FILE* stream) {
-    if (IsVirtual(stream)) return EOF;
+    if (IsVirtual(stream)) return EOF; // Not supported for virtual files
     return ungetc(c, stream);
 }
 
@@ -200,7 +203,7 @@ int LibcBridge::getc_wrapper(FILE* stream) {
 }
 
 int LibcBridge::feof_wrapper(FILE* stream) {
-    if (IsVirtual(stream)) return 0;
+    if (IsVirtual(stream)) return 0; // TODO: Implement proper EOF check for virtual files
     return feof(stream);
 }
 
@@ -220,7 +223,7 @@ int LibcBridge::fileno_wrapper(FILE* stream) {
 }
 
 FILE* LibcBridge::fdopen_wrapper(int fd, const char* mode) {
-    // 仮想FD(>=100)ならセンチネルポインタを返却、そうでなければ通常通り
+    // If fd is >= 100, we assume it's a virtual FD managed by LindberghDevice
     if (fd >= 100) return ToVPtr(fd);
     return _fdopen(fd, mode);
 }
@@ -255,6 +258,7 @@ int LibcBridge::printf_wrapper(const char* format, ...) {
         char* buffer = (char*)malloc(size + 1);
         if (buffer) {
             vsnprintf(buffer, size + 1, format, args);
+            // Remove trailing newline for cleaner logging
             if (size > 0 && buffer[size - 1] == '\n') buffer[size - 1] = '\0';
             log_game("%s", buffer);
             free(buffer);
@@ -282,7 +286,7 @@ int LibcBridge::vprintf_wrapper(const char* format, va_list ap) {
 }
 
 int LibcBridge::fprintf_wrapper(FILE* stream, const char* format, ...) {
-    if (IsVirtual(stream)) return 0;
+    if (IsVirtual(stream)) return 0; // Virtual files usually don't support fprintf
     va_list args;
     va_start(args, format);
     int ret = vfprintf(stream, format, args);
@@ -422,7 +426,7 @@ struct tm* LibcBridge::localtime_wrapper(const time_t* timep) { return localtime
 time_t LibcBridge::mktime_wrapper(struct tm* tm) { return mktime(tm); }
 
 int LibcBridge::nanosleep_wrapper(const struct timespec* req, struct timespec* rem) {
-    if (req) { DWORD ms = req->tv_sec * 1000 + (req->tv_nsec / 1000000); Sleep(ms); }
+    if (req) { DWORD ms = (DWORD)(req->tv_sec * 1000 + (req->tv_nsec / 1000000)); Sleep(ms); }
     return 0;
 }
 
@@ -555,3 +559,93 @@ wctype_t LibcBridge::wctype_wrapper(const char* property) {
 }
 
 int LibcBridge::iswctype_wrapper(wint_t wc, wctype_t desc) { return iswctype(wc, desc); }
+
+// ========================================================================
+// --- Termios (Serial Port) Support Implementation ---
+// ========================================================================
+
+static std::map<int, LibcBridge::linux_termios> g_termios_state;
+
+int LibcBridge::tcgetattr_wrapper(int fd, struct linux_termios* termios_p) {
+    if (!termios_p) return -1;
+
+    // If state exists, return it; otherwise return default "raw-ish" mode
+    if (g_termios_state.find(fd) != g_termios_state.end()) {
+        *termios_p = g_termios_state[fd];
+    }
+    else {
+        memset(termios_p, 0, sizeof(linux_termios));
+        // Default flags typical for JVS communication
+        termios_p->c_cflag = 0x1000 | 0x0800 | 0x0030; // CLOCAL | CREAD | CS8
+        termios_p->c_ispeed = 115200;
+        termios_p->c_ospeed = 115200;
+    }
+    return 0;
+}
+
+int LibcBridge::tcsetattr_wrapper(int fd, int optional_actions, const struct linux_termios* termios_p) {
+    if (!termios_p) return -1;
+    // Store state to appease the game
+    g_termios_state[fd] = *termios_p;
+    log_debug("tcsetattr: fd=%d, speed=%d, flags=0x%x", fd, termios_p->c_ospeed, termios_p->c_cflag);
+    return 0;
+}
+
+int LibcBridge::tcflush_wrapper(int fd, int queue_selector) {
+    // Ideally map to PurgeComm, but returning 0 (success) is sufficient for now
+    return 0;
+}
+
+int LibcBridge::tcdrain_wrapper(int fd) {
+    // Wait for transmission. Sleep briefly to simulate IO delay.
+    Sleep(1);
+    return 0;
+}
+
+int LibcBridge::cfsetispeed_wrapper(struct linux_termios* termios_p, unsigned int speed) {
+    if (termios_p) termios_p->c_ispeed = speed;
+    return 0;
+}
+
+int LibcBridge::cfsetospeed_wrapper(struct linux_termios* termios_p, unsigned int speed) {
+    if (termios_p) termios_p->c_ospeed = speed;
+    return 0;
+}
+
+// ========================================================================
+// --- Process Management Implementation ---
+// ========================================================================
+
+int LibcBridge::kill_wrapper(int pid, int sig) {
+    int my_pid = _getpid();
+    log_info("kill(%d, %d) called", pid, sig);
+
+    if (pid == my_pid || pid == 0) {
+        // Signal 0 is existence check
+        if (sig == 0) return 0;
+
+        // SIGKILL (9) or SIGTERM (15) -> Terminate self
+        if (sig == 9 || sig == 15) {
+            log_warn("kill: Process requested self-termination");
+            exit(0);
+        }
+    }
+
+    return 0;
+}
+
+int LibcBridge::wait_wrapper(int* wstatus) {
+    log_warn("wait() called: No child processes to wait for. Returning ECHILD.");
+
+    Sleep(10);
+
+    if (wstatus) *wstatus = 0;
+    errno = ECHILD;
+    return -1;
+}
+
+int LibcBridge::__xmknod_wrapper(int ver, const char* path, unsigned int mode, void* dev) {
+    log_info("__xmknod called: ver=%d, path=\"%s\", mode=0x%x", ver, path, mode);
+
+    return 0;
+}
