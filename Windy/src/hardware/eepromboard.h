@@ -55,30 +55,11 @@ public:
     EepromBoard();
     ~EepromBoard();
 
-    /**
-     * @brief Initialize EEPROM (matches initEeprom)
-     * @param path Path to eeprom.bin file
-     * @return true if successful
-     */
     bool Open(const char* path = "eeprom.bin");
-
-    /**
-     * @brief Close EEPROM file
-     */
     void Close();
-
-    /**
-     * @brief Handle I2C IOCTL requests (matches eepromIoctl() from Lindbergh-loader)
-     * @param request IOCTL request code
-     * @param data Request data
-     * @return 0 on success
-     */
     int Ioctl(unsigned int request, void* data);
 
-    // ============================================================
     // Configuration
-    // ============================================================
-
     void SetRegion(int region) { m_configRegion = region; }
     void SetFreeplay(int freeplay) { m_configFreeplay = freeplay; }
     void SetGameId(uint32_t gameId) { m_gameId = gameId; }
@@ -86,50 +67,24 @@ public:
     void SetOR2Network(const char* ip, const char* mask);
     void SetEnableNetworkPatches(bool enable) { m_enableNetworkPatches = enable; }
 
-    // ============================================================
-    // eepromSettings.h functions (public for external access)
-    // ============================================================
-
+    // Public accessors
     int GetRegion();
     int GetFreeplay();
 
-    // ============================================================
-    // Game-specific fixes (public for main.cpp to call)
-    // ============================================================
-
-    /**
-     * @brief Fix credit section for LGJ/HOD4 Special
-     * Sets service type to 0 and freeplay mode
-     */
+    // Game-specific fixes
     int FixCreditSection();
-
-    /**
-     * @brief Fix coin assignments for Hummer series
-     * Resets coin chute type and service type
-     */
     int FixCoinAssignmentsHummer();
-
-    /**
-     * @brief Set IP address in EEPROM (for OutRun 2 SP SDX network)
-     */
     int SetIP(const char* ipAddress, const char* netMask);
-
-    /**
-     * @brief Enable game-specific emulation patches
-     * Called from main.cpp after game detection
-     */
     void EnableEmulationPatches(uint32_t gameId);
 
 private:
-    // ============================================================
-    // eepromSettings.c functions (internal)
-    // ============================================================
-
+    // CRC functions
     void BuildCrc32Table();
     uint32_t GenCrc(int section, size_t n);
     void AddCrcToBuffer(int section);
     int CheckCrcInBuffer(int section);
 
+    // File operations
     int FillBuffer();
     int WriteSectionToFile(int section);
 
@@ -139,32 +94,25 @@ private:
     int CreateEthSection(int section);
     int CreateCreditSection();
 
-    // Region/Freeplay setters (internal, write to file)
+    // Internal setters
     int SetRegionInternal(int region);
     int SetFreeplayInternal(int freeplay);
 
-    // eepromSettingsInit equivalent
+    // Settings init
     int SettingsInit();
 
-    // Helper
+    // IP conversion helper (matches inet_addr behavior)
     uint32_t IpToUInt(const char* ip);
 
-    // ============================================================
-    // Member Variables
-    // ============================================================
-
+    // Member variables
     FILE* m_file;
     std::string m_path;
 
-    // EEPROM buffer (matches eepromBuffer[512])
     unsigned char m_buffer[512];
-
-    // CRC32 table (matches crc32Table[255])
     uint32_t m_crc32Table[256];
 
-    // Configuration (replaces getConfig() calls)
-    int m_configRegion;      // -1 = don't change
-    int m_configFreeplay;    // -1 = don't change
+    int m_configRegion;
+    int m_configFreeplay;
     uint32_t m_gameId;
     std::string m_networkIP;
     std::string m_networkMask;
@@ -173,7 +121,4 @@ private:
     bool m_enableNetworkPatches;
 };
 
-// ============================================================
-// Global EEPROM offset table
-// ============================================================
 extern const EepromOffsets g_eepromOffsetTable[];

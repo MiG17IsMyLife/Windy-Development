@@ -39,7 +39,7 @@ EepromBoard::~EepromBoard() {
 }
 
 // ============================================================
-// Open / Close (matches initEeprom)
+// Open / Close
 // ============================================================
 
 bool EepromBoard::Open(const char* path) {
@@ -48,20 +48,20 @@ bool EepromBoard::Open(const char* path) {
     // Create file if it doesn't exist
     m_file = fopen(path, "a");
     if (m_file == nullptr) {
-        log_error("EepromBoard: Cannot open %s", path);
+        printf("Error: Cannot open %s\n", path);
         return false;
     }
     fclose(m_file);
 
     m_file = fopen(path, "rb+");
     if (m_file == nullptr) {
-        log_error("EepromBoard: Cannot open %s for read/write", path);
+        printf("Error: Cannot open %s for read/write\n", path);
         return false;
     }
 
-    // Initialize eeprom settings)
+    // Initialize eeprom settings
     if (SettingsInit() != 0) {
-        log_error("EepromBoard: Error initializing eeprom settings.");
+        printf("Error initializing eeprom settings.");
         fclose(m_file);
         m_file = nullptr;
         return false;
@@ -88,7 +88,7 @@ bool EepromBoard::Open(const char* path) {
     case THE_HOUSE_OF_THE_DEAD_4_SPECIAL:
     case THE_HOUSE_OF_THE_DEAD_4_SPECIAL_REVB:
         if (FixCreditSection() != 0) {
-            log_error("EepromBoard: Error fixing credit section.");
+            printf("Error initializing eeprom settings.");
             fclose(m_file);
             m_file = nullptr;
             return false;
@@ -100,7 +100,7 @@ bool EepromBoard::Open(const char* path) {
     case HUMMER_EXTREME:
     case HUMMER_EXTREME_MDX:
         if (FixCoinAssignmentsHummer() != 0) {
-            log_error("EepromBoard: Error fixing coin assignments for Hummer.");
+            printf("Error initializing eeprom settings.");
             fclose(m_file);
             m_file = nullptr;
             return false;
@@ -111,7 +111,7 @@ bool EepromBoard::Open(const char* path) {
     case OUTRUN_2_SP_SDX_REVA:
         if (m_enableNetworkPatches && !m_or2IP.empty() && !m_or2Mask.empty()) {
             if (SetIP(m_or2IP.c_str(), m_or2Mask.c_str()) != 0) {
-                log_error("EepromBoard: Error setting OR2 IP address.");
+                printf("Error setting the new IP address.");
                 fclose(m_file);
                 m_file = nullptr;
                 return false;
@@ -125,7 +125,6 @@ bool EepromBoard::Open(const char* path) {
 
     fseek(m_file, 0, SEEK_SET);
 
-    log_info("EepromBoard: Initialized successfully (%s)", path);
     return true;
 }
 
@@ -137,16 +136,17 @@ void EepromBoard::Close() {
 }
 
 // ============================================================
-// Ioctl (matches eepromIoctl)
+// Ioctl
 // ============================================================
 
 int EepromBoard::Ioctl(unsigned int request, void* data) {
     switch (request) {
     case I2C_GET_FUNCTIONS: {
-        // Copied from what SEGABOOT expects (matches Lindbergh-loader)
+        // The below is copied from what SEGABOOT expects
         uint32_t* functions = (uint32_t*)data;
         functions[0] = 0x20000 | 0x40000 | 0x100000 | 0x400000 | 0x8000000;
-        // Additional flags from House of the Dead 4 init sequence
+
+        // The following is taken from the eeprom init sequence in The House Of The Dead 4
         functions[0] = functions[0] | 0x20000 | 0x40000 | 0x80000 |
             0x100000 | 0x200000 | 0x400000 | 0x1000000 | 0x2000000;
         break;
@@ -154,41 +154,29 @@ int EepromBoard::Ioctl(unsigned int request, void* data) {
 
     case I2C_SMBUS_TRANSFER: {
         struct i2c_smbus_ioctl_data* _data = (struct i2c_smbus_ioctl_data*)data;
-        log_debug("EepromBoard: I2C_SMBUS_TRANSFER size=%u read_write=%u command=0x%02X",
-            _data->size, _data->read_write, _data->command);
 
         switch (_data->size) {
         case I2C_READ: {
-            if (m_file) {
-                fread(&_data->data->byte, 1, sizeof(char), m_file);
-                log_debug("EepromBoard: I2C_READ value=0x%02X", _data->data->byte);
-            }
+            fread(&_data->data->byte, 1, sizeof(char), m_file);
             break;
         }
 
         case I2C_SEEK: {
             uint16_t address = (_data->command & 0xFF) << 8 | (_data->data->byte & 0xFF);
-            if (m_file) {
-                fseek(m_file, address, SEEK_SET);
-                log_debug("EepromBoard: I2C_SEEK address=0x%04X", address);
-            }
+            fseek(m_file, address, SEEK_SET);
             break;
         }
 
         case I2C_WRITE: {
             uint16_t address = (_data->command & 0xFF) << 8 | (_data->data->byte & 0xFF);
             char val = _data->data->word >> 8 & 0xFF;
-            if (m_file) {
-                fseek(m_file, address, SEEK_SET);
-                fwrite(&val, 1, sizeof(char), m_file);
-                log_debug("EepromBoard: I2C_WRITE address=0x%04X value=0x%02X",
-                    address, static_cast<unsigned char>(val));
-            }
+            fseek(m_file, address, SEEK_SET);
+            fwrite(&val, 1, sizeof(char), m_file);
             break;
         }
 
         default:
-            log_error("EepromBoard: Incorrect I2C transfer size %d", _data->size);
+            printf("Error: Incorrect I2C transfer size\n");
             break;
         }
         break;
@@ -196,11 +184,10 @@ int EepromBoard::Ioctl(unsigned int request, void* data) {
 
     case I2C_SET_SLAVE_MODE:
     case I2C_BUFFER_CLEAR:
-        // No action needed
         break;
 
     default:
-        log_warn("EepromBoard: Unknown I2C ioctl 0x%X", request);
+        printf("Error: Unkown I2C ioctl %X\n", request);
         break;
     }
 
@@ -222,7 +209,20 @@ void EepromBoard::SetOR2Network(const char* ip, const char* mask) {
 }
 
 // ============================================================
-// eepromSettings.c functions
+// IP conversion helper
+// ============================================================
+
+uint32_t EepromBoard::IpToUInt(const char* ip) {
+    unsigned int a, b, c, d;
+    if (sscanf(ip, "%u.%u.%u.%u", &a, &b, &c, &d) == 4) {
+        // Network byte order (same as inet_addr)
+        return ((a & 0xFF)) | ((b & 0xFF) << 8) | ((c & 0xFF) << 16) | ((d & 0xFF) << 24);
+    }
+    return 0;
+}
+
+// ============================================================
+// CRC functions
 // ============================================================
 
 void EepromBoard::BuildCrc32Table() {
@@ -232,7 +232,8 @@ void EepromBoard::BuildCrc32Table() {
         for (size_t j = 0; j < 8; j++) {
             uint32_t b = (ch ^ crc) & 1;
             crc >>= 1;
-            if (b) crc = crc ^ 0xEDB88320;
+            if (b)
+                crc = crc ^ 0xEDB88320;
             ch >>= 1;
         }
         m_crc32Table[i] = crc;
@@ -242,9 +243,9 @@ void EepromBoard::BuildCrc32Table() {
 uint32_t EepromBoard::GenCrc(int section, size_t n) {
     unsigned char* buff = &m_buffer[g_eepromOffsetTable[section].offset + 4];
     unsigned long crc = 0xfffffffful;
-    for (size_t i = 0; i < n; i++) {
+    size_t i;
+    for (i = 0; i < n; i++)
         crc = m_crc32Table[*buff++ ^ (crc & 0xff)] ^ (crc >> 8);
-    }
     return (uint32_t)crc;
 }
 
@@ -261,17 +262,19 @@ int EepromBoard::CheckCrcInBuffer(int section) {
     return 0;
 }
 
+// ============================================================
+// File operations
+// ============================================================
+
 int EepromBoard::FillBuffer() {
-    if (!m_file) return 1;
     fseek(m_file, 0, SEEK_SET);
     int b = (int)fread(m_buffer, 1, 512, m_file);
-    if (b < 512) return 1;
+    if (b < 512)
+        return 1;
     return 0;
 }
 
 int EepromBoard::WriteSectionToFile(int section) {
-    if (!m_file) return 1;
-
     unsigned char* buff = &m_buffer[g_eepromOffsetTable[section].offset];
 
     // Original
@@ -280,21 +283,23 @@ int EepromBoard::WriteSectionToFile(int section) {
     if (fwrite(buff, g_eepromOffsetTable[section].size, 1, m_file) != 1)
         return 1;
 
-    // Duplicate (at +0x200)
+    // Duplicate
     if (fseek(m_file, g_eepromOffsetTable[section].offset + 0x200, SEEK_SET) != 0)
         return 1;
     if (fwrite(buff, g_eepromOffsetTable[section].size, 1, m_file) != 1)
         return 1;
 
-    fflush(m_file);
     return 0;
 }
+
+// ============================================================
+// Section creation
+// ============================================================
 
 int EepromBoard::CreateStaticSection() {
     unsigned char* buff = &m_buffer[g_eepromOffsetTable[SECTION_STATIC].offset];
     memset(buff, 0, g_eepromOffsetTable[SECTION_STATIC].size);
-    buff[14] = 0;  // Region (Japan default)
-    // Keychip ID (matches Lindbergh-loader: "AALG-TG-933F3904")
+    buff[14] = 0;
     memcpy(buff + 15, "AALG-TG-933F3904", 16);
     return 0;
 }
@@ -314,7 +319,7 @@ int EepromBoard::CreateEthSection(int section) {
 
     value = IpToUInt("10.0.0.1");
     if (section == SECTION_ETH1)
-        value += (1 << 24);  // 11.0.0.1
+        value += (1 << 24);
     memcpy(buff + 12, &value, sizeof(uint32_t));
 
     value = IpToUInt("255.255.255.0");
@@ -338,7 +343,7 @@ int EepromBoard::CreateCreditSection() {
     buff[35] = 0;  // Coin chute type [COMMON (Default) / INDIVIDUAL]
     buff[36] = 1;  // Service Type [COMMON / INDIVIDUAL (Default)]
     buff[38] = 1;
-    buff[39] = 0;  // Freeplay set to 1 (Note: 0 = freeplay enabled in some contexts)
+    buff[39] = 0;  // Freeplay set to 1
     buff[40] = 1;  // Credits Chute #1
     buff[41] = 1;  // Credits Chute #1
     buff[42] = 0;
@@ -350,6 +355,10 @@ int EepromBoard::CreateCreditSection() {
 
     return 0;
 }
+
+// ============================================================
+// Getters / Setters
+// ============================================================
 
 int EepromBoard::GetRegion() {
     return m_buffer[14];
@@ -363,7 +372,7 @@ int EepromBoard::SetRegionInternal(int region) {
     m_buffer[14] = (unsigned char)region;
     AddCrcToBuffer(SECTION_STATIC);
     if (WriteSectionToFile(SECTION_STATIC) != 0) {
-        log_error("EepromBoard: Error writing region to eeprom.");
+        printf("Error writing to eeprom.");
         return 1;
     }
     return 0;
@@ -371,13 +380,13 @@ int EepromBoard::SetRegionInternal(int region) {
 
 int EepromBoard::SetFreeplayInternal(int freeplay) {
     if (CreateCreditSection() != 0) {
-        log_error("EepromBoard: Error setting freeplay.");
+        printf("Error setting Free Play.");
         return 1;
     }
     m_buffer[g_eepromOffsetTable[SECTION_CREDIT].offset + 39] = (unsigned char)freeplay;
     AddCrcToBuffer(SECTION_CREDIT);
     if (WriteSectionToFile(SECTION_CREDIT) != 0) {
-        log_error("EepromBoard: Error writing freeplay to eeprom.");
+        printf("Error writing to eeprom.");
         return 1;
     }
     return 0;
@@ -388,7 +397,7 @@ int EepromBoard::FixCreditSection() {
     m_buffer[g_eepromOffsetTable[SECTION_CREDIT].offset + 39] = 0;
     AddCrcToBuffer(SECTION_CREDIT);
     if (WriteSectionToFile(SECTION_CREDIT) != 0) {
-        log_error("EepromBoard: Error writing credit section fix.");
+        printf("Error writing to eeprom.");
         return 1;
     }
     return 0;
@@ -399,7 +408,7 @@ int EepromBoard::FixCoinAssignmentsHummer() {
     m_buffer[g_eepromOffsetTable[SECTION_CREDIT].offset + 36] = 0;
     AddCrcToBuffer(SECTION_CREDIT);
     if (WriteSectionToFile(SECTION_CREDIT) != 0) {
-        log_error("EepromBoard: Error writing Hummer coin fix.");
+        printf("Error writing to eeprom.");
         return 1;
     }
     return 0;
@@ -416,14 +425,17 @@ int EepromBoard::SetIP(const char* ipAddress, const char* netMask) {
 
     AddCrcToBuffer(SECTION_ETH0);
     if (WriteSectionToFile(SECTION_ETH0) != 0) {
-        log_error("EepromBoard: Error writing IP address.");
+        printf("Error writing to eeprom.");
         return 1;
     }
     return 0;
 }
 
+// ============================================================
+// SettingsInit (matches eepromSettingsInit exactly, including the bug)
+// ============================================================
+
 int EepromBoard::SettingsInit() {
-    // Matches eepromSettingsInit
     BuildCrc32Table();
 
     fseek(m_file, 0, SEEK_END);
@@ -431,79 +443,85 @@ int EepromBoard::SettingsInit() {
     fseek(m_file, 0, SEEK_SET);
 
     if (size >= 832) {
-        // EEPROM initialized at least by SEGABOOT
+        // eeprom initialized at least by SEGABOOT
         FillBuffer();
 
         if (CheckCrcInBuffer(SECTION_STATIC) != 0) {
             if (CreateStaticSection() != 0) {
-                log_error("EepromBoard: Error creating Static Section.");
+                printf("Error creating Static Section.\n");
                 return 1;
             }
-            AddCrcToBuffer(SECTION_STATIC);
-            if (WriteSectionToFile(SECTION_STATIC) != 0) {
-                log_error("EepromBoard: Error writing STATIC section.");
-                return 1;
+            else {
+                AddCrcToBuffer(SECTION_STATIC);
+                if (WriteSectionToFile(SECTION_STATIC) != 0) {
+                    printf("Error writing to eeprom.bin [STATIC].");
+                    return 1;
+                }
             }
         }
 
         if (CheckCrcInBuffer(SECTION_NETWORK_TYPE) != 0) {
             if (CreateNetworkTypeSection() != 0) {
-                log_error("EepromBoard: Error creating NetworkType Section.");
+                printf("Error creating NetworkType Section.\n");
                 return 1;
             }
-            AddCrcToBuffer(SECTION_NETWORK_TYPE);
-            if (WriteSectionToFile(SECTION_NETWORK_TYPE) != 0) {
-                log_error("EepromBoard: Error writing NETWORK_TYPE section.");
-                return 1;
+            else {
+                AddCrcToBuffer(SECTION_NETWORK_TYPE);
+                if (WriteSectionToFile(SECTION_NETWORK_TYPE) != 0) {
+                    printf("Error writing to eeprom.bin [NETWORK_TYPE].");
+                    return 1;
+                }
             }
         }
 
         if (CheckCrcInBuffer(SECTION_ETH0) != 0) {
             if (CreateEthSection(SECTION_ETH0) != 0) {
-                log_error("EepromBoard: Error creating ETH0 Section.");
+                printf("Error creating Eth0 Section.\n");
                 return 1;
             }
-            AddCrcToBuffer(SECTION_ETH0);
-            if (WriteSectionToFile(SECTION_ETH0) != 0) {
-                log_error("EepromBoard: Error writing ETH0 section.");
-                return 1;
+            else {
+                AddCrcToBuffer(SECTION_ETH0);
+                if (WriteSectionToFile(SECTION_ETH0) != 0) {
+                    printf("Error writing to eeprom.bin [ETH0].");
+                    return 1;
+                }
             }
         }
 
         if (CheckCrcInBuffer(SECTION_ETH1) != 0) {
             if (CreateEthSection(SECTION_ETH1) != 0) {
-                log_error("EepromBoard: Error creating ETH1 Section.");
+                printf("Error creating Eth0 Section.\n");
                 return 1;
             }
-            AddCrcToBuffer(SECTION_ETH1);
-            if (WriteSectionToFile(SECTION_ETH1) != 0) {
-                log_error("EepromBoard: Error writing ETH1 section.");
-                return 1;
+            else {
+                AddCrcToBuffer(SECTION_ETH1);
+                if (WriteSectionToFile(SECTION_ETH1) != 0) {
+                    printf("Error writing to eeprom.bin [ETH1].");
+                    return 1;
+                }
             }
         }
 
         if (CheckCrcInBuffer(SECTION_CREDIT) != 0) {
             if (CreateCreditSection() != 0) {
-                log_error("EepromBoard: Error creating CREDIT Section.");
+                printf("Error creating CREDIT Section.\n");
                 return 1;
             }
-            AddCrcToBuffer(SECTION_CREDIT);
-            if (WriteSectionToFile(SECTION_CREDIT) != 0) {
-                log_error("EepromBoard: Error writing CREDIT section.");
-                return 1;
+            else {
+                AddCrcToBuffer(SECTION_CREDIT);
+                if (WriteSectionToFile(SECTION_NETWORK_TYPE) != 0) {
+                    printf("Error writing to eeprom.bin [CREDIT]].");
+                    return 1;
+                }
             }
         }
     }
     else {
         // Create all sections from scratch
-        log_info("EepromBoard: Creating new eeprom layout.");
-
-        if (CreateStaticSection() != 0 ||
-            CreateNetworkTypeSection() != 0 ||
-            CreateEthSection(SECTION_ETH0) != 0 ||
-            CreateEthSection(SECTION_ETH1) != 0 ||
-            CreateCreditSection() != 0) {
-            log_error("EepromBoard: Error creating sections from scratch.");
+        if ((CreateStaticSection() != 0) || (CreateNetworkTypeSection() != 0) ||
+            (CreateEthSection(SECTION_ETH0) != 0) || (CreateEthSection(SECTION_ETH1) != 0) ||
+            (CreateCreditSection() != 0)) {
+            printf("Error creating section from scratch.\n");
             return 1;
         }
 
@@ -513,25 +531,16 @@ int EepromBoard::SettingsInit() {
         AddCrcToBuffer(SECTION_ETH1);
         AddCrcToBuffer(SECTION_CREDIT);
 
-        if (WriteSectionToFile(SECTION_STATIC) != 0 ||
-            WriteSectionToFile(SECTION_NETWORK_TYPE) != 0 ||
-            WriteSectionToFile(SECTION_ETH0) != 0 ||
-            WriteSectionToFile(SECTION_ETH1) != 0 ||
-            WriteSectionToFile(SECTION_CREDIT) != 0) {
-            log_error("EepromBoard: Error writing sections from scratch.");
+        if ((WriteSectionToFile(SECTION_STATIC) != 0) ||
+            (WriteSectionToFile(SECTION_NETWORK_TYPE) != 0) ||
+            (WriteSectionToFile(SECTION_ETH0) != 0) ||
+            (WriteSectionToFile(SECTION_ETH1) != 0) ||
+            (WriteSectionToFile(SECTION_CREDIT) != 0)) {
+            printf("Error writing section from scratch.\n");
             return 1;
         }
     }
 
-    return 0;
-}
-
-uint32_t EepromBoard::IpToUInt(const char* ip) {
-    unsigned int a, b, c, d;
-    if (sscanf(ip, "%u.%u.%u.%u", &a, &b, &c, &d) == 4) {
-        // Little endian construction (matches inet_addr behavior)
-        return (d << 24) | (c << 16) | (b << 8) | a;
-    }
     return 0;
 }
 
