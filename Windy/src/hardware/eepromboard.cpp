@@ -154,11 +154,14 @@ int EepromBoard::Ioctl(unsigned int request, void* data) {
 
     case I2C_SMBUS_TRANSFER: {
         struct i2c_smbus_ioctl_data* _data = (struct i2c_smbus_ioctl_data*)data;
+        log_debug("EepromBoard: I2C_SMBUS_TRANSFER size=%u read_write=%u command=0x%02X",
+            _data->size, _data->read_write, _data->command);
 
         switch (_data->size) {
         case I2C_READ: {
             if (m_file) {
                 fread(&_data->data->byte, 1, sizeof(char), m_file);
+                log_debug("EepromBoard: I2C_READ value=0x%02X", _data->data->byte);
             }
             break;
         }
@@ -167,6 +170,7 @@ int EepromBoard::Ioctl(unsigned int request, void* data) {
             uint16_t address = (_data->command & 0xFF) << 8 | (_data->data->byte & 0xFF);
             if (m_file) {
                 fseek(m_file, address, SEEK_SET);
+                log_debug("EepromBoard: I2C_SEEK address=0x%04X", address);
             }
             break;
         }
@@ -177,6 +181,8 @@ int EepromBoard::Ioctl(unsigned int request, void* data) {
             if (m_file) {
                 fseek(m_file, address, SEEK_SET);
                 fwrite(&val, 1, sizeof(char), m_file);
+                log_debug("EepromBoard: I2C_WRITE address=0x%04X value=0x%02X",
+                    address, static_cast<unsigned char>(val));
             }
             break;
         }
