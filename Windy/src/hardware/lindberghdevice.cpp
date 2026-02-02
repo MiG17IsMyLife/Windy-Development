@@ -13,6 +13,8 @@ static const char* DEV_EEPROM_SLASH = "/dev/i2c/";   // /dev/i2c/0, /dev/i2c/1, 
 static const char* DEV_SERIAL = "/dev/ttyS";
 static const char* DEV_PCI_1F0 = "/proc/bus/pci/00/1f.0";
 static const char* DEV_PCI_000 = "/proc/bus/pci/00/00.0";
+static const char* DEV_PROC_NET_ROUTE = "/proc/net/route";
+static const char* DEV_DHCP_PID = "/var/run/dhcpcd-eth0.pid";
 
 // Starting fake FD number (avoid conflicts with real FDs)
 static const int FAKE_FD_START = 1000;
@@ -122,6 +124,14 @@ int LindberghDevice::Open(const char* path, int flags) {
         type = DEVICE_PCI_000;
         log_debug("LindberghDevice::Open: PCI 000 (%s)", path);
     }
+    else if (strcmp(path, DEV_PROC_NET_ROUTE) == 0) {
+        type = DEVICE_PROC_NET_ROUTE;
+        log_debug("LindberghDevice::Open: Emulating /proc/net/route");
+    }
+    else if (strstr(path, "dhcpcd-eth0.pid") != NULL) {
+        type = DEVICE_DHCP_PID;
+        log_debug("LindberghDevice::Open: Emulating DHCP PID (%s)", path);
+    }
     else {
         if (strncmp(path, "/dev/", 5) == 0 || strncmp(path, "/proc/", 6) == 0) {
             log_warn("LindberghDevice::Open: Unknown device path: %s", path);
@@ -191,6 +201,38 @@ int LindberghDevice::Read(int fd, void* buf, size_t count) {
 
     case DEVICE_SERIAL:
         return m_serialBoard.Read((char*)buf, (unsigned int)count);
+
+    case DEVICE_PROC_NET_ROUTE:
+    {
+        const char* routeData =
+            "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT\n"
+            "eth0\t00000000\t00000000\t0001\t0\t0\t0\t00000000\t0\t0\t0\n";
+
+        size_t len = strlen(routeData);
+        if (info.offset >= len) return 0;
+
+        size_t toCopy = len - info.offset;
+        if (toCopy > count) toCopy = count;
+
+        memcpy(buf, routeData + info.offset, toCopy);
+        info.offset += toCopy;
+        return (int)toCopy;
+    }
+
+    case DEVICE_DHCP_PID:
+    {
+        const char* pidData = "1000\n"; //Fake number
+        size_t len = strlen(pidData);
+
+        if (info.offset >= len) return 0;
+
+        size_t toCopy = len - info.offset;
+        if (toCopy > count) toCopy = count;
+
+        memcpy(buf, pidData + info.offset, toCopy);
+        info.offset += toCopy;
+        return (int)toCopy;
+    }
 
     default:
         return -1;

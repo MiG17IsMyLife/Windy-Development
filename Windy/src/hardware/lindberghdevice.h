@@ -19,7 +19,9 @@ enum EmulatedDeviceType {
     DEVICE_EEPROM,
     DEVICE_SERIAL,
     DEVICE_PCI_1F0,
-    DEVICE_PCI_000
+    DEVICE_PCI_000,
+    DEVICE_PROC_NET_ROUTE,
+    DEVICE_DHCP_PID,
 };
 
 /**
