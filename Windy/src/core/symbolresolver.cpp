@@ -32,10 +32,8 @@
 #endif
 #include <GL/gl.h>
 
-// --- Pthreads & Semaphore ---
-#include <pthread.h>
-#include <semaphore.h>
-#include <sched.h>
+// --- Pthreads Emulation ---
+#include "../api/libc/pthread_emu.h"
 
 #include "SymbolResolver.h"
 #include "common.h"
@@ -46,7 +44,6 @@
 #include "../api/graphics/X11Bridge.h"
 #include "../api/graphics/GLXBridge.h"
 #include "../api/libc/LibcBridge.h"
-#include "../api/libc/PthreadBridge.h"
 
 // --- Linux Bridges ---
 #include "../api/linux/LinuxTypes.h"
@@ -74,34 +71,57 @@ extern "C" int my_stub_fail() { return -1; }
 extern "C" void* my_stub_null() { return NULL; }
 
 // =============================================================
-//   Semaphore Wrappers with Logging
+//   Semaphore Wrappers with Logging (using pthread_emu)
 // =============================================================
 
-extern "C" int my_sem_init(sem_t* sem, int pshared, unsigned int value) {
+extern "C" int my_sem_init(void* sem, int pshared, unsigned int value) {
     log_info(">>> sem_init: sem=%p, pshared=%d, value=%u", sem, pshared, value);
-    int ret = sem_init(sem, pshared, value);
+    int ret = emu_sem_init(sem, pshared, value);
     log_info(">>> sem_init EXIT: ret=%d", ret);
     return ret;
 }
 
-extern "C" int my_sem_wait(sem_t* sem) {
+extern "C" int my_sem_destroy(void* sem) {
+    log_debug(">>> sem_destroy: sem=%p", sem);
+    return emu_sem_destroy(sem);
+}
+
+extern "C" int my_sem_wait(void* sem) {
     log_info(">>> sem_wait ENTRY: sem=%p (THIS MAY BLOCK!)", sem);
-    int ret = sem_wait(sem);
+    int ret = emu_sem_wait(sem);
     log_info(">>> sem_wait EXIT: ret=%d", ret);
     return ret;
 }
 
-extern "C" int my_sem_trywait(sem_t* sem) {
+extern "C" int my_sem_trywait(void* sem) {
     log_debug(">>> sem_trywait: sem=%p", sem);
-    int ret = sem_trywait(sem);
+    int ret = emu_sem_trywait(sem);
     log_debug(">>> sem_trywait EXIT: ret=%d", ret);
     return ret;
 }
 
-extern "C" int my_sem_post(sem_t* sem) {
+extern "C" int my_sem_post(void* sem) {
     log_debug(">>> sem_post: sem=%p", sem);
-    int ret = sem_post(sem);
+    int ret = emu_sem_post(sem);
     return ret;
+}
+
+extern "C" int my_sem_getvalue(void* sem, int* sval) {
+    return emu_sem_getvalue(sem, sval);
+}
+
+// =============================================================
+//   Scheduling Stubs
+// =============================================================
+
+extern "C" int my_sched_get_priority_min(int policy) {
+    (void)policy;
+    return 0;
+}
+
+extern "C" int my_sched_get_priority_max(int policy) {
+    (void)policy;
+    return 99;
 }
 
 void __declspec(naked) UnimplementedStub() {
@@ -409,6 +429,11 @@ extern "C" void my_kswap_collect(void* p) { return; }
 typedef int (*MainFunc)(int, char**, char**);
 extern "C" void my_libc_start_main(MainFunc m, int c, char** a, void (*i)(), void (*f)(), void (*r)(), void* s) {
     log_info("__libc_start_main called");
+    
+    // Initialize pthread emulation
+    PthreadEmu::Initialize();
+    log_info("PthreadEmu initialized");
+    
     CoInitializeEx(NULL, COINIT_MULTITHREADED);
     WSADATA wsaData; WSAStartup(MAKEWORD(2, 2), &wsaData);
     if (i) {
@@ -426,6 +451,11 @@ extern "C" void my_libc_start_main(MainFunc m, int c, char** a, void (*i)(), voi
         exit(1);
     }
     log_info("main() returned %d", result);
+    
+    // Cleanup pthread emulation
+    PthreadEmu::Shutdown();
+    log_info("PthreadEmu shutdown complete");
+    
     exit(result);
 }
 
@@ -833,53 +863,101 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("XUngrabKeyboard", X11Bridge::UngrabKeyboard);
 
 
+    // ============================================================
     // Pthreads
-    MAP("pthread_create", PthreadBridge::create_wrapper);
-    MAP("pthread_join", PthreadBridge::join_wrapper);
-    MAP("pthread_detach", PthreadBridge::detach_wrapper);
-    MAP("pthread_exit", pthread_exit);
-    MAP("pthread_self", pthread_self);
-    MAP("pthread_equal", pthread_equal);
-    MAP("pthread_cancel", pthread_cancel);
-    MAP("pthread_once", pthread_once);
-    MAP("pthread_attr_init", pthread_attr_init);
-    MAP("pthread_attr_destroy", pthread_attr_destroy);
-    MAP("pthread_attr_setstacksize", pthread_attr_setstacksize);
-    MAP("pthread_attr_getstacksize", pthread_attr_getstacksize);
-    MAP("pthread_attr_setdetachstate", pthread_attr_setdetachstate);
-    MAP("pthread_attr_setschedparam", pthread_attr_setschedparam);
-    MAP("pthread_attr_setschedpolicy", pthread_attr_setschedpolicy);
-    MAP("pthread_setschedparam", pthread_setschedparam);
-    MAP("pthread_getschedparam", pthread_getschedparam);
-    MAP("sched_yield", sched_yield);
-    MAP("sched_get_priority_min", sched_get_priority_min);
-    MAP("sched_get_priority_max", sched_get_priority_max);
-    MAP("sched_getaffinity", sched_getaffinity);
-    MAP("sched_setaffinity", sched_setaffinity);
-    MAP("pthread_mutex_init", PthreadBridge::mutex_init_wrapper);
-    MAP("pthread_mutex_destroy", PthreadBridge::mutex_destroy_wrapper);
-    MAP("pthread_mutex_lock", PthreadBridge::mutex_lock_wrapper);
-    MAP("pthread_mutex_trylock", PthreadBridge::mutex_trylock_wrapper);
-    MAP("pthread_mutex_unlock", PthreadBridge::mutex_unlock_wrapper);
-    MAP("pthread_mutexattr_init", pthread_mutexattr_init);
-    MAP("pthread_mutexattr_destroy", pthread_mutexattr_destroy);
-    MAP("pthread_mutexattr_settype", pthread_mutexattr_settype);
-    MAP("pthread_cond_init", PthreadBridge::cond_init_wrapper);
-    MAP("pthread_cond_destroy", PthreadBridge::cond_destroy_wrapper);
-    MAP("pthread_cond_wait", PthreadBridge::cond_wait_wrapper);
-    MAP("pthread_cond_timedwait", PthreadBridge::cond_timedwait_wrapper);
-    MAP("pthread_cond_signal", PthreadBridge::cond_signal_wrapper);
-    MAP("pthread_cond_broadcast", PthreadBridge::cond_broadcast_wrapper);
-    MAP("pthread_key_create", pthread_key_create);
-    MAP("pthread_key_delete", pthread_key_delete);
-    MAP("pthread_setspecific", pthread_setspecific);
-    MAP("pthread_getspecific", pthread_getspecific);
+    // ============================================================
+    
+    // Thread functions
+    MAP("pthread_create", PthreadEmu::pthread_create);
+    MAP("pthread_join", PthreadEmu::pthread_join);
+    MAP("pthread_detach", PthreadEmu::pthread_detach);
+    MAP("pthread_exit", PthreadEmu::pthread_exit);
+    MAP("pthread_self", PthreadEmu::pthread_self);
+    MAP("pthread_equal", PthreadEmu::pthread_equal);
+    MAP("pthread_cancel", PthreadEmu::pthread_cancel);
+    
+    // Thread attributes
+    MAP("pthread_attr_init", PthreadEmu::pthread_attr_init);
+    MAP("pthread_attr_destroy", PthreadEmu::pthread_attr_destroy);
+    MAP("pthread_attr_setstacksize", PthreadEmu::pthread_attr_setstacksize);
+    MAP("pthread_attr_getstacksize", PthreadEmu::pthread_attr_getstacksize);
+    MAP("pthread_attr_setdetachstate", PthreadEmu::pthread_attr_setdetachstate);
+    MAP("pthread_attr_getdetachstate", PthreadEmu::pthread_attr_getdetachstate);
+    
+    // Scheduling : Most of them are stubs
+    MAP("pthread_attr_setschedparam", my_stub_success);
+    MAP("pthread_attr_setschedpolicy", my_stub_success);
+    MAP("pthread_setschedparam", PthreadEmu::pthread_setschedparam);
+    MAP("pthread_getschedparam", PthreadEmu::pthread_getschedparam);
+    MAP("sched_yield", PthreadEmu::sched_yield);
+    MAP("sched_get_priority_min", my_sched_get_priority_min);
+    MAP("sched_get_priority_max", my_sched_get_priority_max);
+    MAP("sched_getaffinity", my_stub_success);
+    MAP("sched_setaffinity", my_stub_success);
+    
+    // Mutex functions
+    MAP("pthread_mutex_init", PthreadEmu::pthread_mutex_init);
+    MAP("pthread_mutex_destroy", PthreadEmu::pthread_mutex_destroy);
+    MAP("pthread_mutex_lock", PthreadEmu::pthread_mutex_lock);
+    MAP("pthread_mutex_trylock", PthreadEmu::pthread_mutex_trylock);
+    MAP("pthread_mutex_timedlock", PthreadEmu::pthread_mutex_timedlock);
+    MAP("pthread_mutex_unlock", PthreadEmu::pthread_mutex_unlock);
+    
+    // Mutex attributes
+    MAP("pthread_mutexattr_init", PthreadEmu::pthread_mutexattr_init);
+    MAP("pthread_mutexattr_destroy", PthreadEmu::pthread_mutexattr_destroy);
+    MAP("pthread_mutexattr_settype", PthreadEmu::pthread_mutexattr_settype);
+    MAP("pthread_mutexattr_gettype", PthreadEmu::pthread_mutexattr_gettype);
+    
+    // Condition variable functions
+    MAP("pthread_cond_init", PthreadEmu::pthread_cond_init);
+    MAP("pthread_cond_destroy", PthreadEmu::pthread_cond_destroy);
+    MAP("pthread_cond_wait", PthreadEmu::pthread_cond_wait);
+    MAP("pthread_cond_timedwait", PthreadEmu::pthread_cond_timedwait);
+    MAP("pthread_cond_signal", PthreadEmu::pthread_cond_signal);
+    MAP("pthread_cond_broadcast", PthreadEmu::pthread_cond_broadcast);
+    
+    // Condition variable attributes
+    MAP("pthread_condattr_init", PthreadEmu::pthread_condattr_init);
+    MAP("pthread_condattr_destroy", PthreadEmu::pthread_condattr_destroy);
+    
+    // Read-write lock functions
+    MAP("pthread_rwlock_init", PthreadEmu::pthread_rwlock_init);
+    MAP("pthread_rwlock_destroy", PthreadEmu::pthread_rwlock_destroy);
+    MAP("pthread_rwlock_rdlock", PthreadEmu::pthread_rwlock_rdlock);
+    MAP("pthread_rwlock_tryrdlock", PthreadEmu::pthread_rwlock_tryrdlock);
+    MAP("pthread_rwlock_wrlock", PthreadEmu::pthread_rwlock_wrlock);
+    MAP("pthread_rwlock_trywrlock", PthreadEmu::pthread_rwlock_trywrlock);
+    MAP("pthread_rwlock_unlock", PthreadEmu::pthread_rwlock_unlock);
+    
+    // Once control
+    MAP("pthread_once", PthreadEmu::pthread_once);
+    
+    // TLS functions
+    MAP("pthread_key_create", PthreadEmu::pthread_key_create);
+    MAP("pthread_key_delete", PthreadEmu::pthread_key_delete);
+    MAP("pthread_setspecific", PthreadEmu::pthread_setspecific);
+    MAP("pthread_getspecific", PthreadEmu::pthread_getspecific);
+    
+    // Barrier functions
+    MAP("pthread_barrier_init", PthreadEmu::pthread_barrier_init);
+    MAP("pthread_barrier_destroy", PthreadEmu::pthread_barrier_destroy);
+    MAP("pthread_barrier_wait", PthreadEmu::pthread_barrier_wait);
+    
+    // Spinlock functions
+    MAP("pthread_spin_init", PthreadEmu::pthread_spin_init);
+    MAP("pthread_spin_destroy", PthreadEmu::pthread_spin_destroy);
+    MAP("pthread_spin_lock", PthreadEmu::pthread_spin_lock);
+    MAP("pthread_spin_trylock", PthreadEmu::pthread_spin_trylock);
+    MAP("pthread_spin_unlock", PthreadEmu::pthread_spin_unlock);
+    
+    // Semaphore functions (POSIX semaphores)
     MAP("sem_init", my_sem_init);
-    MAP("sem_destroy", sem_destroy);
+    MAP("sem_destroy", my_sem_destroy);
     MAP("sem_wait", my_sem_wait);
     MAP("sem_trywait", my_sem_trywait);
     MAP("sem_post", my_sem_post);
-    MAP("sem_getvalue", sem_getvalue);
+    MAP("sem_getvalue", my_sem_getvalue);
 
     // Sega API
     if (strncmp(name, "SEGAAPI_", 8) == 0) {
