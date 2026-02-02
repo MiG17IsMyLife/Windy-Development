@@ -724,6 +724,7 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("mktime", LibcBridge::mktime_wrapper);
     MAP("strftime", LibcBridge::strftime_wrapper);
     MAP("settimeofday", LibcBridge::settimeofday_wrapper);
+    MAP("ctime_r", LibcBridge::ctime_r_wrapper);
 
     // Locale / WideChar
     MAP("setlocale", LibcBridge::setlocale_wrapper);
@@ -765,6 +766,9 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("shutdown", shutdown);
     MAP("setsockopt", my_setsockopt);
     MAP("getsockopt", my_getsockopt);
+    MAP("inet_pton", LibcBridge::inet_pton_wrapper);
+    MAP("rand_r", LibcBridge::rand_r_wrapper);
+
     // select mapped above to my_select
     MAP("inet_addr", inet_addr);
     MAP("inet_ntoa", inet_ntoa);
@@ -955,7 +959,10 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
 
     // MSYS2 Fallback
     void* msysProc = GetMsysSymbol(name);
-    if (msysProc) return (uintptr_t)msysProc;
+    if (msysProc) {
+        log_warn("DANGER: Symbol '%s' resolved to MSYS2 function! This will likely crash.", name);
+        return (uintptr_t)msysProc;
+    }
 
     log_warn("Symbol unresolved: %s -> Using stub", name);
     return (uintptr_t)&UnimplementedStub;

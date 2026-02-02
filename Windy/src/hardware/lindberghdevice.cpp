@@ -123,7 +123,12 @@ int LindberghDevice::Open(const char* path, int flags) {
         log_debug("LindberghDevice::Open: PCI 000 (%s)", path);
     }
     else {
-        log_warn("LindberghDevice::Open: Unknown device path: %s", path);
+        if (strncmp(path, "/dev/", 5) == 0 || strncmp(path, "/proc/", 6) == 0) {
+            log_warn("LindberghDevice::Open: Unknown device path: %s", path);
+        }
+        else {
+            log_debug("LindberghDevice::Open: Passthrough to OS fs: %s", path);
+        }
         return -1;
     }
 

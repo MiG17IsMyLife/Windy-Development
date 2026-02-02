@@ -5,8 +5,9 @@
 #include <iostream>
 #include <fstream>
 #include <string>
+#include <stdlib.h>
 
- // Core
+// Core
 #include "core/ElfLoader.h"
 #include "core/SymbolResolver.h"
 #include "core/LinuxStack.h"
@@ -165,6 +166,28 @@ static void ConfigureHardwareForGame(const GameDataEntry* game, const WindyConfi
 }
 
 // =============================================================================
+// Helper: Change Working Directory to ELF Directory
+// =============================================================================
+static void ChangeDirectoryToElfLocation(const char* elfPath) {
+    char drive[_MAX_DRIVE];
+    char dir[_MAX_DIR];
+    char fname[_MAX_FNAME];
+    char ext[_MAX_EXT];
+
+    _splitpath(elfPath, drive, dir, fname, ext);
+
+    char newDir[MAX_PATH];
+    _makepath(newDir, drive, dir, NULL, NULL);
+
+    if (SetCurrentDirectoryA(newDir)) {
+        log_info("Changed working directory to: %s", newDir);
+    }
+    else {
+        log_warn("Failed to change working directory to: %s", newDir);
+    }
+}
+
+// =============================================================================
 // Print Banner
 // =============================================================================
 static void PrintBanner() {
@@ -273,6 +296,11 @@ int main(int argc, char* argv[]) {
     PrintConfig(config);
 
     // -------------------------------------------------
+    // Change Working Directory to ELF Location
+    // -------------------------------------------------
+    ChangeDirectoryToElfLocation(elfPath);
+
+    // -------------------------------------------------
     // Calculate CRC32 and Detect Game
     // -------------------------------------------------
     log_info("Calculating CRC32 of ELF file...");
@@ -376,8 +404,8 @@ int main(int argc, char* argv[]) {
     // -------------------------------------------------
     // Jump to ELF Entry Point
     // -------------------------------------------------
-    #pragma warning(push)
-    #pragma warning(disable: 4731)
+#pragma warning(push)
+#pragma warning(disable: 4731)
     __asm {
         mov eax, entryPoint
         mov esp, finalEsp
@@ -391,7 +419,7 @@ int main(int argc, char* argv[]) {
         xor ebp, ebp
         jmp eax
     }
-    #pragma warning(pop)
+#pragma warning(pop)
 
     // -------------------------------------------------
     // Cleanup (unreachable in normal flow)

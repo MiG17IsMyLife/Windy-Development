@@ -190,6 +190,10 @@ public:
         unsigned int c_ospeed; // output speed
     };
 
+    static int inet_pton_wrapper(int af, const char* src, void* dst);
+    static int rand_r_wrapper(unsigned int* seedp);
+    static char* ctime_r_wrapper(const time_t* timep, char* buf);
+
     static int tcgetattr_wrapper(int fd, struct linux_termios* termios_p);
     static int tcsetattr_wrapper(int fd, int optional_actions, const struct linux_termios* termios_p);
     static int tcflush_wrapper(int fd, int queue_selector);

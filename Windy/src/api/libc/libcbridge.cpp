@@ -1,6 +1,9 @@
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 #define _CRT_SECURE_NO_WARNINGS
 
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <crtdbg.h>
 #include "LibcBridge.h"
 #include "../src/core/log.h"
 #include "../../hardware/lindberghdevice.h"
@@ -45,6 +48,10 @@ static void ConvertPath(char* dst, const char* src, size_t size) {
 }
 
 static std::mutex g_net_mutex;
+
+static void InvalidParameterHandler(const wchar_t* expression, const wchar_t* function, const wchar_t* file, unsigned int line, uintptr_t pReserved) {
+    // log_warn("CRT Invalid Parameter detected");
+}
 
 // ========================================================================
 // --- File Input/Output (stdio.h / io.h) ---
@@ -106,7 +113,38 @@ size_t LibcBridge::fwrite_wrapper(const void* ptr, size_t size, size_t nmemb, FI
         int bytesWritten = LindberghDevice::Instance().Write(ToVfd(stream), ptr, (int)(size * nmemb));
         return (size > 0 && bytesWritten > 0) ? (bytesWritten / size) : 0;
     }
-    return fwrite(ptr, size, nmemb, stream);
+
+    if (!stream || !ptr) return 0;
+
+    size_t ret = 0;
+    _invalid_parameter_handler oldHandler = _set_invalid_parameter_handler(InvalidParameterHandler);
+
+    __try {
+        ret = fwrite(ptr, size, nmemb, stream);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        ret = 0;
+    }
+
+    _set_invalid_parameter_handler(oldHandler);
+
+    if (ret < nmemb && size * nmemb > 0) {
+        size_t totalBytes = size * nmemb;
+        if (totalBytes < 4096) {
+            char* buf = (char*)malloc(totalBytes + 1);
+            if (buf) {
+                memcpy(buf, ptr, totalBytes);
+                buf[totalBytes] = '\0';
+                if (totalBytes > 0 && buf[totalBytes - 1] == '\n') buf[totalBytes - 1] = '\0';
+                log_game("[Output(fwrite)]: %s", buf);
+                free(buf);
+            }
+        }
+        // Stub implemention
+        return nmemb;
+    }
+
+    return ret;
 }
 
 int LibcBridge::fseek_wrapper(FILE* stream, long offset, int whence) {
@@ -170,7 +208,24 @@ int LibcBridge::fputs_wrapper(const char* s, FILE* stream) {
         size_t len = strlen(s);
         return (LindberghDevice::Instance().Write(ToVfd(stream), s, (int)len) == (int)len) ? 0 : EOF;
     }
-    return fputs(s, stream);
+
+    if (!stream || !s) return EOF;
+
+    int ret = EOF;
+    _invalid_parameter_handler oldHandler = _set_invalid_parameter_handler(InvalidParameterHandler);
+    __try {
+        ret = fputs(s, stream);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        ret = EOF;
+    }
+    _set_invalid_parameter_handler(oldHandler);
+
+    if (ret == EOF) {
+        log_game("[Output(fputs)]: %s", s);
+        return 0;
+    }
+    return ret;
 }
 
 int LibcBridge::fputc_wrapper(int c, FILE* stream) {
@@ -178,7 +233,23 @@ int LibcBridge::fputc_wrapper(int c, FILE* stream) {
         uint8_t ch = (uint8_t)c;
         return (LindberghDevice::Instance().Write(ToVfd(stream), &ch, 1) == 1) ? c : EOF;
     }
-    return fputc(c, stream);
+
+    if (!stream) return EOF;
+
+    int ret = EOF;
+    _invalid_parameter_handler oldHandler = _set_invalid_parameter_handler(InvalidParameterHandler);
+    __try {
+        ret = fputc(c, stream);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        ret = EOF;
+    }
+    _set_invalid_parameter_handler(oldHandler);
+
+    if (ret == EOF) {
+        return c;
+    }
+    return ret;
 }
 
 int LibcBridge::putc_wrapper(int c, FILE* stream) {
@@ -286,24 +357,98 @@ int LibcBridge::vprintf_wrapper(const char* format, va_list ap) {
 }
 
 int LibcBridge::fprintf_wrapper(FILE* stream, const char* format, ...) {
-    if (IsVirtual(stream)) return 0; // Virtual files usually don't support fprintf
+    if (IsVirtual(stream)) return 0;
+
     va_list args;
     va_start(args, format);
-    int ret = vfprintf(stream, format, args);
+
+    int size = _vscprintf(format, args);
+    int ret = 0;
+
+    if (size > 0) {
+        char* buffer = (char*)malloc(size + 1);
+        if (buffer) {
+            vsnprintf(buffer, size + 1, format, args);
+
+            bool success = false;
+            if (stream != nullptr) {
+                _invalid_parameter_handler oldHandler = _set_invalid_parameter_handler(InvalidParameterHandler);
+                __try {
+                    ret = vfprintf(stream, format, args);
+                    success = true;
+                }
+                __except (EXCEPTION_EXECUTE_HANDLER) {
+                    success = false;
+                }
+                _set_invalid_parameter_handler(oldHandler);
+            }
+
+            if (!success) {
+                if (buffer[size - 1] == '\n') buffer[size - 1] = '\0';
+                log_game("[Output]: %s", buffer);
+                ret = size;
+            }
+            free(buffer);
+        }
+    }
+
     va_end(args);
     return ret;
 }
 
 int LibcBridge::vfprintf_wrapper(FILE* stream, const char* format, va_list ap) {
     if (IsVirtual(stream)) return 0;
-    return vfprintf(stream, format, ap);
+
+    va_list args_copy;
+    va_copy(args_copy, ap);
+    int size = _vscprintf(format, args_copy);
+    va_end(args_copy);
+
+    int ret = 0;
+    if (size > 0) {
+        char* buffer = (char*)malloc(size + 1);
+        if (buffer) {
+            vsnprintf(buffer, size + 1, format, ap);
+
+            bool success = false;
+            if (stream != nullptr) {
+                _invalid_parameter_handler oldHandler = _set_invalid_parameter_handler(InvalidParameterHandler);
+                __try {
+                    ret = vfprintf(stream, format, ap);
+                    success = true;
+                }
+                __except (EXCEPTION_EXECUTE_HANDLER) {
+                    success = false;
+                }
+                _set_invalid_parameter_handler(oldHandler);
+            }
+
+            if (!success) {
+                if (buffer[size - 1] == '\n') buffer[size - 1] = '\0';
+                log_game("[Output]: %s", buffer);
+                ret = size;
+            }
+            free(buffer);
+        }
+    }
+    return ret;
 }
 
 int LibcBridge::fscanf_wrapper(FILE* stream, const char* format, ...) {
     if (IsVirtual(stream)) return 0;
+    if (!stream) return 0;
+
     va_list args;
     va_start(args, format);
-    int ret = vfscanf(stream, format, args);
+    int ret = 0;
+    _invalid_parameter_handler oldHandler = _set_invalid_parameter_handler(InvalidParameterHandler);
+    __try {
+        ret = vfscanf(stream, format, args);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        ret = 0;
+    }
+    _set_invalid_parameter_handler(oldHandler);
     va_end(args);
     return ret;
 }
@@ -457,9 +602,23 @@ struct tm* LibcBridge::localtime_r_wrapper(const time_t* timep, struct tm* resul
     return nullptr;
 }
 
+char* LibcBridge::ctime_r_wrapper(const time_t* timep, char* buf) {
+    if (ctime_s(buf, 26, timep) == 0) {
+        return buf;
+    }
+    return nullptr;
+}
+
 // ========================================================================
 // --- Standard Library & System ---
 // ========================================================================
+
+int LibcBridge::rand_r_wrapper(unsigned int* seedp) {
+    unsigned int next = *seedp;
+    next = next * 1103515245 + 12345;
+    *seedp = next;
+    return (unsigned int)(next / 65536) % 32768;
+}
 
 int LibcBridge::rand_wrapper() { return rand(); }
 void LibcBridge::srand_wrapper(unsigned int seed) { srand(seed); }
@@ -499,6 +658,10 @@ int LibcBridge::inet_aton_wrapper(const char* cp, struct in_addr* inp) {
     if (addr == INADDR_NONE && strcmp(cp, "255.255.255.255") != 0) return 0;
     if (inp) inp->s_addr = addr;
     return 1;
+}
+
+int LibcBridge::inet_pton_wrapper(int af, const char* src, void* dst) {
+    return InetPtonA(af, src, dst);
 }
 
 int LibcBridge::gethostbyname_r_wrapper(const char* name, void* ret, char* buf, size_t buflen, void** result, int* h_errnop) {

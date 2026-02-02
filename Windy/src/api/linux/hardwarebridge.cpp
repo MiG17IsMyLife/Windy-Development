@@ -1,5 +1,9 @@
 #define _CRT_SECURE_NO_WARNINGS
 
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <crtdbg.h>
+
 #include "HardwareBridge.h"
 #include "../../hardware/lindberghdevice.h"
 #include "../../core/log.h"
@@ -20,6 +24,9 @@
 
 // VEH Handle for cleanup
 static PVOID g_vehHandle = nullptr;
+
+static void InvalidParameterHandler(const wchar_t* expression, const wchar_t* function, const wchar_t* file, unsigned int line, uintptr_t pReserved) {
+}
 
 static int ConvertFlags(int linuxFlags) {
     int winFlags = _O_BINARY;
@@ -258,7 +265,27 @@ extern "C" {
             return 0;
         }
 
-        int ret = _close(fd);
+        int ret = -1;
+
+        _invalid_parameter_handler oldHandler = _set_invalid_parameter_handler(InvalidParameterHandler);
+        __try {
+            ret = _close(fd);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {
+            ret = -1;
+            errno = EBADF;
+        }
+        _set_invalid_parameter_handler(oldHandler);
+
+        if (ret == -1) {
+            if (fd >= 0) {
+                if (closesocket((SOCKET)fd) == 0) {
+                    log_debug(">>> my_close EXIT: socket closed");
+                    return 0;
+                }
+            }
+        }
+
         log_debug(">>> my_close EXIT: ret=%d", ret);
         return ret;
     }
@@ -298,6 +325,26 @@ extern "C" {
         if (res != -1) {
             log_debug(">>> my_ioctl EXIT: virtual ioctl returned %d", res);
             return res;
+        }
+
+        if (request == 0x8913) {
+            log_info(">>> my_ioctl: Emulating SIOCGIFCONF");
+            // struct ifconf { int ifc_len; union { char *ifc_buf; struct ifreq *ifc_req; } ifc_ifcu; };
+
+            if (data) {
+                *(int*)data = 0;
+            }
+            return 0;
+        }
+
+        // FIONBIO (Non-blocking mode)
+        if (request == 0x5421 || request == 0x8004667E) {
+            unsigned long mode = 1;
+            if (data) mode = *(unsigned long*)data;
+            if (ioctlsocket((SOCKET)fd, FIONBIO, &mode) == 0) {
+                log_debug(">>> my_ioctl: Set FIONBIO success");
+                return 0;
+            }
         }
 
         log_debug(">>> my_ioctl EXIT: returning -1 (ENOTTY)");
