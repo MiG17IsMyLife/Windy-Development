@@ -554,7 +554,7 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP_OL("tan", (double(*)(double))tan);
     MAP_OL("sqrt", (double(*)(double))sqrt);
     MAP_OL("pow", (double(*)(double, double))pow);
-    MAP_OL("powf", (double(*)(double, double))pow); // Map powf to pow
+    MAP_OL("powf", (double(*)(double, double))pow);
     MAP_OL("floor", (double(*)(double))floor);
     MAP_OL("ceil", (double(*)(double))ceil);
     MAP_OL("fmod", (double(*)(double, double))fmod);

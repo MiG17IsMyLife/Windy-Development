@@ -13,6 +13,9 @@ private:
     uintptr_t strTab;
     uint32_t pltRelSize;
 
+    // PIE (Position Independent Executable) 
+    uintptr_t loadBase;
+
 public:
     ElfLoader(const char* path);
     ~ElfLoader();
@@ -24,4 +27,5 @@ public:
     uintptr_t GetSymTab() const { return symTab; }
     uintptr_t GetStrTab() const { return strTab; }
     uint32_t GetPltRelSize() const { return pltRelSize; }
+    uintptr_t GetLoadBase() const { return loadBase; }
 };

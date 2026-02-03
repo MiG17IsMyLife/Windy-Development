@@ -357,7 +357,7 @@ public:
     WindyConfig& GetConfig() { return m_config; }
 
     /**
-     * @brief Get configuration pointer (for legacy compatibility)
+     * @brief Get configuration pointer
      */
     WindyConfig* GetConfigPtr() { return &m_config; }
 
