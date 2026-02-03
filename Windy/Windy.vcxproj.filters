@@ -63,9 +63,6 @@
     <ClCompile Include="src\api\libc\libcbridge.cpp">
       <Filter>src\api\libc</Filter>
     </ClCompile>
-    <ClCompile Include="src\api\libc\pthreadbridge.cpp">
-      <Filter>src\api\libc</Filter>
-    </ClCompile>
     <ClCompile Include="src\api\linux\gccbridge.cpp">
       <Filter>src\api\linux</Filter>
     </ClCompile>
@@ -98,6 +95,39 @@
     </ClCompile>
     <ClCompile Include="src\hardware\serialboard.cpp">
       <Filter>src\hardware</Filter>
+    </ClCompile>
+    <ClCompile Include="src\api\libc\pthread_barrier.cpp">
+      <Filter>src\api\libc</Filter>
+    </ClCompile>
+    <ClCompile Include="src\api\libc\pthread_cond.cpp">
+      <Filter>src\api\libc</Filter>
+    </ClCompile>
+    <ClCompile Include="src\api\libc\pthread_emu.cpp">
+      <Filter>src\api\libc</Filter>
+    </ClCompile>
+    <ClCompile Include="src\api\libc\pthread_mapper.cpp">
+      <Filter>src\api\libc</Filter>
+    </ClCompile>
+    <ClCompile Include="src\api\libc\pthread_mutex.cpp">
+      <Filter>src\api\libc</Filter>
+    </ClCompile>
+    <ClCompile Include="src\api\libc\pthread_once.cpp">
+      <Filter>src\api\libc</Filter>
+    </ClCompile>
+    <ClCompile Include="src\api\libc\pthread_rwlock.cpp">
+      <Filter>src\api\libc</Filter>
+    </ClCompile>
+    <ClCompile Include="src\api\libc\pthread_spin.cpp">
+      <Filter>src\api\libc</Filter>
+    </ClCompile>
+    <ClCompile Include="src\api\libc\pthread_thread.cpp">
+      <Filter>src\api\libc</Filter>
+    </ClCompile>
+    <ClCompile Include="src\api\libc\pthread_tls.cpp">
+      <Filter>src\api\libc</Filter>
+    </ClCompile>
+    <ClCompile Include="src\api\libc\pthread_semaphore.cpp">
+      <Filter>src\api\libc</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -132,9 +162,6 @@
       <Filter>src\hardware</Filter>
     </ClInclude>
     <ClInclude Include="src\api\libc\libcbridge.h">
-      <Filter>src\api\libc</Filter>
-    </ClInclude>
-    <ClInclude Include="src\api\libc\pthreadbridge.h">
       <Filter>src\api\libc</Filter>
     </ClInclude>
     <ClInclude Include="src\api\linux\linuxtypes.h">
@@ -181,6 +208,15 @@
     </ClInclude>
     <ClInclude Include="src\hardware\serialboard.h">
       <Filter>src\hardware</Filter>
+    </ClInclude>
+    <ClInclude Include="src\api\libc\pthread_emu.h">
+      <Filter>src\api\libc</Filter>
+    </ClInclude>
+    <ClInclude Include="src\api\libc\pthread_internal.h">
+      <Filter>src\api\libc</Filter>
+    </ClInclude>
+    <ClInclude Include="src\api\graphics\x11types.h">
+      <Filter>src\api\graphics</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

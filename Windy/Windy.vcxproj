@@ -22,7 +22,17 @@
     <ClCompile Include="src\api\graphics\glxbridge.cpp" />
     <ClCompile Include="src\api\graphics\x11bridge.cpp" />
     <ClCompile Include="src\api\libc\libcbridge.cpp" />
-    <ClCompile Include="src\api\libc\pthreadbridge.cpp" />
+    <ClCompile Include="src\api\libc\pthread_barrier.cpp" />
+    <ClCompile Include="src\api\libc\pthread_cond.cpp" />
+    <ClCompile Include="src\api\libc\pthread_emu.cpp" />
+    <ClCompile Include="src\api\libc\pthread_mapper.cpp" />
+    <ClCompile Include="src\api\libc\pthread_mutex.cpp" />
+    <ClCompile Include="src\api\libc\pthread_once.cpp" />
+    <ClCompile Include="src\api\libc\pthread_rwlock.cpp" />
+    <ClCompile Include="src\api\libc\pthread_semaphore.cpp" />
+    <ClCompile Include="src\api\libc\pthread_spin.cpp" />
+    <ClCompile Include="src\api\libc\pthread_thread.cpp" />
+    <ClCompile Include="src\api\libc\pthread_tls.cpp" />
     <ClCompile Include="src\api\linux\filesystembridge.cpp" />
     <ClCompile Include="src\api\linux\gccbridge.cpp" />
     <ClCompile Include="src\api\linux\hardwarebridge.cpp" />
@@ -47,8 +57,10 @@
   <ItemGroup>
     <ClInclude Include="src\api\graphics\glxbridge.h" />
     <ClInclude Include="src\api\graphics\x11bridge.h" />
+    <ClInclude Include="src\api\graphics\x11types.h" />
     <ClInclude Include="src\api\libc\libcbridge.h" />
-    <ClInclude Include="src\api\libc\pthreadbridge.h" />
+    <ClInclude Include="src\api\libc\pthread_emu.h" />
+    <ClInclude Include="src\api\libc\pthread_internal.h" />
     <ClInclude Include="src\api\linux\filesystembridge.h" />
     <ClInclude Include="src\api\linux\gccbridge.h" />
     <ClInclude Include="src\api\linux\hardwarebridge.h" />
