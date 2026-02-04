@@ -146,18 +146,26 @@ extern "C"
     // --- Arithmetic Builtins ---
     int64_t __divdi3(int64_t a, int64_t b)
     {
+        if (b == 0) return 0;
         return a / b;
     }
-    // uint64_t __udivdi3(uint64_t a, uint64_t b)
-    // {
-    //     return a / b;
-    // }
-    // uint64_t __umoddi3(uint64_t a, uint64_t b)
-    // {
-    //     return a % b;
-    // }
+    uint64_t __udivdi3(uint64_t a, uint64_t b)
+    {
+        if (b == 0) {
+            return 0;
+        }
+        return a / b;
+    }
+    uint64_t __umoddi3(uint64_t a, uint64_t b)
+    {
+        if (b == 0) {
+            return 0;
+        }
+        return a % b;
+    }
     int64_t __moddi3(int64_t a, int64_t b)
     {
+        if (b == 0) return 0;
         return a % b;
     }
     uint64_t __fixunsdfdi(double a)

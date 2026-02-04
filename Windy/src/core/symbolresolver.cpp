@@ -583,8 +583,8 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("__ctype_get_mb_cur_max", __ctype_get_mb_cur_max);
 
     MAP("__divdi3", __divdi3);
-    // MAP("__udivdi3", __udivdi3);
-    // MAP("__umoddi3", __umoddi3);
+    MAP("__udivdi3", __udivdi3);
+    MAP("__umoddi3", __umoddi3);
     MAP("__moddi3", __moddi3);
     MAP("__fixunsdfdi", __fixunsdfdi);
     MAP("__fixunssfdi", __fixunssfdi);
