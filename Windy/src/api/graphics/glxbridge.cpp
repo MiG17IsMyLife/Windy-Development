@@ -348,9 +348,6 @@ void GLXBridge::glutMainLoop()
         {
             X11Bridge::NextEvent(dpy, &ev);
 
-            // �����I�ɂ�����GLUT�R�[���o�b�N���Ă�
-            // if (ev.type == KeyPress &&
-            // g_glutKeyboardFunc) ...
         }
 
         // Idle
@@ -438,7 +435,7 @@ static void DebugOverlay(int width, int height)
     glColor4f(1.0f, 1.0f, 1.0f, 1.0f); // White
     glRasterPos2i(20, 35);
 
-    const char *str = "Windy Debug Overlay";
+    const char *str = "WINDY DEBUG TEXT";
     for (const char *c = str; *c != '\0'; c++)
     {
         GLXBridge::glutBitmapCharacter(nullptr, *c);
@@ -468,8 +465,13 @@ void GLXBridge::glutSwapBuffers()
 
 int GLXBridge::glutGet(int state)
 {
-    return 0;
+    if (state == 0x66)
+        return g_windowWidth;
+    if (state == 0x67)
+        return g_windowHeight;
+
 }
+
 void GLXBridge::glutSetCursor(int cursor)
 {
 }
