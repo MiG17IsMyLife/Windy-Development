@@ -1,4 +1,4 @@
-#include "GccBridge.h"
+#include "gccbridge.h"
 #include <windows.h>
 #include <iostream>
 #include <ctype.h>
@@ -11,41 +11,53 @@
 static HMODULE g_hMsys = NULL;
 static HMODULE g_hLibGcc = NULL;
 
-void EnsureMsysLoaded() {
-    if (!g_hMsys) {
+void EnsureMsysLoaded()
+{
+    if (!g_hMsys)
+    {
         g_hMsys = LoadLibraryA("msys-2.0.dll");
-        if (g_hMsys) {
+        if (g_hMsys)
+        {
             std::cout << "[Windy] MSYS2 runtime (msys-2.0.dll) loaded." << std::endl;
         }
-        else {
+        else
+        {
             std::cerr << "[Windy] WARNING: Failed to load msys-2.0.dll." << std::endl;
         }
     }
 }
 
-void EnsureLibGccLoaded() {
-    if (!g_hLibGcc) {
+void EnsureLibGccLoaded()
+{
+    if (!g_hLibGcc)
+    {
         // loading MSYS2 GCC runtime
         g_hLibGcc = LoadLibraryA("msys-gcc_s-1.dll");
 
-        if (g_hLibGcc) {
+        if (g_hLibGcc)
+        {
             std::cout << "[Windy] GCC Runtime loaded." << std::endl;
         }
-        else {
+        else
+        {
             std::cerr << "[Windy] WARNING: FAILED to load GCC Runtime." << std::endl;
         }
     }
 }
 
-void* GetMsysSymbol(const char* name) {
+void *GetMsysSymbol(const char *name)
+{
     EnsureMsysLoaded();
-    if (g_hMsys) return (void*)GetProcAddress(g_hMsys, name);
+    if (g_hMsys)
+        return (void *)GetProcAddress(g_hMsys, name);
     return NULL;
 }
 
-void* GetLibGccSymbol(const char* name) {
+void *GetLibGccSymbol(const char *name)
+{
     EnsureLibGccLoaded();
-    if (g_hLibGcc) return (void*)GetProcAddress(g_hLibGcc, name);
+    if (g_hLibGcc)
+        return (void *)GetProcAddress(g_hLibGcc, name);
     return NULL;
 }
 
@@ -54,7 +66,8 @@ void* GetLibGccSymbol(const char* name) {
 // =============================================================
 
 // Linux (glibc i386) ctype bitmasks
-enum {
+enum
+{
     _ISupper = 0x100,
     _ISlower = 0x200,
     _ISalpha = 0x400,
@@ -70,36 +83,50 @@ enum {
 };
 
 static unsigned short g_ctype_b[384]; // -128 to 255
-static const unsigned short* g_ctype_b_ptr = g_ctype_b + 128;
+static const unsigned short *g_ctype_b_ptr = g_ctype_b + 128;
 
 static int32_t g_ctype_tolower[384];
-static const int32_t* g_ctype_tolower_ptr = g_ctype_tolower + 128;
+static const int32_t *g_ctype_tolower_ptr = g_ctype_tolower + 128;
 
 static int32_t g_ctype_toupper[384];
-static const int32_t* g_ctype_toupper_ptr = g_ctype_toupper + 128;
+static const int32_t *g_ctype_toupper_ptr = g_ctype_toupper + 128;
 
 static bool g_ctype_initialized = false;
 
-static void InitLinuxCtype() {
-    if (g_ctype_initialized) return;
+static void InitLinuxCtype()
+{
+    if (g_ctype_initialized)
+        return;
 
     // Initialize the ctype tables
-    for (int i = -128; i < 256; i++) {
+    for (int i = -128; i < 256; i++)
+    {
         int c = i;
         unsigned short flags = 0;
 
-        if (i >= -1 && i <= 255) {
+        if (i >= -1 && i <= 255)
+        {
             // ASCII character range
-            if (isupper(c)) flags |= _ISupper | _ISalpha | _ISalnum | _ISprint | _ISgraph;
-            if (islower(c)) flags |= _ISlower | _ISalpha | _ISalnum | _ISprint | _ISgraph;
-            if (isdigit(c)) flags |= _ISdigit | _ISalnum | _ISprint | _ISgraph;
-            if (isspace(c)) flags |= _ISspace;
-            if (isprint(c)) flags |= _ISprint;
-            if (isgraph(c)) flags |= _ISgraph;
-            if (iscntrl(c)) flags |= _IScntrl;
-            if (ispunct(c)) flags |= _ISpunct | _ISprint | _ISgraph;
-            if (isxdigit(c)) flags |= _ISxdigit;
-            if (c == ' ' || c == '\t') flags |= _ISblank;
+            if (isupper(c))
+                flags |= _ISupper | _ISalpha | _ISalnum | _ISprint | _ISgraph;
+            if (islower(c))
+                flags |= _ISlower | _ISalpha | _ISalnum | _ISprint | _ISgraph;
+            if (isdigit(c))
+                flags |= _ISdigit | _ISalnum | _ISprint | _ISgraph;
+            if (isspace(c))
+                flags |= _ISspace;
+            if (isprint(c))
+                flags |= _ISprint;
+            if (isgraph(c))
+                flags |= _ISgraph;
+            if (iscntrl(c))
+                flags |= _IScntrl;
+            if (ispunct(c))
+                flags |= _ISpunct | _ISprint | _ISgraph;
+            if (isxdigit(c))
+                flags |= _ISxdigit;
+            if (c == ' ' || c == '\t')
+                flags |= _ISblank;
         }
 
         g_ctype_b[128 + i] = flags;
@@ -113,48 +140,87 @@ static void InitLinuxCtype() {
 // =============================================================
 //   Exported Functions (extern "C")
 // =============================================================
-extern "C" {
+extern "C"
+{
 
     // --- Arithmetic Builtins ---
-    int64_t __divdi3(int64_t a, int64_t b) { return a / b; }
-    uint64_t __udivdi3(uint64_t a, uint64_t b) { return a / b; }
-    uint64_t __umoddi3(uint64_t a, uint64_t b) { return a % b; }
-    int64_t __moddi3(int64_t a, int64_t b) { return a % b; }
-    uint64_t __fixunsdfdi(double a) { return (uint64_t)a; }
-    uint64_t __fixunssfdi(float a) { return (uint64_t)a; }
+    int64_t __divdi3(int64_t a, int64_t b)
+    {
+        return a / b;
+    }
+    // uint64_t __udivdi3(uint64_t a, uint64_t b)
+    // {
+    //     return a / b;
+    // }
+    // uint64_t __umoddi3(uint64_t a, uint64_t b)
+    // {
+    //     return a % b;
+    // }
+    int64_t __moddi3(int64_t a, int64_t b)
+    {
+        return a % b;
+    }
+    uint64_t __fixunsdfdi(double a)
+    {
+        return (uint64_t)a;
+    }
+    uint64_t __fixunssfdi(float a)
+    {
+        return (uint64_t)a;
+    }
 
     // --- Ctype Accessors ---
-    const unsigned short** __ctype_b_loc(void) {
+    const unsigned short **__ctype_b_loc(void)
+    {
         InitLinuxCtype();
         return &g_ctype_b_ptr;
     }
-    const int32_t** __ctype_tolower_loc(void) {
+    const int32_t **__ctype_tolower_loc(void)
+    {
         InitLinuxCtype();
         return &g_ctype_tolower_ptr;
     }
-    const int32_t** __ctype_toupper_loc(void) {
+    const int32_t **__ctype_toupper_loc(void)
+    {
         InitLinuxCtype();
         return &g_ctype_toupper_ptr;
     }
-    size_t __ctype_get_mb_cur_max() {
+    size_t __ctype_get_mb_cur_max()
+    {
         return 1;
     }
 
     // --- GCC Internals ---
 
-    int* __errno_location() {
+    int *__errno_location()
+    {
         return _errno();
     }
 
-    double __strtod_internal(const char* n, char** e, int g) { return strtod(n, e); }
-    long __strtol_internal(const char* n, char** e, int b, int g) { return strtol(n, e, b); }
-    unsigned long __strtoul_internal(const char* n, char** e, int b, int g) { return strtoul(n, e, b); }
+    double __strtod_internal(const char *n, char **e, int g)
+    {
+        return strtod(n, e);
+    }
+    long __strtol_internal(const char *n, char **e, int b, int g)
+    {
+        return strtol(n, e, b);
+    }
+    unsigned long __strtoul_internal(const char *n, char **e, int b, int g)
+    {
+        return strtoul(n, e, b);
+    }
 
     // C++ ABI stuffs but, do nothing
-    int my_cxa_atexit(void (*func)(void*), void* arg, void* dso) { return 0; }
-    void __libc_freeres() {}
+    int my_cxa_atexit(void (*func)(void *), void *arg, void *dso)
+    {
+        return 0;
+    }
+    void __libc_freeres()
+    {
+    }
 
-    void __assert_fail(const char* assertion, const char* file, unsigned int line, const char* function) {
+    void __assert_fail(const char *assertion, const char *file, unsigned int line, const char *function)
+    {
         fprintf(stderr, "ASSERTION FAILED: %s at %s:%d (%s)\n", assertion, file, line, function);
         TerminateProcess(GetCurrentProcess(), 1);
     }

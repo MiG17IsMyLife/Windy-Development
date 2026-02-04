@@ -3,10 +3,11 @@
 // =============================================================
 //   Process Control Emulation (extern "C")
 // =============================================================
-extern "C" {
+extern "C"
+{
     // Fork a new process
-    // Windows does not support fork(), so this implementation 
-    // usually returns a positive integer to simulate being the 
+    // Windows does not support fork(), so this implementation
+    // usually returns a positive integer to simulate being the
     // parent process, skipping the child code block.
     int my_fork(void);
 
@@ -22,7 +23,7 @@ extern "C" {
     // Execute a file
     // Replaces the current process image with a new process image.
     // In emulation, this typically launches a separate process via _spawn.
-    int my_execlp(const char* file, const char* arg, ...);
+    int my_execlp(const char *file, const char *arg, ...);
 
     // Wait for process termination (if needed)
     // int my_wait(int* status);

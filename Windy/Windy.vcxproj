@@ -19,6 +19,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="src\api\graphics\glhooks.cpp" />
     <ClCompile Include="src\api\graphics\glxbridge.cpp" />
     <ClCompile Include="src\api\graphics\x11bridge.cpp" />
     <ClCompile Include="src\api\libc\libcbridge.cpp" />
@@ -55,6 +56,7 @@
     <ClCompile Include="src\main.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\api\graphics\glhooks.h" />
     <ClInclude Include="src\api\graphics\glxbridge.h" />
     <ClInclude Include="src\api\graphics\x11bridge.h" />
     <ClInclude Include="src\api\graphics\x11types.h" />
@@ -159,7 +161,7 @@
       <BaseAddress>0x20000000</BaseAddress>
       <RandomizedBaseAddress>false</RandomizedBaseAddress>
       <FixedBaseAddress>true</FixedBaseAddress>
-      <AdditionalDependencies>SDL3.lib;ws2_32.lib;OpenGL32.lib;libMinHook.x86.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>SDL3.lib;SDL3_ttf.lib;ws2_32.lib;OpenGL32.lib;libMinHook.x86.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>$(ProjectDir)lib\x86;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
@@ -181,7 +183,7 @@
       <BaseAddress>0x20000000</BaseAddress>
       <RandomizedBaseAddress>false</RandomizedBaseAddress>
       <FixedBaseAddress>true</FixedBaseAddress>
-      <AdditionalDependencies>SDL3.lib;ws2_32.lib;OpenGL32.lib;libMinHook.x86.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>SDL3.lib;SDL3_ttf.lib;ws2_32.lib;OpenGL32.lib;libMinHook.x86.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>$(ProjectDir)lib\x86;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>

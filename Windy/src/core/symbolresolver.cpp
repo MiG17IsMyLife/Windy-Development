@@ -35,23 +35,24 @@
 // --- Pthreads Emulation ---
 #include "../api/libc/pthread_emu.h"
 
-#include "SymbolResolver.h"
+#include "symbolresolver.h"
 #include "common.h"
 #include "../src/core/log.h"
 
 // --- Bridges ---
 #include "../api/sega/libsegaapi.h"
-#include "../api/graphics/X11Bridge.h"
-#include "../api/graphics/GLXBridge.h"
-#include "../api/libc/LibcBridge.h"
+#include "../api/graphics/x11Bridge.h"
+#include "../api/graphics/glxbridge.h"
+#include "../api/graphics/glhooks.h"
+#include "../api/libc/libcbridge.h"
 
 // --- Linux Bridges ---
-#include "../api/linux/LinuxTypes.h"
-#include "../api/linux/GccBridge.h"
-#include "../api/linux/IpcBridge.h"
-#include "../api/linux/ProcessBridge.h"
-#include "../api/linux/FilesystemBridge.h"
-#include "../api/linux/HardwareBridge.h"
+#include "../api/linux/linuxtypes.h"
+#include "../api/linux/gccbridge.h"
+#include "../api/linux/ipcbridge.h"
+#include "../api/linux/processbridge.h"
+#include "../api/linux/filesystembridge.h"
+#include "../api/linux/hardwarebridge.h"
 
 // --- Helper Macros ---
 #define ELF32_R_SYM(val) ((val) >> 8)
@@ -125,7 +126,11 @@ extern "C" int my_sched_get_priority_max(int policy) {
 }
 
 void __declspec(naked) UnimplementedStub() {
+#ifdef _MSC_VER
     __asm { pushad }
+#else
+    asm volatile ("pushal\n\t");
+#endif
     MessageBoxA(NULL, "Unimplemented Function Called", "Error", MB_OK);
     TerminateProcess(GetCurrentProcess(), 1);
 }
@@ -438,18 +443,26 @@ extern "C" void my_libc_start_main(MainFunc m, int c, char** a, void (*i)(), voi
     WSADATA wsaData; WSAStartup(MAKEWORD(2, 2), &wsaData);
     if (i) {
         log_debug("Calling init function");
+        #ifdef _MSC_VER
         __try { i(); }
         __except (ExceptionFilter(GetExceptionCode(), GetExceptionInformation())) {
             log_error("Exception in init function");
         }
+        #else
+        i();
+        #endif
     }
     int result = 0;
     log_info("Calling main(argc=%d)", c);
+    #ifdef _MSC_VER
     __try { result = m(c, a, nullptr); }
     __except (ExceptionFilter(GetExceptionCode(), GetExceptionInformation())) {
         log_fatal("Exception in main() - process terminated");
         exit(1);
     }
+    #else
+    result = m(c, a, nullptr);
+    #endif
     log_info("main() returned %d", result);
     
     // Cleanup pthread emulation
@@ -570,8 +583,8 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("__ctype_get_mb_cur_max", __ctype_get_mb_cur_max);
 
     MAP("__divdi3", __divdi3);
-    MAP("__udivdi3", __udivdi3);
-    MAP("__umoddi3", __umoddi3);
+    // MAP("__udivdi3", __udivdi3);
+    // MAP("__umoddi3", __umoddi3);
     MAP("__moddi3", __moddi3);
     MAP("__fixunsdfdi", __fixunsdfdi);
     MAP("__fixunssfdi", __fixunssfdi);
@@ -1026,12 +1039,9 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
 
     // OpenGL (Direct)
     if (strncmp(name, "gl", 2) == 0 && strncmp(name, "glX", 3) != 0 && strncmp(name, "glut", 4) != 0) {
-        typedef void* (WINAPI* PFNWGLGETPROCADDRESS)(LPCSTR);
-        static HMODULE hOpengl = LoadLibraryA("opengl32.dll");
-        static PFNWGLGETPROCADDRESS my_wglGetProcAddress = (PFNWGLGETPROCADDRESS)GetProcAddress(hOpengl, "wglGetProcAddress");
-        void* proc = NULL;
-        if (my_wglGetProcAddress) proc = my_wglGetProcAddress(name);
-        if (!proc) proc = (void*)GetProcAddress(hOpengl, name);
+        // Route all GL calls through our GLHooks wrapper
+        // This ensures CDECL -> STDCALL transition is handled correctly!
+        void* proc = GLHooks::GetProcAddress(name);
         if (proc) return (uintptr_t)proc;
     }
 

@@ -1,7 +1,7 @@
 #define _CRT_SECURE_NO_WARNINGS
 
-#include "GLXBridge.h"
-#include "X11Bridge.h"
+#include "glxbridge.h"
+#include "x11bridge.h"
 #include "../../core/log.h"
 
 #include <vector>
@@ -16,20 +16,23 @@
 
 // SDL3 & OpenGL
 #include <SDL3/SDL.h>
-#include <SDL3/SDL_opengl.h> 
+#include <SDL3/SDL_opengl.h>
+#include <SDL3_ttf/SDL_ttf.h>
+#include "LiberationMono-Regular.h"
 
 // GLUT Constants (Minimal)
-#define GLUT_RGBA           0x0000
-#define GLUT_DOUBLE         0x0002
-#define GLUT_DEPTH          0x0010
-#define GLUT_STENCIL        0x0020
+#define GLUT_RGBA 0x0000
+#define GLUT_DOUBLE 0x0002
+#define GLUT_DEPTH 0x0010
+#define GLUT_STENCIL 0x0020
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
 
 // External Global State
-extern SDL_Window* g_sdlWindow;
+extern SDL_Window *g_sdlWindow;
+TTF_Font *g_font;
 extern int g_windowWidth;
 extern int g_windowHeight;
 
@@ -42,7 +45,8 @@ static bool g_redisplayNeeded = true;
 // --------------------------------------------------------------------------
 // Internal Structure Definitions
 // --------------------------------------------------------------------------
-struct __GLXFBConfigRec {
+struct __GLXFBConfigRec
+{
     int dummy_attr;
 };
 
@@ -50,12 +54,32 @@ struct __GLXFBConfigRec {
 //   Helper Functions
 // ==========================================================================
 
-static void EnsureSDLInitialized() {
+static void EnsureSDLInitialized()
+{
     static bool initialized = false;
-    if (!initialized) {
-        if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS)) {
+    if (!initialized)
+    {
+        if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS))
+        {
             log_error("GLXBridge: SDL_Init failed: %s", SDL_GetError());
         }
+        else
+        {
+            log_info("SDL3 initialized successfully");
+        }
+
+        if (!TTF_Init())
+        {
+            log_error("SDL_ttf could not initialize! SDL_ttf Error: %s\n", SDL_GetError());
+        }
+
+        // Use embedded font data to ensure it works even if file is missing
+        SDL_IOStream *rw = SDL_IOFromConstMem(LiberationMonoRegular_ttf, sizeof(LiberationMonoRegular_ttf));
+        float fontSize = 16.0;
+
+        // g_font = TTF_OpenFont("LiberationMono-Regular.ttf", 16);
+        g_font = TTF_OpenFontIO(rw, 1, fontSize);
+        // g_fontRenderer = SDL_CreateRenderer(g_sdlWindow, "");
         initialized = true;
     }
 }
@@ -64,13 +88,15 @@ static void EnsureSDLInitialized() {
 //   GLX Implementation
 // ==========================================================================
 
-XVisualInfo* GLXBridge::ChooseVisual(Display* dpy, int screen, int* attribList) {
+XVisualInfo *GLXBridge::ChooseVisual(Display *dpy, int screen, int *attribList)
+{
     log_trace("glXChooseVisual(screen=%d)", screen);
     EnsureSDLInitialized();
 
-    XVisualInfo* vi = (XVisualInfo*)calloc(1, sizeof(XVisualInfo));
-    if (vi) {
-        vi->visual = (void*)1;
+    XVisualInfo *vi = (XVisualInfo *)calloc(1, sizeof(XVisualInfo));
+    if (vi)
+    {
+        vi->visual = (void *)1;
         vi->visualid = 1;
         vi->screen = screen;
         vi->depth = 24;
@@ -83,18 +109,24 @@ XVisualInfo* GLXBridge::ChooseVisual(Display* dpy, int screen, int* attribList) 
     return vi;
 }
 
-GLXContext GLXBridge::CreateContext(Display* dpy, XVisualInfo* vis, GLXContext shareList, bool direct) {
-    log_debug("glXCreateContext(vis=%p, share=%p, direct=%d)", vis, shareList, direct);
+GLXContext GLXBridge::CreateContext(Display *dpy, XVisualInfo *vis, GLXContext shareList, bool direct)
+{
+    log_debug("glXCreateContext(vis=%p, "
+              "share=%p, direct=%d)",
+              vis, shareList, direct);
 
-    if (!g_sdlWindow) {
-        XSetWindowAttributes attr = { 0 };
+    if (!g_sdlWindow)
+    {
+        XSetWindowAttributes attr = {0};
         X11Bridge::XCreateWindow(dpy, 0, 0, 0, 1360, 768, 0, 24, 0, nullptr, 0, &attr);
     }
 
-    if (!g_sdlWindow) return nullptr;
+    if (!g_sdlWindow)
+        return nullptr;
 
     SDL_GLContext ctx = SDL_GL_CreateContext(g_sdlWindow);
-    if (!ctx) {
+    if (!ctx)
+    {
         log_error("glXCreateContext failed: %s", SDL_GetError());
         return nullptr;
     }
@@ -106,209 +138,463 @@ GLXContext GLXBridge::CreateContext(Display* dpy, XVisualInfo* vis, GLXContext s
     return (GLXContext)ctx;
 }
 
-void GLXBridge::DestroyContext(Display* dpy, GLXContext ctx) {
+void GLXBridge::DestroyContext(Display *dpy, GLXContext ctx)
+{
     log_debug("glXDestroyContext(%p)", ctx);
-    if (ctx) SDL_GL_DestroyContext((SDL_GLContext)ctx);
+    if (ctx)
+        SDL_GL_DestroyContext((SDL_GLContext)ctx);
 }
 
-int GLXBridge::MakeCurrent(Display* dpy, GLXDrawable drawable, GLXContext ctx) {
-    SDL_Window* win = X11Bridge::GetSDLWindow(drawable);
-    if (!win) win = g_sdlWindow; // Fallback
+int GLXBridge::MakeCurrent(Display *dpy, GLXDrawable drawable, GLXContext ctx)
+{
+    SDL_Window *win = X11Bridge::GetSDLWindow(drawable);
+    if (!win)
+        win = g_sdlWindow; // Fallback
 
-    if (!win) return 0; // Window not found
+    if (!win)
+        return 0; // Window not found
 
-    if (!ctx) {
+    if (!ctx)
+    {
         return SDL_GL_MakeCurrent(win, NULL) ? 1 : 0;
     }
 
-    if (SDL_GL_MakeCurrent(win, (SDL_GLContext)ctx)) {
+    if (SDL_GL_MakeCurrent(win, (SDL_GLContext)ctx))
+    {
         return 1;
     }
-    else {
+    else
+    {
         log_error("glXMakeCurrent failed: %s", SDL_GetError());
         return 0;
     }
 }
 
-void GLXBridge::SwapBuffers(Display* dpy, GLXDrawable drawable) {
-    SDL_Window* win = X11Bridge::GetSDLWindow(drawable);
-    if (win) {
+void GLXBridge::SwapBuffers(Display *dpy, GLXDrawable drawable)
+{
+    SDL_Window *win = X11Bridge::GetSDLWindow(drawable);
+    if (win)
+    {
         SDL_GL_SwapWindow(win);
     }
 }
 
-int GLXBridge::SwapInterval(int interval) {
+int GLXBridge::SwapInterval(int interval)
+{
     return SDL_GL_SetSwapInterval(interval) ? 0 : 1;
 }
 
-void* GLXBridge::GetProcAddress(const char* procName) {
-    return (void*)SDL_GL_GetProcAddress(procName);
+void *GLXBridge::GetProcAddress(const char *procName)
+{
+    return (void *)SDL_GL_GetProcAddress(procName);
 }
 
 // --- Info / Query ---
 
-const char* GLXBridge::QueryExtensionsString(Display* dpy, int screen) {
-    return "GLX_SGIX_fbconfig GLX_SGIX_pbuffer GLX_ARB_create_context";
+const char *GLXBridge::QueryExtensionsString(Display *dpy, int screen)
+{
+    return "GLX_SGIX_fbconfig GLX_SGIX_pbuffer "
+           "GLX_ARB_create_context";
 }
-const char* GLXBridge::QueryServerString(Display* dpy, int screen, int name) { return "Sega Lindbergh Emulator"; }
-const char* GLXBridge::GetClientString(Display* dpy, int name) { return "Windy GLX Bridge"; }
-Display* GLXBridge::GetCurrentDisplay() { return (Display*)0x1111; }
-GLXContext GLXBridge::GetCurrentContext() { return (GLXContext)SDL_GL_GetCurrentContext(); }
-GLXDrawable GLXBridge::GetCurrentDrawable() {
+const char *GLXBridge::QueryServerString(Display *dpy, int screen, int name)
+{
+    return "Sega Lindbergh Emulator";
+}
+const char *GLXBridge::GetClientString(Display *dpy, int name)
+{
+    return "Windy GLX Bridge";
+}
+Display *GLXBridge::GetCurrentDisplay()
+{
+    return (Display *)0x1111;
+}
+GLXContext GLXBridge::GetCurrentContext()
+{
+    return (GLXContext)SDL_GL_GetCurrentContext();
+}
+GLXDrawable GLXBridge::GetCurrentDrawable()
+{
     return X11Bridge::GetXWindowFromSDL(SDL_GL_GetCurrentWindow());
 }
-int GLXBridge::IsDirect(Display* dpy, GLXContext ctx) { return 1; }
-int GLXBridge::GetConfig(Display* dpy, XVisualInfo* vis, int attrib, int* value) {
-    if (value) *value = 0;
+int GLXBridge::IsDirect(Display *dpy, GLXContext ctx)
+{
+    return 1;
+}
+int GLXBridge::GetConfig(Display *dpy, XVisualInfo *vis, int attrib, int *value)
+{
+    if (value)
+        *value = 0;
     return 0;
 }
 
 // --- SGIX Extensions ---
 
-GLXFBConfig* GLXBridge::ChooseFBConfigSGIX(Display* dpy, int screen, int* attrib_list, int* nelements) {
+GLXFBConfig *GLXBridge::ChooseFBConfigSGIX(Display *dpy, int screen, int *attrib_list, int *nelements)
+{
     static struct __GLXFBConfigRec dummyConfig;
-    static GLXFBConfig configs[] = { &dummyConfig, nullptr };
-    if (nelements) *nelements = 1;
+    static GLXFBConfig configs[] = {&dummyConfig, nullptr};
+    if (nelements)
+        *nelements = 1;
     return configs;
 }
 
-int GLXBridge::GetFBConfigAttribSGIX(Display* dpy, GLXFBConfig config, int attribute, int* value) {
-    if (value) *value = 0;
+int GLXBridge::GetFBConfigAttribSGIX(Display *dpy, GLXFBConfig config, int attribute, int *value)
+{
+    if (value)
+        *value = 0;
     return 0;
 }
 
-XVisualInfo* GLXBridge::GetVisualFromFBConfig(Display* dpy, GLXFBConfig config) {
+XVisualInfo *GLXBridge::GetVisualFromFBConfig(Display *dpy, GLXFBConfig config)
+{
     return ChooseVisual(dpy, 0, nullptr);
 }
 
-GLXContext GLXBridge::CreateContextWithConfigSGIX(Display* dpy, GLXFBConfig config, int render_type, GLXContext share_list, bool direct) {
+GLXContext GLXBridge::CreateContextWithConfigSGIX(Display *dpy, GLXFBConfig config, int render_type, GLXContext share_list, bool direct)
+{
     return CreateContext(dpy, nullptr, share_list, direct);
 }
 
-GLXPbuffer GLXBridge::CreateGLXPbufferSGIX(Display* dpy, GLXFBConfig config, unsigned int width, unsigned int height, int* attrib_list) {
+GLXPbuffer GLXBridge::CreateGLXPbufferSGIX(Display *dpy, GLXFBConfig config, unsigned int width, unsigned int height, int *attrib_list)
+{
     return 10001; // Fake ID
 }
 
-void GLXBridge::DestroyGLXPbufferSGIX(Display* dpy, GLXPbuffer pbuf) {}
+void GLXBridge::DestroyGLXPbufferSGIX(Display *dpy, GLXPbuffer pbuf)
+{
+}
 
 // ==========================================================================
 //   GLUT Implementation
 // ==========================================================================
 
-void GLXBridge::glutInit(int* argcp, char** argv) {
+void GLXBridge::glutInit(int *argcp, char **argv)
+{
     log_info("glutInit");
     EnsureSDLInitialized();
 }
 
-void GLXBridge::glutInitDisplayMode(unsigned int mode) {
+void GLXBridge::glutInitDisplayMode(unsigned int mode)
+{
     log_debug("glutInitDisplayMode(0x%X)", mode);
     EnsureSDLInitialized();
 
-    if (mode & GLUT_DOUBLE) SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-    else SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 0);
+    if (mode & GLUT_DOUBLE)
+        SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+    else
+        SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 0);
 
-    if (mode & GLUT_DEPTH) SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
-    if (mode & GLUT_STENCIL) SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
-    if (mode & GLUT_RGBA) { /* Default */ }
+    if (mode & GLUT_DEPTH)
+        SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+    if (mode & GLUT_STENCIL)
+        SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
+    if (mode & GLUT_RGBA)
+    { /* Default */
+    }
 }
 
-void GLXBridge::glutInitWindowSize(int width, int height) {
+void GLXBridge::glutInitWindowSize(int width, int height)
+{
     g_windowWidth = width;
     g_windowHeight = height;
 }
 
-void GLXBridge::glutInitWindowPosition(int x, int y) {
-    // g_windowX = x; 
+void GLXBridge::glutInitWindowPosition(int x, int y)
+{
+    // g_windowX = x;
     // g_windowY = y;
 }
 
-int GLXBridge::glutCreateWindow(const char* title) {
+int GLXBridge::glutCreateWindow(const char *title)
+{
     log_info("glutCreateWindow: %s", title);
-    XSetWindowAttributes attr = { 0 };
+    XSetWindowAttributes attr = {0};
     Window win = X11Bridge::XCreateWindow(nullptr, 0, 0, 0, g_windowWidth, g_windowHeight, 0, 24, 0, nullptr, 0, &attr);
     X11Bridge::StoreName(nullptr, win, title);
     return (int)win;
 }
 
-int GLXBridge::glutEnterGameMode() {
+int GLXBridge::glutEnterGameMode()
+{
     log_info("glutEnterGameMode");
-    glutCreateWindow("Windy - SEGA Lindbergh Emulator for Windows");
+    glutCreateWindow("Windy - SEGA Lindbergh "
+                     "Emulator for Windows");
     return 1;
 }
 
-void GLXBridge::glutLeaveGameMode() {
-    if (g_sdlWindow) SDL_SetWindowFullscreen(g_sdlWindow, 0);
+void GLXBridge::glutLeaveGameMode()
+{
+    if (g_sdlWindow)
+        SDL_SetWindowFullscreen(g_sdlWindow, 0);
 }
 
-void GLXBridge::glutMainLoop() {
+void GLXBridge::glutMainLoop()
+{
     log_info(">>> glutMainLoop <<<");
 
-    if (!SDL_GL_GetCurrentContext() && g_sdlWindow) {
+    if (!SDL_GL_GetCurrentContext() && g_sdlWindow)
+    {
         SDL_GLContext ctx = SDL_GL_CreateContext(g_sdlWindow);
         SDL_GL_MakeCurrent(g_sdlWindow, ctx);
     }
 
     bool running = true;
     XEvent ev;
-    Display* dpy = (Display*)0x1111; // Dummy
+    Display *dpy = (Display *)0x1111; // Dummy
 
-    while (running) {
-        while (X11Bridge::Pending(dpy)) {
+    while (running)
+    {
+        while (X11Bridge::Pending(dpy))
+        {
             X11Bridge::NextEvent(dpy, &ev);
 
-            // «—ˆ“I‚É‚±‚±‚ÅGLUTƒR[ƒ‹ƒoƒbƒN‚ðŒÄ‚Ô
-            // if (ev.type == KeyPress && g_glutKeyboardFunc) ...
+            // ï¿½ï¿½ï¿½ï¿½ï¿½Iï¿½É‚ï¿½ï¿½ï¿½ï¿½ï¿½GLUTï¿½Rï¿½[ï¿½ï¿½ï¿½oï¿½bï¿½Nï¿½ï¿½ï¿½Ä‚ï¿½
+            // if (ev.type == KeyPress &&
+            // g_glutKeyboardFunc) ...
         }
 
         // Idle
-        if (g_glutIdleFunc) g_glutIdleFunc();
+        if (g_glutIdleFunc)
+            g_glutIdleFunc();
 
         // Redisplay
-        if (g_redisplayNeeded && g_glutDisplayFunc) {
+        if (g_redisplayNeeded && g_glutDisplayFunc)
+        {
             g_glutDisplayFunc();
             g_redisplayNeeded = false;
         }
 
         SDL_Delay(1);
-
     }
 }
 
-void GLXBridge::glutDisplayFunc(void (*func)(void)) { g_glutDisplayFunc = func; }
-void GLXBridge::glutIdleFunc(void (*func)(void)) { g_glutIdleFunc = func; }
-void GLXBridge::glutPostRedisplay() { g_redisplayNeeded = true; }
-
-void GLXBridge::glutSwapBuffers() {
-    if (g_sdlWindow) SDL_GL_SwapWindow(g_sdlWindow);
+void GLXBridge::glutDisplayFunc(void (*func)(void))
+{
+    g_glutDisplayFunc = func;
+}
+void GLXBridge::glutIdleFunc(void (*func)(void))
+{
+    g_glutIdleFunc = func;
 }
 
-int GLXBridge::glutGet(int state) { return 0; }
-void GLXBridge::glutSetCursor(int cursor) {}
-void GLXBridge::glutGameModeString(const char* string) {}
-void GLXBridge::glutBitmapCharacter(void* font, int character) {}
-int GLXBridge::glutBitmapWidth(void* font, int character) { return 8; }
+void convertSurfaceTo1Bit(SDL_Surface *surface, uint8_t *outBitmap, int pitch)
+{
+    SDL_LockSurface(surface);
+    for (int y = 0; y < surface->h; ++y)
+    {
+        uint8_t byte = 0;
+        int bit = 0;
+        int sdlY = surface->h - 1 - y;
+
+        Uint8 *row = (Uint8 *)surface->pixels + sdlY * surface->pitch;
+
+        for (int x = 0; x < surface->w; ++x)
+        {
+            if (row[x])
+                byte |= (1 << (7 - bit));
+
+            bit++;
+            if (bit == 8 || x == surface->w - 1)
+            {
+                outBitmap[y * pitch + x / 8] = byte;
+                byte = 0;
+                bit = 0;
+            }
+        }
+    }
+    SDL_UnlockSurface(surface);
+}
+
+// Debug Overlay
+static void DebugOverlay(int width, int height)
+{
+    glPushAttrib(GL_ALL_ATTRIB_BITS);
+    glDisable(GL_LIGHTING);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_TEXTURE_2D);
+    glDisable(GL_CULL_FACE);
+
+    glMatrixMode(GL_PROJECTION);
+    glPushMatrix();
+    glLoadIdentity();
+    glOrtho(0, width, height, 0, -1, 1);
+
+    glMatrixMode(GL_MODELVIEW);
+    glPushMatrix();
+    glLoadIdentity();
+
+    // Draw Box
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glColor4f(0.0f, 0.0f, 0.5f, 0.5f); // Semi-transparent blue
+    glBegin(GL_QUADS);
+    glVertex2f(10, 10);
+    glVertex2f(200, 10);
+    glVertex2f(200, 50);
+    glVertex2f(10, 50);
+    glEnd();
+
+    // Draw Text
+    glColor4f(1.0f, 1.0f, 1.0f, 1.0f); // White
+    glRasterPos2i(20, 35);
+
+    const char *str = "Windy Debug Overlay";
+    for (const char *c = str; *c != '\0'; c++)
+    {
+        GLXBridge::glutBitmapCharacter(nullptr, *c);
+    }
+
+    glPopMatrix(); // ModelView
+    glMatrixMode(GL_PROJECTION);
+    glPopMatrix(); // Projection
+    glPopAttrib();
+}
+
+void GLXBridge::glutPostRedisplay()
+{
+    g_redisplayNeeded = true;
+}
+
+void GLXBridge::glutSwapBuffers()
+{
+    if (g_sdlWindow)
+    {
+        int w, h;
+        SDL_GetWindowSize(g_sdlWindow, &w, &h);
+        DebugOverlay(w, h); // Temporarily commented out if crashing
+        SDL_GL_SwapWindow(g_sdlWindow);
+    }
+}
+
+int GLXBridge::glutGet(int state)
+{
+    return 0;
+}
+void GLXBridge::glutSetCursor(int cursor)
+{
+}
+void GLXBridge::glutGameModeString(const char *string)
+{
+}
+
+int penX = 20;
+int penY = 20;
+
+void GLXBridge::glutBitmapCharacter(void *fontID, int character)
+{
+    GLfloat glColor[4];
+    glGetFloatv(GL_CURRENT_COLOR, glColor);
+
+    SDL_Color sdlColor;
+    sdlColor.r = (Uint8)(glColor[0] * 255.0f);
+    sdlColor.g = (Uint8)(glColor[1] * 255.0f);
+    sdlColor.b = (Uint8)(glColor[2] * 255.0f);
+    sdlColor.a = (Uint8)(glColor[3] * 255.0f);
+
+    GLint glPos[4];
+    glGetIntegerv(GL_CURRENT_RASTER_POSITION, glPos);
+
+    if (penX != glPos[0])
+        penX = glPos[0];
+
+    penY = glPos[1];
+    printf("%d, %d: %c", penX, penY, character);
+    SDL_Surface *glyph = TTF_RenderGlyph_Solid(g_font, character, sdlColor);
+    if (!glyph)
+    {
+        printf("Failed to render glyph: %s\n", SDL_GetError());
+        return;
+    }
+
+    int pitch = (glyph->w + 7) / 8;
+    uint8_t *bitmap = (uint8_t *)malloc(pitch * glyph->h);
+    if (!bitmap)
+    {
+        printf("Failed to allocate memory for bitmap\n");
+        SDL_DestroySurface(glyph);
+        return;
+    }
+    convertSurfaceTo1Bit(glyph, bitmap, pitch);
+
+    GLint swbytes, lsbfirst, rowlen, skiprows, skippix, align;
+
+    glGetIntegerv(GL_UNPACK_SWAP_BYTES, &swbytes);
+    glGetIntegerv(GL_UNPACK_LSB_FIRST, &lsbfirst);
+    glGetIntegerv(GL_UNPACK_ROW_LENGTH, &rowlen);
+    glGetIntegerv(GL_UNPACK_SKIP_ROWS, &skiprows);
+    glGetIntegerv(GL_UNPACK_SKIP_PIXELS, &skippix);
+    glGetIntegerv(GL_UNPACK_ALIGNMENT, &align);
+
+    glPixelStorei(GL_UNPACK_SWAP_BYTES, GL_FALSE);
+    glPixelStorei(GL_UNPACK_LSB_FIRST, GL_FALSE);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
+    glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
+    glBitmap(glyph->w, glyph->h, 0, 0, (float)(glyph->w), 0.0, bitmap);
+    glGetIntegerv(GL_CURRENT_RASTER_POSITION, glPos);
+
+    glPixelStorei(GL_UNPACK_SWAP_BYTES, swbytes);
+    glPixelStorei(GL_UNPACK_LSB_FIRST, lsbfirst);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, rowlen);
+    glPixelStorei(GL_UNPACK_SKIP_ROWS, skiprows);
+    glPixelStorei(GL_UNPACK_SKIP_PIXELS, skippix);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, align);
+
+    free(bitmap);
+    SDL_DestroySurface(glyph);
+}
+int GLXBridge::glutBitmapWidth(void *font, int character)
+{
+    return 9;
+}
 
 // --- GLU ---
 
-void GLXBridge::gluPerspective(double fovy, double aspect, double zNear, double zFar) {
+void GLXBridge::gluPerspective(double fovy, double aspect, double zNear, double zFar)
+{
     double f = 1.0 / tan(fovy * M_PI / 360.0);
-    double m[16] = { 0 };
-    m[0] = f / aspect; m[5] = f; m[10] = (zFar + zNear) / (zNear - zFar); m[11] = -1.0; m[14] = (2.0 * zFar * zNear) / (zNear - zFar);
+    double m[16] = {0};
+    m[0] = f / aspect;
+    m[5] = f;
+    m[10] = (zFar + zNear) / (zNear - zFar);
+    m[11] = -1.0;
+    m[14] = (2.0 * zFar * zNear) / (zNear - zFar);
     glMultMatrixd(m);
 }
 
-void GLXBridge::gluLookAt(double eyeX, double eyeY, double eyeZ, double centerX, double centerY, double centerZ, double upX, double upY, double upZ) {
-    double f[3] = { centerX - eyeX, centerY - eyeY, centerZ - eyeZ };
+void GLXBridge::gluLookAt(double eyeX, double eyeY, double eyeZ, double centerX, double centerY, double centerZ, double upX, double upY,
+                          double upZ)
+{
+    double f[3] = {centerX - eyeX, centerY - eyeY, centerZ - eyeZ};
     double mag = sqrt(f[0] * f[0] + f[1] * f[1] + f[2] * f[2]);
-    if (mag > 0) { f[0] /= mag; f[1] /= mag; f[2] /= mag; }
-    double u[3] = { upX, upY, upZ };
+    if (mag > 0)
+    {
+        f[0] /= mag;
+        f[1] /= mag;
+        f[2] /= mag;
+    }
+    double u[3] = {upX, upY, upZ};
     mag = sqrt(u[0] * u[0] + u[1] * u[1] + u[2] * u[2]);
-    if (mag > 0) { u[0] /= mag; u[1] /= mag; u[2] /= mag; }
-    double s[3] = { f[1] * u[2] - f[2] * u[1], f[2] * u[0] - f[0] * u[2], f[0] * u[1] - f[1] * u[0] };
+    if (mag > 0)
+    {
+        u[0] /= mag;
+        u[1] /= mag;
+        u[2] /= mag;
+    }
+    double s[3] = {f[1] * u[2] - f[2] * u[1], f[2] * u[0] - f[0] * u[2], f[0] * u[1] - f[1] * u[0]};
     mag = sqrt(s[0] * s[0] + s[1] * s[1] + s[2] * s[2]);
-    if (mag > 0) { s[0] /= mag; s[1] /= mag; s[2] /= mag; }
-    u[0] = s[1] * f[2] - s[2] * f[1]; u[1] = s[2] * f[0] - s[0] * f[2]; u[2] = s[0] * f[1] - s[1] * f[0];
-    double mat[16] = { s[0], u[0], -f[0], 0, s[1], u[1], -f[1], 0, s[2], u[2], -f[2], 0, 0, 0, 0, 1 };
+    if (mag > 0)
+    {
+        s[0] /= mag;
+        s[1] /= mag;
+        s[2] /= mag;
+    }
+    u[0] = s[1] * f[2] - s[2] * f[1];
+    u[1] = s[2] * f[0] - s[0] * f[2];
+    u[2] = s[0] * f[1] - s[1] * f[0];
+    double mat[16] = {s[0], u[0], -f[0], 0, s[1], u[1], -f[1], 0, s[2], u[2], -f[2], 0, 0, 0, 0, 1};
     glMultMatrixd(mat);
     glTranslated(-eyeX, -eyeY, -eyeZ);
 }

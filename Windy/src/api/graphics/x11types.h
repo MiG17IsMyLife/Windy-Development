@@ -18,64 +18,66 @@ typedef unsigned long Colormap;
 // --------------------------------------------------------------------------
 // X11 Event Constants
 // --------------------------------------------------------------------------
-#define KeyPress        2
-#define KeyRelease      3
-#define ButtonPress     4
-#define ButtonRelease   5
-#define MotionNotify    6
-#define EnterNotify     7
-#define LeaveNotify     8
-#define FocusIn         9
-#define FocusOut        10
-#define Expose          12
-#define MapNotify       19
-#define ClientMessage   33
+#define KeyPress 2
+#define KeyRelease 3
+#define ButtonPress 4
+#define ButtonRelease 5
+#define MotionNotify 6
+#define EnterNotify 7
+#define LeaveNotify 8
+#define FocusIn 9
+#define FocusOut 10
+#define Expose 12
+#define MapNotify 19
+#define ClientMessage 33
 
 // Event Masks (Simplified)
-#define NoEventMask              0L
-#define KeyPressMask             (1L<<0)
-#define KeyReleaseMask           (1L<<1)
-#define ButtonPressMask          (1L<<2)
-#define ButtonReleaseMask        (1L<<3)
-#define EnterWindowMask          (1L<<4)
-#define LeaveWindowMask          (1L<<5)
-#define PointerMotionMask        (1L<<6)
-#define PointerMotionHintMask    (1L<<7)
-#define Button1MotionMask        (1L<<8)
-#define Button2MotionMask        (1L<<9)
-#define Button3MotionMask        (1L<<10)
-#define Button4MotionMask        (1L<<11)
-#define Button5MotionMask        (1L<<12)
-#define ButtonMotionMask         (1L<<13)
-#define KeymapStateMask          (1L<<14)
-#define ExposureMask             (1L<<15)
-#define VisibilityChangeMask     (1L<<16)
-#define StructureNotifyMask      (1L<<17)
-#define ResizeRedirectMask       (1L<<18)
-#define SubstructureNotifyMask   (1L<<19)
-#define SubstructureRedirectMask (1L<<20)
-#define FocusChangeMask          (1L<<21)
-#define PropertyChangeMask       (1L<<22)
-#define ColormapChangeMask       (1L<<23)
-#define OwnerGrabButtonMask      (1L<<24)
+#define NoEventMask 0L
+#define KeyPressMask (1L << 0)
+#define KeyReleaseMask (1L << 1)
+#define ButtonPressMask (1L << 2)
+#define ButtonReleaseMask (1L << 3)
+#define EnterWindowMask (1L << 4)
+#define LeaveWindowMask (1L << 5)
+#define PointerMotionMask (1L << 6)
+#define PointerMotionHintMask (1L << 7)
+#define Button1MotionMask (1L << 8)
+#define Button2MotionMask (1L << 9)
+#define Button3MotionMask (1L << 10)
+#define Button4MotionMask (1L << 11)
+#define Button5MotionMask (1L << 12)
+#define ButtonMotionMask (1L << 13)
+#define KeymapStateMask (1L << 14)
+#define ExposureMask (1L << 15)
+#define VisibilityChangeMask (1L << 16)
+#define StructureNotifyMask (1L << 17)
+#define ResizeRedirectMask (1L << 18)
+#define SubstructureNotifyMask (1L << 19)
+#define SubstructureRedirectMask (1L << 20)
+#define FocusChangeMask (1L << 21)
+#define PropertyChangeMask (1L << 22)
+#define ColormapChangeMask (1L << 23)
+#define OwnerGrabButtonMask (1L << 24)
 
 // --------------------------------------------------------------------------
 // X11 Event Structures
 // --------------------------------------------------------------------------
 
-typedef struct {
+typedef struct
+{
     int type;
     unsigned long serial;
     int send_event;
-    Display* display;
+    Display *display;
     Window window;
 } XAnyEvent;
 
-typedef struct {
+typedef struct
+{
     int type;
     unsigned long serial;
     int send_event;
-    Display* display;
+    Display *display;
     Window window;
     Window root;
     Window subwindow;
@@ -87,11 +89,12 @@ typedef struct {
     int same_screen;
 } XKeyEvent;
 
-typedef struct {
+typedef struct
+{
     int type;
     unsigned long serial;
     int send_event;
-    Display* display;
+    Display *display;
     Window window;
     Window root;
     Window subwindow;
@@ -103,11 +106,12 @@ typedef struct {
     int same_screen;
 } XButtonEvent;
 
-typedef struct {
+typedef struct
+{
     int type;
     unsigned long serial;
     int send_event;
-    Display* display;
+    Display *display;
     Window window;
     Window root;
     Window subwindow;
@@ -119,11 +123,12 @@ typedef struct {
     int same_screen;
 } XMotionEvent;
 
-typedef struct {
+typedef struct
+{
     int type;
     unsigned long serial;
     int send_event;
-    Display* display;
+    Display *display;
     Window window;
     Atom message_type;
     int format;
@@ -149,26 +154,33 @@ typedef union _XEvent {
 // X11 Attributes, Hints, Properties
 // --------------------------------------------------------------------------
 
-typedef struct {
-    unsigned char* value;
+typedef struct
+{
+    unsigned char *value;
     Atom encoding;
     int format;
     unsigned long nitems;
 } XTextProperty;
 
-typedef struct {
+typedef struct
+{
     long flags;
     int x, y;
     int width, height;
     int min_width, min_height;
     int max_width, max_height;
     int width_inc, height_inc;
-    struct { int x; int y; } min_aspect, max_aspect;
+    struct
+    {
+        int x;
+        int y;
+    } min_aspect, max_aspect;
     int base_width, base_height;
     int win_gravity;
 } XSizeHints;
 
-typedef struct {
+typedef struct
+{
     long flags;
     int input;
     int initial_state;
@@ -179,22 +191,25 @@ typedef struct {
     XID window_group;
 } XWMHints;
 
-typedef struct {
-    char* res_name;
-    char* res_class;
+typedef struct
+{
+    char *res_name;
+    char *res_class;
 } XClassHint;
 
-typedef struct {
+typedef struct
+{
     unsigned long background_pixel;
     unsigned long event_mask;
 } XSetWindowAttributes;
 
-typedef struct {
+typedef struct
+{
     int x, y;
     int width, height;
     int border_width;
     int depth;
-    void* visual;
+    void *visual;
     Window root;
     int class_type;
     int bit_gravity;
@@ -210,5 +225,5 @@ typedef struct {
     long your_event_mask;
     long do_not_propagate_mask;
     int override_redirect;
-    void* screen;
+    void *screen;
 } XWindowAttributes;

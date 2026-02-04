@@ -1,5 +1,5 @@
-#include "ElfLoader.h"
-#include "MemoryManager.h"
+#include "elfloader.h"
+#include "memorymanager.h"
 #include <fstream>
 #include <vector>
 #include <cstring>

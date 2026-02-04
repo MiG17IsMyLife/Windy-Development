@@ -16,8 +16,8 @@
 // ============================================================
 
 // Control appearance (1 = enabled, 0 = disabled)
-#define LOG_COLOR_ENABLED 1
-#define LOG_TIME_ENABLED 1
+#define LOG_COLOR_ENABLED 0
+#define LOG_TIME_ENABLED 0
 #define LOG_FILE_INFO_ENABLED 1
 
 // When enabled (1), it counts repeat message instead of spamming

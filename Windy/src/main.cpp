@@ -404,6 +404,8 @@ int main(int argc, char* argv[]) {
     // -------------------------------------------------
     // Jump to ELF Entry Point
     // -------------------------------------------------
+
+#ifdef _MSC_VER
 #pragma warning(push)
 #pragma warning(disable: 4731)
     __asm {
@@ -420,6 +422,16 @@ int main(int argc, char* argv[]) {
         jmp eax
     }
 #pragma warning(pop)
+#else
+  asm volatile("mov %0, %%esp\n\t"
+               "xor %%eax, %%eax\n\t"
+               "xor %%ebx, %%ebx\n\t"
+               "xor %%ecx, %%ecx\n\t"
+               "jmp *%1"
+               :
+               : "r"(finalEsp), "r"(entryPoint)
+               : "eax", "ebx", "ecx", "memory");
+#endif
 
     // -------------------------------------------------
     // Cleanup (unreachable in normal flow)
