@@ -16,8 +16,8 @@
 // ============================================================
 
 // Control appearance (1 = enabled, 0 = disabled)
-#define LOG_COLOR_ENABLED 1
-#define LOG_TIME_ENABLED 1
+#define LOG_COLOR_ENABLED 0
+#define LOG_TIME_ENABLED 0
 #define LOG_FILE_INFO_ENABLED 1
 
 // When enabled (1), it counts repeat message instead of spamming
@@ -29,7 +29,7 @@
 // ============================================================
 
 // Minimum level to output logs (can be changed at runtime)
-static int g_logMinLevel = LOG_TRACE;
+static int g_logMinLevel = LOG_FATAL;//LOG_TRACE;
 
 // Show file/line info
 static int g_logShowFileInfo = 1;

@@ -1,6 +1,6 @@
 #define _CRT_SECURE_NO_WARNINGS
 
-#include "JvsBoard.h"
+#include "jvsboard.h"
 #include "../core/log.h"
 #include <cstring>
 #include <cmath>

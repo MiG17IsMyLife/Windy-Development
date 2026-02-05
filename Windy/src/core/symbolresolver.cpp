@@ -35,23 +35,24 @@
 // --- Pthreads Emulation ---
 #include "../api/libc/pthread_emu.h"
 
-#include "SymbolResolver.h"
+#include "symbolresolver.h"
 #include "common.h"
-#include "../src/core/log.h"
+#include "log.h"
 
 // --- Bridges ---
 #include "../api/sega/libsegaapi.h"
-#include "../api/graphics/X11Bridge.h"
-#include "../api/graphics/GLXBridge.h"
-#include "../api/libc/LibcBridge.h"
+#include "../api/graphics/x11bridge.h"
+#include "../api/graphics/glxbridge.h"
+#include "../api/graphics/glhooks.h"
+#include "../api/libc/libcbridge.h"
 
 // --- Linux Bridges ---
-#include "../api/linux/LinuxTypes.h"
-#include "../api/linux/GccBridge.h"
-#include "../api/linux/IpcBridge.h"
-#include "../api/linux/ProcessBridge.h"
-#include "../api/linux/FilesystemBridge.h"
-#include "../api/linux/HardwareBridge.h"
+#include "../api/linux/linuxtypes.h"
+#include "../api/linux/gccbridge.h"
+#include "../api/linux/ipcbridge.h"
+#include "../api/linux/processbridge.h"
+#include "../api/linux/filesystembridge.h"
+#include "../api/linux/hardwarebridge.h"
 
 // --- Helper Macros ---
 #define ELF32_R_SYM(val) ((val) >> 8)
@@ -125,7 +126,12 @@ extern "C" int my_sched_get_priority_max(int policy) {
 }
 
 void __declspec(naked) UnimplementedStub() {
+    __debugbreak();
+#ifdef _MSC_VER
     __asm { pushad }
+#else
+    asm volatile ("pushal\n\t");
+#endif
     MessageBoxA(NULL, "Unimplemented Function Called", "Error", MB_OK);
     TerminateProcess(GetCurrentProcess(), 1);
 }
@@ -183,6 +189,7 @@ extern "C" int my_clock_gettime(int clk_id, struct timespec* tp) {
 
 extern "C" int my_fsync(int fd) { return _commit(fd); }
 extern "C" int my_fdatasync(int fd) { return _commit(fd); }
+extern "C" void my_sync(void) { _flushall(); }
 
 extern "C" int my_access(const char* pathname, int mode) {
     if (pathname && strstr(pathname, "/dev/") != NULL) {
@@ -215,20 +222,84 @@ extern "C" int my_putenv(char* string) {
     return _putenv(string);
 }
 
+// Stub for sysctl always returning -1 (failure/not implemented)
+extern "C" int my_sysctl(int *name, int nlen, void *oldval, size_t *oldlenp, void *newval, size_t newlen) {
+    return -1;
+}
+
+// --- Select Wrapper ---
 // --- Select Wrapper ---
 // Handles timeout-only usage (common in loops) or logs usage with FDs
-extern "C" int my_select(int nfds, fd_set* readfds, fd_set* writefds, fd_set* exceptfds, struct timeval* timeout) {
-    log_info(">>> select called: nfds=%d, timeout=%s", nfds, timeout ? "set" : "NULL");
+
+// Macros for Linux FD_SET (matching standard Linux behavior)
+#define LINUX_NFDBITS (8 * sizeof(unsigned long))
+#define LINUX_FD_SET_BIT(n, p)   ((p)->fds_bits[(n) / LINUX_NFDBITS] |= (1UL << ((n) % LINUX_NFDBITS)))
+#define LINUX_FD_CLR_BIT(n, p)   ((p)->fds_bits[(n) / LINUX_NFDBITS] &= ~(1UL << ((n) % LINUX_NFDBITS)))
+#define LINUX_FD_ISSET_BIT(n, p) ((p)->fds_bits[(n) / LINUX_NFDBITS] & (1UL << ((n) % LINUX_NFDBITS)))
+#define LINUX_FD_ZERO_BIT(p)     memset((void*)(p), 0, sizeof(*(p)))
+
+extern "C" int my_select(int nfds, linux_fd_set* readfds, linux_fd_set* writefds, linux_fd_set* exceptfds, struct timeval* timeout) {
+    // log_info(">>> select called: nfds=%d, timeout=%s", nfds, timeout ? "set" : "NULL");
+
     if (!readfds && !writefds && !exceptfds && timeout) {
         DWORD ms = (timeout->tv_sec * 1000) + (timeout->tv_usec / 1000);
-        log_info(">>> select: sleep-only mode, sleeping %lu ms", ms);
         Sleep(ms);
-        log_info(">>> select EXIT: returning 0");
         return 0;
     }
-    log_info(">>> select: calling real select...");
-    int ret = select(nfds, readfds, writefds, exceptfds, timeout);
-    log_info(">>> select EXIT: returning %d", ret);
+
+    fd_set win_read, win_write, win_except;
+    FD_ZERO(&win_read);
+    FD_ZERO(&win_write);
+    FD_ZERO(&win_except);
+
+    fd_set* p_win_read = readfds ? &win_read : NULL;
+    fd_set* p_win_write = writefds ? &win_write : NULL;
+    fd_set* p_win_except = exceptfds ? &win_except : NULL;
+
+    // Convert Linux sets to Windows sets
+    // We iterate from 0 to nfds-1 and check bits
+    int safe_nfds = (nfds > LINUX_FD_SETSIZE) ? LINUX_FD_SETSIZE : nfds;
+
+    for (int i = 0; i < safe_nfds; i++) {
+        if (readfds && LINUX_FD_ISSET_BIT(i, readfds)) {
+            FD_SET((SOCKET)i, &win_read);
+        }
+        if (writefds && LINUX_FD_ISSET_BIT(i, writefds)) {
+            FD_SET((SOCKET)i, &win_write);
+        }
+        if (exceptfds && LINUX_FD_ISSET_BIT(i, exceptfds)) {
+            FD_SET((SOCKET)i, &win_except);
+        }
+    }
+
+    // Call Windows select
+    // Note: Windows select ignores nfds, but we pass it anyway (ignored)
+    int ret = select(nfds, p_win_read, p_win_write, p_win_except, timeout);
+
+    // If successful (and not just timeout), map results back to Linux sets
+    if (ret > 0) {
+        if (readfds) LINUX_FD_ZERO_BIT(readfds);
+        if (writefds) LINUX_FD_ZERO_BIT(writefds);
+        if (exceptfds) LINUX_FD_ZERO_BIT(exceptfds);
+
+        for (int i = 0; i < safe_nfds; i++) {
+            if (p_win_read && FD_ISSET((SOCKET)i, p_win_read)) {
+                LINUX_FD_SET_BIT(i, readfds);
+            }
+            if (p_win_write && FD_ISSET((SOCKET)i, p_win_write)) {
+                LINUX_FD_SET_BIT(i, writefds);
+            }
+            if (p_win_except && FD_ISSET((SOCKET)i, p_win_except)) {
+                LINUX_FD_SET_BIT(i, exceptfds);
+            }
+        }
+    } else if (ret == 0) {
+        // Timeout: clear all sets
+        if (readfds) LINUX_FD_ZERO_BIT(readfds);
+        if (writefds) LINUX_FD_ZERO_BIT(writefds);
+        if (exceptfds) LINUX_FD_ZERO_BIT(exceptfds);
+    }
+
     return ret;
 }
 
@@ -250,25 +321,16 @@ struct linux_pollfd {
 #define LINUX_POLLNVAL 0x0020
 
 extern "C" int my_poll(struct linux_pollfd* fds, unsigned long nfds, int timeout) {
-    log_info(">>> poll called: nfds=%lu, timeout=%d", nfds, timeout);
-
-    for (unsigned long i = 0; i < nfds && i < 5; i++) {
-        log_info(">>>   poll fd[%lu]: fd=%d, events=0x%04X", i, fds[i].fd, fds[i].events);
-    }
-    if (nfds > 5) {
-        log_info(">>>   ... and %lu more fds", nfds - 5);
-    }
+    // log_info(">>> poll called: nfds=%lu, timeout=%d", nfds, timeout);
 
     // If no fds, just sleep
     if (nfds == 0) {
         if (timeout > 0) {
             Sleep(timeout);
         }
-        log_info(">>> poll EXIT: returning 0 (no fds)");
         return 0;
     }
 
-    // Convert to Windows select
     fd_set readfds, writefds, exceptfds;
     FD_ZERO(&readfds);
     FD_ZERO(&writefds);
@@ -279,10 +341,7 @@ extern "C" int my_poll(struct linux_pollfd* fds, unsigned long nfds, int timeout
 
     for (unsigned long i = 0; i < nfds; i++) {
         fds[i].revents = 0;
-
-        if (fds[i].fd < 0) {
-            continue;
-        }
+        if (fds[i].fd < 0) continue;
 
         hasValidFd = true;
         if (fds[i].fd > maxfd) maxfd = fds[i].fd;
@@ -293,15 +352,13 @@ extern "C" int my_poll(struct linux_pollfd* fds, unsigned long nfds, int timeout
         if (fds[i].events & LINUX_POLLOUT) {
             FD_SET((SOCKET)fds[i].fd, &writefds);
         }
+        // Always monitor for errors
         FD_SET((SOCKET)fds[i].fd, &exceptfds);
     }
 
     if (!hasValidFd) {
-        if (timeout > 0) {
-            Sleep(timeout);
-        }
-        log_info(">>> poll EXIT: returning 0 (no valid fds)");
-        return 0;
+         if (timeout > 0) Sleep(timeout);
+         return 0;
     }
 
     struct timeval tv;
@@ -312,32 +369,31 @@ extern "C" int my_poll(struct linux_pollfd* fds, unsigned long nfds, int timeout
         tvp = &tv;
     }
 
-    log_info(">>> poll: calling select (maxfd=%d)...", maxfd);
     int ret = select(maxfd + 1, &readfds, &writefds, &exceptfds, tvp);
-    log_info(">>> poll: select returned %d", ret);
 
     if (ret > 0) {
         int count = 0;
         for (unsigned long i = 0; i < nfds; i++) {
             if (fds[i].fd < 0) continue;
 
-            if (FD_ISSET(fds[i].fd, &readfds)) {
+            if (FD_ISSET((SOCKET)fds[i].fd, &readfds)) {
                 fds[i].revents |= LINUX_POLLIN;
             }
-            if (FD_ISSET(fds[i].fd, &writefds)) {
+            if (FD_ISSET((SOCKET)fds[i].fd, &writefds)) {
                 fds[i].revents |= LINUX_POLLOUT;
             }
-            if (FD_ISSET(fds[i].fd, &exceptfds)) {
+            if (FD_ISSET((SOCKET)fds[i].fd, &exceptfds)) {
                 fds[i].revents |= LINUX_POLLERR;
             }
             if (fds[i].revents) count++;
         }
-        log_info(">>> poll EXIT: returning %d", count);
         return count;
+    } else if (ret == 0) {
+        return 0;
+    } else {
+        // log_error(">>> poll: select failed");
+        return -1;
     }
-
-    log_info(">>> poll EXIT: returning %d", ret);
-    return ret;
 }
 
 // =============================================================
@@ -438,18 +494,26 @@ extern "C" void my_libc_start_main(MainFunc m, int c, char** a, void (*i)(), voi
     WSADATA wsaData; WSAStartup(MAKEWORD(2, 2), &wsaData);
     if (i) {
         log_debug("Calling init function");
+        #ifdef _MSC_VER
         __try { i(); }
         __except (ExceptionFilter(GetExceptionCode(), GetExceptionInformation())) {
             log_error("Exception in init function");
         }
+        #else
+        i();
+        #endif
     }
     int result = 0;
     log_info("Calling main(argc=%d)", c);
+    #ifdef _MSC_VER
     __try { result = m(c, a, nullptr); }
     __except (ExceptionFilter(GetExceptionCode(), GetExceptionInformation())) {
         log_fatal("Exception in main() - process terminated");
         exit(1);
     }
+    #else
+    result = m(c, a, nullptr);
+    #endif
     log_info("main() returned %d", result);
     
     // Cleanup pthread emulation
@@ -457,6 +521,30 @@ extern "C" void my_libc_start_main(MainFunc m, int c, char** a, void (*i)(), voi
     log_info("PthreadEmu shutdown complete");
     
     exit(result);
+}
+
+// =============================================================
+//   C++ Exception Handling Stub
+// =============================================================
+extern "C" int my_gxx_personality_v0(int version, int actions, uint64_t exceptionClass, void* exceptionObject, void* context) {
+    (void)version; (void)actions; (void)exceptionClass; (void)exceptionObject; (void)context;
+    log_error("__gxx_personality_v0 called! C++ Exceptions not supported.");
+    return 9; // _URC_FATAL_PHASE1_ERROR
+}
+
+extern "C" void my_cfmakeraw(void* termios_p) {
+    (void)termios_p;
+    log_debug("cfmakeraw called - stubbed");
+}
+
+extern "C" void my_operator_delete(void* ptr) {
+    log_debug("operator delete(_ZdlPv) called: %p", ptr);
+    free(ptr);
+}
+
+extern "C" void* my_operator_new(size_t size) {
+    log_debug("operator new(_Znwj) called: size=%zu", size);
+    return malloc(size);
 }
 
 // =============================================================
@@ -525,8 +613,8 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("bcmp", my_bcmp);
     MAP("clock_gettime", my_clock_gettime);
 
-    // File I/O
     MAP("fsync", my_fsync);
+    MAP("sync", my_sync);
     MAP("fdatasync", my_fdatasync);
     MAP("lseek", my_lseek);
     MAP("access", my_access);
@@ -549,6 +637,8 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     // ============================================================
     MAP_OL("atan", (double(*)(double))atan);
     MAP_OL("atan2", (double(*)(double, double))atan2);
+    MAP_OL("asin", (double(*)(double))asin);
+    MAP_OL("acos", (double(*)(double))acos);
     MAP_OL("cos", (double(*)(double))cos);
     MAP_OL("sin", (double(*)(double))sin);
     MAP_OL("tan", (double(*)(double))tan);
@@ -583,7 +673,11 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("__cxa_atexit", my_cxa_atexit);
     MAP("__assert_fail", __assert_fail);
     MAP("__errno_location", __errno_location);
+    MAP("__errno_location", __errno_location);
     MAP("__libc_freeres", __libc_freeres);
+    MAP("__gxx_personality_v0", my_gxx_personality_v0);
+    MAP("_ZdlPv", my_operator_delete);
+    MAP("_Znwj", my_operator_new);
 
     // ============================================================
     // Hardware / Low-Level I/O
@@ -713,6 +807,11 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("strcmp", strcmp);
     MAP("strncmp", strncmp);
     MAP("strcat", strcat);
+    //MAP("strpbrk", strpbrk);
+    MAP("strcspn", strcspn);
+    MAP("strspn", strspn);
+    MAP("strtok", strtok);
+    MAP("isdigit", isdigit);
 
     MAP("memchr", LibcBridge::memchr_wrapper);
     MAP("memmove", LibcBridge::memmove_wrapper);
@@ -728,7 +827,7 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("getcwd", LibcBridge::getcwd_wrapper);
     MAP("realpath", LibcBridge::realpath_wrapper);
     MAP("remove", LibcBridge::remove_wrapper);
-    MAP("mkdir", _mkdir);
+    MAP("mkdir", my_mkdir);
     MAP("rmdir", _rmdir);
     MAP("unlink", _unlink);
     MAP("access", _access);
@@ -742,7 +841,7 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("exit", LibcBridge::exit_wrapper);
     MAP("_exit", LibcBridge::_exit_wrapper);
 
-    // Time
+    // // Time
     MAP("time", time);
     MAP("utime", LibcBridge::utime_wrapper);
     MAP("gettimeofday", LibcBridge::gettimeofday_wrapper);
@@ -751,7 +850,7 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("nanosleep", LibcBridge::nanosleep_wrapper);
     MAP("localtime", LibcBridge::localtime_wrapper);
     MAP("localtime_r", LibcBridge::localtime_r_wrapper);
-    MAP("mktime", LibcBridge::mktime_wrapper);
+    MAP("mktime", mktime);
     MAP("strftime", LibcBridge::strftime_wrapper);
     MAP("settimeofday", LibcBridge::settimeofday_wrapper);
     MAP("ctime_r", LibcBridge::ctime_r_wrapper);
@@ -820,9 +919,11 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("cfsetispeed", LibcBridge::cfsetispeed_wrapper);
     MAP("cfsetospeed", LibcBridge::cfsetospeed_wrapper);
     MAP("cfsetspeed", LibcBridge::cfsetospeed_wrapper);
+    MAP("cfmakeraw", my_cfmakeraw);
 
     // Stubs
     MAP("poll", my_poll);
+    MAP("sysctl", my_sysctl);
     MAP("iopl", my_stub_success);
 
     // XF86VidMode
@@ -1026,12 +1127,9 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
 
     // OpenGL (Direct)
     if (strncmp(name, "gl", 2) == 0 && strncmp(name, "glX", 3) != 0 && strncmp(name, "glut", 4) != 0) {
-        typedef void* (WINAPI* PFNWGLGETPROCADDRESS)(LPCSTR);
-        static HMODULE hOpengl = LoadLibraryA("opengl32.dll");
-        static PFNWGLGETPROCADDRESS my_wglGetProcAddress = (PFNWGLGETPROCADDRESS)GetProcAddress(hOpengl, "wglGetProcAddress");
-        void* proc = NULL;
-        if (my_wglGetProcAddress) proc = my_wglGetProcAddress(name);
-        if (!proc) proc = (void*)GetProcAddress(hOpengl, name);
+        // Route all GL calls through our GLHooks wrapper
+        // This ensures CDECL -> STDCALL transition is handled correctly!
+        void* proc = GLHooks::GetProcAddress(name);
         if (proc) return (uintptr_t)proc;
     }
 

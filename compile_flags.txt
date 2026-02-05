@@ -1,0 +1,9 @@
+--target=i686-w64-mingw32
+-isystem
+/usr/i686-w64-mingw32/include
+-isystem
+/usr/i686-w64-mingw32/include/c++/15.2.0
+-isystem
+/usr/i686-w64-mingw32/include/c++/15.2.0/i686-w64-mingw32
+-idirafter
+/usr/include

@@ -129,6 +129,9 @@
     <ClCompile Include="src\api\libc\pthread_semaphore.cpp">
       <Filter>src\api\libc</Filter>
     </ClCompile>
+    <ClCompile Include="src\api\graphics\glhooks.cpp">
+      <Filter>src\api\graphics</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\api\sega\libsegaapi.h">
@@ -216,6 +219,9 @@
       <Filter>src\api\libc</Filter>
     </ClInclude>
     <ClInclude Include="src\api\graphics\x11types.h">
+      <Filter>src\api\graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="src\api\graphics\glhooks.h">
       <Filter>src\api\graphics</Filter>
     </ClInclude>
   </ItemGroup>

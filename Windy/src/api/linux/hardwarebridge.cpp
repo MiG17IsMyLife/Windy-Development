@@ -4,7 +4,7 @@
 #include <ws2tcpip.h>
 #include <crtdbg.h>
 
-#include "HardwareBridge.h"
+#include "hardwarebridge.h"
 #include "../../hardware/lindberghdevice.h"
 #include "../../core/log.h"
 #include <fcntl.h>
@@ -15,28 +15,37 @@
 #include <errno.h>
 
 // Linux Open Flags Mapping
-#define LINUX_O_RDONLY    00
-#define LINUX_O_WRONLY    01
-#define LINUX_O_RDWR      02
-#define LINUX_O_CREAT     0100
-#define LINUX_O_TRUNC     01000
-#define LINUX_O_APPEND    02000
+#define LINUX_O_RDONLY 00
+#define LINUX_O_WRONLY 01
+#define LINUX_O_RDWR 02
+#define LINUX_O_CREAT 0100
+#define LINUX_O_TRUNC 01000
+#define LINUX_O_APPEND 02000
 
 // VEH Handle for cleanup
 static PVOID g_vehHandle = nullptr;
 
-static void InvalidParameterHandler(const wchar_t* expression, const wchar_t* function, const wchar_t* file, unsigned int line, uintptr_t pReserved) {
+static void InvalidParameterHandler(const wchar_t *expression, const wchar_t *function, const wchar_t *file, unsigned int line,
+                                    uintptr_t pReserved)
+{
 }
 
-static int ConvertFlags(int linuxFlags) {
+static int ConvertFlags(int linuxFlags)
+{
     int winFlags = _O_BINARY;
-    if ((linuxFlags & LINUX_O_RDWR) == LINUX_O_RDWR) winFlags |= _O_RDWR;
-    else if ((linuxFlags & LINUX_O_WRONLY) == LINUX_O_WRONLY) winFlags |= _O_WRONLY;
-    else winFlags |= _O_RDONLY;
+    if ((linuxFlags & LINUX_O_RDWR) == LINUX_O_RDWR)
+        winFlags |= _O_RDWR;
+    else if ((linuxFlags & LINUX_O_WRONLY) == LINUX_O_WRONLY)
+        winFlags |= _O_WRONLY;
+    else
+        winFlags |= _O_RDONLY;
 
-    if (linuxFlags & LINUX_O_CREAT) winFlags |= _O_CREAT;
-    if (linuxFlags & LINUX_O_TRUNC) winFlags |= _O_TRUNC;
-    if (linuxFlags & LINUX_O_APPEND) winFlags |= _O_APPEND;
+    if (linuxFlags & LINUX_O_CREAT)
+        winFlags |= _O_CREAT;
+    if (linuxFlags & LINUX_O_TRUNC)
+        winFlags |= _O_TRUNC;
+    if (linuxFlags & LINUX_O_APPEND)
+        winFlags |= _O_APPEND;
     return winFlags;
 }
 
@@ -44,85 +53,91 @@ static int ConvertFlags(int linuxFlags) {
 // --- IN/OUT Instruction Decoder ---
 // ========================================================================
 
-static int DecodeInInstruction(uint8_t* code, uint16_t* port, int* dataSize, bool* usesDX) {
+static int DecodeInInstruction(uint8_t *code, uint16_t *port, int *dataSize, bool *usesDX)
+{
     int idx = 0;
     bool has66Prefix = false;
 
-    if (code[idx] == 0x66) {
+    if (code[idx] == 0x66)
+    {
         has66Prefix = true;
         idx++;
     }
 
     uint8_t opcode = code[idx];
 
-    switch (opcode) {
-    case 0xE4: // IN AL, imm8
-        *port = code[idx + 1];
-        *dataSize = 1;
-        *usesDX = false;
-        return idx + 2;
+    switch (opcode)
+    {
+        case 0xE4: // IN AL, imm8
+            *port = code[idx + 1];
+            *dataSize = 1;
+            *usesDX = false;
+            return idx + 2;
 
-    case 0xE5: // IN AX/EAX, imm8
-        *port = code[idx + 1];
-        *dataSize = has66Prefix ? 2 : 4;
-        *usesDX = false;
-        return idx + 2;
+        case 0xE5: // IN AX/EAX, imm8
+            *port = code[idx + 1];
+            *dataSize = has66Prefix ? 2 : 4;
+            *usesDX = false;
+            return idx + 2;
 
-    case 0xEC: // IN AL, DX
-        *port = 0;
-        *dataSize = 1;
-        *usesDX = true;
-        return idx + 1;
+        case 0xEC: // IN AL, DX
+            *port = 0;
+            *dataSize = 1;
+            *usesDX = true;
+            return idx + 1;
 
-    case 0xED: // IN AX/EAX, DX
-        *port = 0;
-        *dataSize = has66Prefix ? 2 : 4;
-        *usesDX = true;
-        return idx + 1;
+        case 0xED: // IN AX/EAX, DX
+            *port = 0;
+            *dataSize = has66Prefix ? 2 : 4;
+            *usesDX = true;
+            return idx + 1;
 
-    default:
-        return 0; // NOT an IN instruction
+        default:
+            return 0; // NOT an IN instruction
     }
 }
 
-static int DecodeOutInstruction(uint8_t* code, uint16_t* port, int* dataSize, bool* usesDX) {
+static int DecodeOutInstruction(uint8_t *code, uint16_t *port, int *dataSize, bool *usesDX)
+{
     int idx = 0;
     bool has66Prefix = false;
 
-    if (code[idx] == 0x66) {
+    if (code[idx] == 0x66)
+    {
         has66Prefix = true;
         idx++;
     }
 
     uint8_t opcode = code[idx];
 
-    switch (opcode) {
-    case 0xE6: // OUT imm8, AL
-        *port = code[idx + 1];
-        *dataSize = 1;
-        *usesDX = false;
-        return idx + 2;
+    switch (opcode)
+    {
+        case 0xE6: // OUT imm8, AL
+            *port = code[idx + 1];
+            *dataSize = 1;
+            *usesDX = false;
+            return idx + 2;
 
-    case 0xE7: // OUT imm8, AX/EAX
-        *port = code[idx + 1];
-        *dataSize = has66Prefix ? 2 : 4;
-        *usesDX = false;
-        return idx + 2;
+        case 0xE7: // OUT imm8, AX/EAX
+            *port = code[idx + 1];
+            *dataSize = has66Prefix ? 2 : 4;
+            *usesDX = false;
+            return idx + 2;
 
-    case 0xEE: // OUT DX, AL
-        *port = 0;
-        *dataSize = 1;
-        *usesDX = true;
-        return idx + 1;
+        case 0xEE: // OUT DX, AL
+            *port = 0;
+            *dataSize = 1;
+            *usesDX = true;
+            return idx + 1;
 
-    case 0xEF: // OUT DX, AX/EAX
-        *port = 0;
-        *dataSize = has66Prefix ? 2 : 4;
-        *usesDX = true;
-        return idx + 1;
+        case 0xEF: // OUT DX, AX/EAX
+            *port = 0;
+            *dataSize = has66Prefix ? 2 : 4;
+            *usesDX = true;
+            return idx + 1;
 
-    default:
-        return 0;
+        default:
+            return 0;
     }
 }
 
@@ -130,14 +145,16 @@ static int DecodeOutInstruction(uint8_t* code, uint16_t* port, int* dataSize, bo
 // --- Vectored Exception Handler (Port I/O Emulation) ---
 // ========================================================================
 
-LONG CALLBACK PortIoVectoredHandler(PEXCEPTION_POINTERS ExceptionInfo) {
+LONG CALLBACK PortIoVectoredHandler(PEXCEPTION_POINTERS ExceptionInfo)
+{
     // 0xC0000096: Privileged instruction
-    if (ExceptionInfo->ExceptionRecord->ExceptionCode != EXCEPTION_PRIV_INSTRUCTION) {
+    if (ExceptionInfo->ExceptionRecord->ExceptionCode != EXCEPTION_PRIV_INSTRUCTION)
+    {
         return EXCEPTION_CONTINUE_SEARCH;
     }
 
     PCONTEXT ctx = ExceptionInfo->ContextRecord;
-    uint8_t* code = (uint8_t*)ctx->Eip;
+    uint8_t *code = (uint8_t *)ctx->Eip;
 
     uint16_t port;
     int dataSize;
@@ -145,25 +162,28 @@ LONG CALLBACK PortIoVectoredHandler(PEXCEPTION_POINTERS ExceptionInfo) {
     int instrLen;
 
     instrLen = DecodeInInstruction(code, &port, &dataSize, &usesDX);
-    if (instrLen > 0) {
+    if (instrLen > 0)
+    {
 
-        if (usesDX) {
+        if (usesDX)
+        {
             port = (uint16_t)(ctx->Edx & 0xFFFF);
         }
 
         uint32_t data = 0xFFFFFFFF;
         LindberghDevice::Instance().PortRead(port, &data);
 
-        switch (dataSize) {
-        case 1:
-            ctx->Eax = (ctx->Eax & 0xFFFFFF00) | (data & 0xFF);
-            break;
-        case 2:
-            ctx->Eax = (ctx->Eax & 0xFFFF0000) | (data & 0xFFFF);
-            break;
-        case 4:
-            ctx->Eax = data;
-            break;
+        switch (dataSize)
+        {
+            case 1:
+                ctx->Eax = (ctx->Eax & 0xFFFFFF00) | (data & 0xFF);
+                break;
+            case 2:
+                ctx->Eax = (ctx->Eax & 0xFFFF0000) | (data & 0xFFFF);
+                break;
+            case 4:
+                ctx->Eax = data;
+                break;
         }
 
         ctx->Eip += instrLen;
@@ -171,22 +191,25 @@ LONG CALLBACK PortIoVectoredHandler(PEXCEPTION_POINTERS ExceptionInfo) {
     }
 
     instrLen = DecodeOutInstruction(code, &port, &dataSize, &usesDX);
-    if (instrLen > 0) {
-        if (usesDX) {
+    if (instrLen > 0)
+    {
+        if (usesDX)
+        {
             port = (uint16_t)(ctx->Edx & 0xFFFF);
         }
 
         uint32_t data;
-        switch (dataSize) {
-        case 1:
-            data = ctx->Eax & 0xFF;
-            break;
-        case 2:
-            data = ctx->Eax & 0xFFFF;
-            break;
-        default:
-            data = ctx->Eax;
-            break;
+        switch (dataSize)
+        {
+            case 1:
+                data = ctx->Eax & 0xFF;
+                break;
+            case 2:
+                data = ctx->Eax & 0xFFFF;
+                break;
+            default:
+                data = ctx->Eax;
+                break;
         }
 
         LindberghDevice::Instance().PortWrite(port, data);
@@ -195,8 +218,7 @@ LONG CALLBACK PortIoVectoredHandler(PEXCEPTION_POINTERS ExceptionInfo) {
         return EXCEPTION_CONTINUE_EXECUTION;
     }
 
-    log_error("VEH: Unhandled privileged instruction at 0x%08X: %02X %02X %02X %02X",
-        ctx->Eip, code[0], code[1], code[2], code[3]);
+    log_error("VEH: Unhandled privileged instruction at 0x%08X: %02X %02X %02X %02X", ctx->Eip, code[0], code[1], code[2], code[3]);
 
     return EXCEPTION_CONTINUE_SEARCH;
 }
@@ -205,22 +227,28 @@ LONG CALLBACK PortIoVectoredHandler(PEXCEPTION_POINTERS ExceptionInfo) {
 // --- Initialization / Cleanup ---
 // ========================================================================
 
-void InitHardwareBridge() {
+void InitHardwareBridge()
+{
     g_vehHandle = AddVectoredExceptionHandler(1, PortIoVectoredHandler);
-    if (g_vehHandle) {
+    if (g_vehHandle)
+    {
         log_info("HardwareBridge: Vectored Exception Handler registered for Port I/O.");
     }
-    else {
+    else
+    {
         log_error("HardwareBridge: Failed to register VEH!");
     }
 
-    if (!LindberghDevice::Instance().Init()) {
+    if (!LindberghDevice::Instance().Init())
+    {
         log_fatal("Failed to initialize LindberghDevice");
     }
 }
 
-void CleanupHardwareBridge() {
-    if (g_vehHandle) {
+void CleanupHardwareBridge()
+{
+    if (g_vehHandle)
+    {
         RemoveVectoredExceptionHandler(g_vehHandle);
         g_vehHandle = nullptr;
         log_info("HardwareBridge: VEH removed.");
@@ -231,13 +259,16 @@ void CleanupHardwareBridge() {
 // --- File I/O Functions (with debug logging)
 // ========================================================================
 
-extern "C" {
+extern "C"
+{
 
-    int my_open(const char* pathname, int flags, int mode) {
+    int my_open(const char *pathname, int flags, int mode)
+    {
         log_debug(">>> my_open ENTRY: path=%s, flags=0x%X", pathname, flags);
 
         int fd = LindberghDevice::Instance().Open(pathname, flags);
-        if (fd >= 0) {
+        if (fd >= 0)
+        {
             log_debug(">>> my_open EXIT: virtual fd=%d", fd);
             return fd;
         }
@@ -245,8 +276,10 @@ extern "C" {
         char winPath[MAX_PATH];
         strncpy(winPath, pathname, MAX_PATH);
         winPath[MAX_PATH - 1] = 0;
-        for (int i = 0; winPath[i]; i++) {
-            if (winPath[i] == '/') winPath[i] = '\\';
+        for (int i = 0; winPath[i]; i++)
+        {
+            if (winPath[i] == '/')
+                winPath[i] = '\\';
         }
 
         int winFlags = ConvertFlags(flags);
@@ -257,10 +290,12 @@ extern "C" {
         return fd;
     }
 
-    int my_close(int fd) {
+    int my_close(int fd)
+    {
         log_debug(">>> my_close ENTRY: fd=%d", fd);
 
-        if (LindberghDevice::Instance().Close(fd) == 0) {
+        if (LindberghDevice::Instance().Close(fd) == 0)
+        {
             log_debug(">>> my_close EXIT: virtual fd closed");
             return 0;
         }
@@ -268,18 +303,27 @@ extern "C" {
         int ret = -1;
 
         _invalid_parameter_handler oldHandler = _set_invalid_parameter_handler(InvalidParameterHandler);
-        __try {
+#ifdef _MSC_VER
+        __try
+        {
             ret = _close(fd);
         }
-        __except (EXCEPTION_EXECUTE_HANDLER) {
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
             ret = -1;
             errno = EBADF;
         }
+#else
+        ret = _close(fd);
+#endif
         _set_invalid_parameter_handler(oldHandler);
 
-        if (ret == -1) {
-            if (fd >= 0) {
-                if (closesocket((SOCKET)fd) == 0) {
+        if (ret == -1)
+        {
+            if (fd >= 0)
+            {
+                if (closesocket((SOCKET)fd) == 0)
+                {
                     log_debug(">>> my_close EXIT: socket closed");
                     return 0;
                 }
@@ -290,11 +334,13 @@ extern "C" {
         return ret;
     }
 
-    int my_read(int fd, void* buf, size_t count) {
+    int my_read(int fd, void *buf, size_t count)
+    {
         log_debug(">>> my_read ENTRY: fd=%d, count=%zu", fd, count);
 
         int res = LindberghDevice::Instance().Read(fd, buf, count);
-        if (res != -1) {
+        if (res != -1)
+        {
             log_debug(">>> my_read EXIT: virtual read returned %d", res);
             return res;
         }
@@ -304,11 +350,13 @@ extern "C" {
         return res;
     }
 
-    int my_write(int fd, const void* buf, size_t count) {
+    int my_write(int fd, const void *buf, size_t count)
+    {
         log_debug(">>> my_write ENTRY: fd=%d, count=%zu", fd, count);
 
         int res = LindberghDevice::Instance().Write(fd, buf, count);
-        if (res != -1) {
+        if (res != -1)
+        {
             log_debug(">>> my_write EXIT: virtual write returned %d", res);
             return res;
         }
@@ -318,30 +366,37 @@ extern "C" {
         return res;
     }
 
-    int my_ioctl(int fd, unsigned long request, void* data) {
+    int my_ioctl(int fd, unsigned long request, void *data)
+    {
         log_debug(">>> my_ioctl ENTRY: fd=%d, request=0x%lX", fd, request);
 
         int res = LindberghDevice::Instance().Ioctl(fd, request, data);
-        if (res != -1) {
+        if (res != -1)
+        {
             log_debug(">>> my_ioctl EXIT: virtual ioctl returned %d", res);
             return res;
         }
 
-        if (request == 0x8913) {
+        if (request == 0x8913)
+        {
             log_info(">>> my_ioctl: Emulating SIOCGIFCONF");
             // struct ifconf { int ifc_len; union { char *ifc_buf; struct ifreq *ifc_req; } ifc_ifcu; };
 
-            if (data) {
-                *(int*)data = 0;
+            if (data)
+            {
+                *(int *)data = 0;
             }
             return 0;
         }
 
         // FIONBIO (Non-blocking mode)
-        if (request == 0x5421 || request == 0x8004667E) {
+        if (request == 0x5421 || request == 0x8004667E)
+        {
             unsigned long mode = 1;
-            if (data) mode = *(unsigned long*)data;
-            if (ioctlsocket((SOCKET)fd, FIONBIO, &mode) == 0) {
+            if (data)
+                mode = *(unsigned long *)data;
+            if (ioctlsocket((SOCKET)fd, FIONBIO, &mode) == 0)
+            {
                 log_debug(">>> my_ioctl: Set FIONBIO success");
                 return 0;
             }
@@ -352,13 +407,16 @@ extern "C" {
         return -1;
     }
 
-    int my_writev(int fd, const struct iovec* iov, int iovcnt) {
+    int my_writev(int fd, const struct iovec *iov, int iovcnt)
+    {
         log_debug(">>> my_writev ENTRY: fd=%d, iovcnt=%d", fd, iovcnt);
 
         int total = 0;
-        for (int i = 0; i < iovcnt; ++i) {
+        for (int i = 0; i < iovcnt; ++i)
+        {
             int written = my_write(fd, iov[i].iov_base, iov[i].iov_len);
-            if (written < 0) {
+            if (written < 0)
+            {
                 log_debug(">>> my_writev EXIT: error, total=%d", total);
                 return (total > 0) ? total : -1;
             }
@@ -369,11 +427,13 @@ extern "C" {
         return total;
     }
 
-    int HardwarePortRead(uint16_t port, uint32_t* data) {
+    int HardwarePortRead(uint16_t port, uint32_t *data)
+    {
         return LindberghDevice::Instance().PortRead(port, data);
     }
 
-    int HardwarePortWrite(uint16_t port, uint32_t data) {
+    int HardwarePortWrite(uint16_t port, uint32_t data)
+    {
         return LindberghDevice::Instance().PortWrite(port, data);
     }
 }

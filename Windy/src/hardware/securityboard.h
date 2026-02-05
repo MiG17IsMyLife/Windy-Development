@@ -35,6 +35,9 @@ public:
      */
     int PortWrite(uint16_t port, uint32_t data);
 
+#define SECURITY_BOARD_FRONT_PANEL          0x38
+#define SECURITY_BOARD_FRONT_PANEL_NON_ROOT 0x39
+
     /**
      * @brief Set DIP switch resolution
      * @param width Display width
@@ -45,10 +48,20 @@ public:
     /**
      * @brief Get current DIP switch value
      */
-    uint8_t GetDipSwitch() const { return m_dipSwitch; }
+    // uint8_t GetDipSwitch() const { return m_dipSwitch; } // replaced by public members
+
+// Public members to match requested global access pattern
+public:
+    int dipSwitch[9]; // 1-based indexing assumed by user code
+    int serviceSwitch;
+    int testSwitch;
+
+    // Helper for front panel I/O
+    int SecurityBoardIn(uint16_t port, uint32_t *data);
 
 private:
-    uint8_t m_dipSwitch;
     int m_width;
     int m_height;
 };
+
+extern SecurityBoard& securityBoard; // Global reference for user code compatibility

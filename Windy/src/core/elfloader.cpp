@@ -1,5 +1,5 @@
-#include "ElfLoader.h"
-#include "MemoryManager.h"
+#include "elfloader.h"
+#include "memorymanager.h"
 #include <fstream>
 #include <vector>
 #include <cstring>
@@ -45,7 +45,7 @@ bool ElfLoader::LoadToMemory() {
     }
 
     uintptr_t base, size;
-    // ƒƒ‚ƒŠ‹óŠÔ‚Ì—\–ñ
+    // ãƒ¡ãƒ¢ãƒªç©ºé–“ã®äºˆç´„
     if (!MemoryManager::ReserveAddressSpace(minAddr, maxAddr, base, size)) {
         std::cerr << "Failed to reserve memory." << std::endl;
         return false;
@@ -53,16 +53,16 @@ bool ElfLoader::LoadToMemory() {
 
     for (const auto& phdr : phdrs) {
         if (phdr.p_type == PT_LOAD) {
-            // ƒZƒOƒƒ“ƒg‚ÌƒRƒ~ƒbƒg
+            // ã‚»ã‚°ãƒ¡ãƒ³ãƒˆã®ã‚³ãƒŸãƒƒãƒˆ
             MemoryManager::CommitSegment(phdr.p_vaddr, phdr.p_memsz);
 
-            // ƒtƒ@ƒCƒ‹‚©‚çƒf[ƒ^‚ğ“Ç‚İ‚İ
+            // ãƒ•ã‚¡ã‚¤ãƒ«ã‹ã‚‰ãƒ‡ãƒ¼ã‚¿ã‚’èª­ã¿è¾¼ã¿
             if (phdr.p_filesz > 0) {
                 file.seekg(phdr.p_offset);
                 file.read((char*)phdr.p_vaddr, phdr.p_filesz);
             }
 
-            // BSS—Ìˆæ‚È‚Ç‚ğƒ[ƒƒNƒŠƒA
+            // BSSé ˜åŸŸãªã©ã‚’ã‚¼ãƒ­ã‚¯ãƒªã‚¢
             if (phdr.p_memsz > phdr.p_filesz) {
                 memset((char*)phdr.p_vaddr + phdr.p_filesz, 0, phdr.p_memsz - phdr.p_filesz);
             }

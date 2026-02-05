@@ -152,6 +152,10 @@ inline const GameDataEntry* GetGameDatabase() {
               WORKING, SEGA_TYPE_3, DRIVING, 1360, 768, GROUP_ID5,
               false, false, false, false, true, false, YELLOW},
 
+             {0xAEEE6BEF, "Initial D Arcade Stage 5 ServerBox", "DVP-0070", "SBQZ", INITIALD_5_JAP_SBQZ_SERVERBOX,
+              WORKING, SEGA_TYPE_3, DRIVING, 640, 480, GROUP_ID_SERVERBOX   ,
+              false, false, false, false, false, false, YELLOW},
+
              {0x74C85CC3, "Initial D5 EXP", "DVP-0075", "SBRY", INITIALD_5_EXP,
               WORKING, SEGA_TYPE_3, DRIVING, 1360, 768, GROUP_ID5,
               false, false, false, false, true, false, YELLOW},
@@ -205,7 +209,7 @@ inline const GameDataEntry* GetGameDatabase() {
                  NOT_WORKING, SEGA_TYPE_3, DRIVING, 800, 480, GROUP_OUTRUN_TEST,
                  false, true, true, false, false, false, YELLOW},
 
-                {0x0A3A8C09, "Outrun 2 SP SDX Rev A Test", "DVP-0015A", "SBMB", OUTRUN_2_SP_SDX_REVA_TEST,
+                {0x13AF8581, "Outrun 2 SP SDX Rev A Test", "DVP-0015A", "SBMB", OUTRUN_2_SP_SDX_REVA_TEST,
                  NOT_WORKING, SEGA_TYPE_3, DRIVING, 800, 480, GROUP_OUTRUN_TEST,
                  false, true, true, false, false, false, YELLOW},
 
@@ -274,7 +278,7 @@ inline const GameDataEntry* GetGameDatabase() {
                         WORKING, SEGA_TYPE_3, SHOOTING, 1280, 768, GROUP_HOD4,
                         false, false, false, false, false, false, YELLOW},
 
-                       {0x3DEFE5FF, "The House of the Dead 4 Rev A Test", "DVP-0003A", "SBLC", THE_HOUSE_OF_THE_DEAD_4_REVA_TEST,
+                       {0x1348BCA8, "The House of the Dead 4 Rev A Test", "DVP-0003A", "SBLC", THE_HOUSE_OF_THE_DEAD_4_REVA_TEST,
                         NOT_WORKING, SEGA_TYPE_3, SHOOTING, 1280, 768, GROUP_HOD4_TEST,
                         false, false, false, false, false, false, YELLOW},
 
