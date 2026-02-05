@@ -841,7 +841,11 @@ unsigned int LibcBridge::sleep_wrapper(unsigned int seconds)
 }
 struct tm *LibcBridge::localtime_r_wrapper(const time_t *timep, struct tm *result)
 {
-    if (localtime_s(result, timep) == 0)
+    // Guest uses 32-bit time_t, Host uses 64-bit time_t
+    const int32_t* t32 = (const int32_t*)timep;
+    time_t t = (time_t)*t32;
+
+    if (localtime_s(result, &t) == 0)
         return result;
     return nullptr;
 }
