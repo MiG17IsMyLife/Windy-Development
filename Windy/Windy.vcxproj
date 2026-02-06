@@ -46,6 +46,7 @@
     <ClCompile Include="src\core\linuxstack.cpp" />
     <ClCompile Include="src\core\log.cpp" />
     <ClCompile Include="src\core\memorymanager.cpp" />
+    <ClCompile Include="src\core\patches.cpp" />
     <ClCompile Include="src\core\symbolresolver.cpp" />
     <ClCompile Include="src\hardware\baseboard.cpp" />
     <ClCompile Include="src\hardware\eepromboard.cpp" />
@@ -54,6 +55,10 @@
     <ClCompile Include="src\hardware\securityboard.cpp" />
     <ClCompile Include="src\hardware\serialboard.cpp" />
     <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\minhook\src\buffer.c" />
+    <ClCompile Include="src\minhook\src\hde\hde32.c" />
+    <ClCompile Include="src\minhook\src\hook.c" />
+    <ClCompile Include="src\minhook\src\trampoline.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\api\graphics\glhooks.h" />
@@ -78,6 +83,7 @@
     <ClInclude Include="src\core\linuxstack.h" />
     <ClInclude Include="src\core\log.h" />
     <ClInclude Include="src\core\memorymanager.h" />
+    <ClInclude Include="src\core\patches.h" />
     <ClInclude Include="src\core\symbolresolver.h" />
     <ClInclude Include="src\hardware\baseboard.h" />
     <ClInclude Include="src\hardware\eepromboard.h" />
@@ -86,6 +92,9 @@
     <ClInclude Include="src\hardware\pciData.h" />
     <ClInclude Include="src\hardware\securityboard.h" />
     <ClInclude Include="src\hardware\serialboard.h" />
+    <ClInclude Include="src\minhook\src\buffer.h" />
+    <ClInclude Include="src\minhook\src\hde\hde32.h" />
+    <ClInclude Include="src\minhook\src\trampoline.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
@@ -153,7 +162,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>$(ProjectDir)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)include;$(ProjectDir)src\minhook\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -173,7 +182,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>$(ProjectDir)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)include;$(ProjectDir)src\minhook\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>

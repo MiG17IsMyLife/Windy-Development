@@ -25,6 +25,15 @@
     <Filter Include="src\api\linux">
       <UniqueIdentifier>{0b6fa992-316e-4c2e-bd5b-aaeea2022c01}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\minhook">
+      <UniqueIdentifier>{52966c7d-b469-4e58-a0bb-fd264cae1eca}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\minhook\src">
+      <UniqueIdentifier>{72f7884d-363a-4d97-8088-5d24cd8af202}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\minhook\hde">
+      <UniqueIdentifier>{5cc1d5a8-8d08-44e1-bfe6-d4ff1700340b}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\api\sega\libsegaapi.c">
@@ -132,6 +141,21 @@
     <ClCompile Include="src\api\graphics\glhooks.cpp">
       <Filter>src\api\graphics</Filter>
     </ClCompile>
+    <ClCompile Include="src\core\patches.cpp">
+      <Filter>src\core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\minhook\src\hde\hde32.c">
+      <Filter>src\minhook\hde</Filter>
+    </ClCompile>
+    <ClCompile Include="src\minhook\src\buffer.c">
+      <Filter>src\minhook\src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\minhook\src\hook.c">
+      <Filter>src\minhook\src</Filter>
+    </ClCompile>
+    <ClCompile Include="src\minhook\src\trampoline.c">
+      <Filter>src\minhook\src</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\api\sega\libsegaapi.h">
@@ -223,6 +247,18 @@
     </ClInclude>
     <ClInclude Include="src\api\graphics\glhooks.h">
       <Filter>src\api\graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\patches.h">
+      <Filter>src\core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\minhook\src\hde\hde32.h">
+      <Filter>src\minhook\hde</Filter>
+    </ClInclude>
+    <ClInclude Include="src\minhook\src\buffer.h">
+      <Filter>src\minhook\src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\minhook\src\trampoline.h">
+      <Filter>src\minhook\src</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

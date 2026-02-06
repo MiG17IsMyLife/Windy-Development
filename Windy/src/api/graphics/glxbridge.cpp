@@ -1,4 +1,3 @@
-
 #include "glxbridge.h"
 #include "x11bridge.h"
 #include "../../core/log.h"
@@ -162,11 +161,11 @@ void pollEvents()
             case SDL_EVENT_KEY_DOWN:
             case SDL_EVENT_KEY_UP:
             {
-                if(event.key.scancode == SDL_SCANCODE_T)
+                if (event.key.scancode == SDL_SCANCODE_T)
                 {
                     LindberghDevice::Instance().SetSwitch(SYSTEM, JVSInput::BUTTON_TEST, event.type == SDL_EVENT_KEY_DOWN);
                 }
-                if(event.key.scancode == SDL_SCANCODE_S)
+                if (event.key.scancode == SDL_SCANCODE_S)
                 {
                     LindberghDevice::Instance().SetSwitch(PLAYER_1, JVSInput::BUTTON_SERVICE, event.type == SDL_EVENT_KEY_DOWN);
                 }
@@ -455,7 +454,7 @@ void GLXBridge::glutMainLoop()
         {
             X11Bridge::NextEvent(dpy, &ev);
 
-            // �����I�ɂ�����GLUT�R�[���o�b�N���Ă�
+            // Optionally call GLUT callbacks here
             // if (ev.type == KeyPress &&
             // g_glutKeyboardFunc) ...
         }
