@@ -14,6 +14,7 @@
 // Core
 #include "core/elfloader.h"
 #include "core/symbolresolver.h"
+#include "core/sharedobjectmanager.h"
 #include "core/linuxstack.h"
 #include "core/log.h"
 #include "core/config.h"
@@ -27,9 +28,6 @@
 extern void InitHardwareBridge();
 extern void CleanupHardwareBridge();
 
-// Global variable that will hold the elf's crc32 as game id
-uint8_t g_enumId = 0;
-uint8_t g_grp = 0;
 
 // =============================================================================
 // Constants
@@ -279,8 +277,6 @@ static void PrintConfig(const WindyConfig &config)
     }
 }
 
-// (amDongle functions moved to src/core/patches.cpp)
-
 // =============================================================================
 // Main Entry Point
 // =============================================================================
@@ -362,9 +358,9 @@ int main(int argc, char *argv[])
     if (!configMgr.Load(configPath))
     {
         log_warn("Config file not found, using defaults.");
-        // Create default config file for user reference
-        configMgr.Save(configPath);
-        log_info("Created default config: %s", configPath);
+        // // Create default config file for user reference
+        // configMgr.Save(configPath);
+        // log_info("Created default config: %s", configPath);
     }
 
     const WindyConfig &config = configMgr.GetConfig();
@@ -393,11 +389,7 @@ int main(int argc, char *argv[])
     // Use FindGameByCRC32 from gamedata.h
     const GameDataEntry *detectedGame = FindGameByCRC32(gameCrc32);
     PrintGameInfo(detectedGame, gameCrc32);
-    if (detectedGame)
-    {
-        g_enumId = detectedGame->enumId;
-        g_grp = detectedGame->gameGroup;
-    }
+    configMgr.DetectGame(gameCrc32);
 
     // -------------------------------------------------
     // Initialize Hardware Bridge (VEH + Port I/O)
@@ -445,6 +437,25 @@ int main(int argc, char *argv[])
     log_info("  PltRelSize:  %u", loader.GetPltRelSize());
 
     // -------------------------------------------------
+    // Load Dependencies (Multi-ELF Support)
+    // -------------------------------------------------
+    log_info("Loading Dependencies...");
+    SharedObjectManager::Instance().AddLoader("main", &loader); // Register main
+
+    // Add default search paths (relative to executable or CWD)
+    SharedObjectManager::Instance().AddSearchPath(".");
+    SharedObjectManager::Instance().AddSearchPath("lib");
+
+    // Register Native DLL Overrides (The "Database")
+    SharedObjectManager::Instance().RegisterNativeOverride("libopenal.so", "OpenAL32.dll");
+    SharedObjectManager::Instance().RegisterNativeOverride("libopenal.so.1", "OpenAL32.dll");
+
+    for (const auto &dep : loader.GetDependencies())
+    {
+        SharedObjectManager::Instance().LoadSharedLibrary(dep);
+    }
+
+    // -------------------------------------------------
     // Resolve Symbols (GOT/PLT Patching)
     // -------------------------------------------------
     log_info("Resolving dynamic symbols...");
@@ -482,24 +493,34 @@ int main(int argc, char *argv[])
 
     // Small delay for log visibility
     Sleep(1000);
-   
+
     // ---------------------------------------------------
     // Apply Patches (Game Specific)
     // ---------------------------------------------------
     log_info("Applying game specific patches...");
-    Patches::Apply(g_enumId);
+    Patches::Apply(getConfig()->gameId);
 
-// FILE *f = fopen("dump.bin", "wb");
-//     if (f)
-//     {
-//         fwrite((void*)0x8048000, 1, 316848, f);
-//         fclose(f);
-//     }
+    // FILE *f = fopen("dump.bin", "wb");
+    //     if (f)
+    //     {
+    //         fwrite((void*)0x8048000, 1, 316848, f);
+    //         fclose(f);
+    //     }
 
     // -------------------------------------------------
     // Jump to ELF Entry Point
     // -------------------------------------------------
+    if (loader.GetHeader().e_type == 3)
+    { // ET_DYN
+        log_info("Loaded file is a Shared Library/Object (ET_DYN).");
+        log_info("Skipping execution as libraries do not have a standard entry point.");
+        log_info("Success! Library loaded and dependencies resolved.");
 
+        // Infinite loop to keep process alive if debugging, or just exit.
+        // For this test, we can just return.
+        return 0;
+    }
+// __debugbreak();
 #ifdef _MSC_VER
 #pragma warning(push)
 #pragma warning(disable : 4731)

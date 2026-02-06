@@ -1,12 +1,15 @@
 #define _CRT_SECURE_NO_WARNINGS
 
+#include "SDL3/SDL_stdinc.h"
+#include "sdlcalls.h"
+
+
 #include "x11bridge.h"
 #include "../../core/log.h"
 #include <SDL3/SDL.h>
 #include <deque>
 #include <map>
 #include <mutex>
-#include <string>
 #include <cstring>
 #include <cstdlib>
 
@@ -14,12 +17,6 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
-// --------------------------------------------------------------------------
-// Global State Definitions
-// --------------------------------------------------------------------------
-SDL_Window *g_sdlWindow = nullptr;
-int g_windowWidth = 1360;
-int g_windowHeight = 768;
 // --------------------------------------------------------------------------
 // Internal X Server State Manager
 // --------------------------------------------------------------------------
@@ -50,26 +47,15 @@ class XServerState
 
     Window CreateVirtualWindow(int width, int height)
     {
-        if (g_sdlWindow)
+        if (SDLCalls::GetWindow())
         {
-            SDL_SetWindowSize(g_sdlWindow, width, height);
-            g_windowWidth = width;
-            g_windowHeight = height;
-            RegisterWindow(g_sdlWindow);
+            SDL_SetWindowSize(SDLCalls::GetWindow(), width, height);
+            RegisterWindow(SDLCalls::GetWindow());
             return mainWindowID;
         }
 
-        g_sdlWindow =
-            SDL_CreateWindow("Windy - SEGA Lindbergh Emulator for Windows", width, height, SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE);
-        if (!g_sdlWindow)
-        {
-            log_error("X11Bridge: Failed to create SDL Window: %s", SDL_GetError());
-            return 0;
-        }
-
-        g_windowWidth = width;
-        g_windowHeight = height;
-        RegisterWindow(g_sdlWindow);
+        SDLCalls::Start(0, 0);
+        RegisterWindow(SDLCalls::GetWindow());
         return mainWindowID;
     }
 
@@ -89,7 +75,7 @@ class XServerState
         {
             return windowMap[win];
         }
-        return g_sdlWindow;
+        return SDLCalls::GetWindow();
     }
 
     Window GetXID(SDL_Window *win)
@@ -355,8 +341,8 @@ void X11Bridge::GrabPointer(Display *dpy, Window win, int owner_events, unsigned
 
 void X11Bridge::UngrabPointer(Display *dpy, Time time)
 {
-    if (g_sdlWindow)
-        SDL_SetWindowMouseGrab(g_sdlWindow, false);
+    if (SDLCalls::GetWindow())
+        SDL_SetWindowMouseGrab(SDLCalls::GetWindow(), false);
 }
 
 int X11Bridge::GrabKeyboard(Display *dpy, Window win, int owner_events, int pointer_mode, int keyboard_mode, Time time)
@@ -372,8 +358,8 @@ int X11Bridge::GrabKeyboard(Display *dpy, Window win, int owner_events, int poin
 
 int X11Bridge::UngrabKeyboard(Display *dpy, Time time)
 {
-    if (g_sdlWindow)
-        SDL_SetWindowKeyboardGrab(g_sdlWindow, false);
+    if (SDLCalls::GetWindow())
+        SDL_SetWindowKeyboardGrab(SDLCalls::GetWindow(), false);
     return 0;
 }
 

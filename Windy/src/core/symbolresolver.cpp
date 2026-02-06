@@ -5,7 +5,7 @@
 
 #include <windows.h>
 #include <winsock2.h>
-#include <objbase.h> 
+#include <objbase.h>
 #include <excpt.h>
 #include <iostream>
 #include <string.h>
@@ -17,14 +17,13 @@
 #include <time.h>
 #include <fcntl.h>
 #include <direct.h>
-#include <process.h> 
-#include <errno.h>
-#include <map>
-#include <algorithm>
-#include <vector>
+#include <process.h>
 #include <string>
 #include <math.h>
 #include <stdlib.h>
+#include <fstream>
+#include <set>
+#include "../api/graphics/glhooks.h"
 
 // --- OpenGL ---
 #ifndef APIENTRY
@@ -36,6 +35,7 @@
 #include "../api/libc/pthread_emu.h"
 
 #include "symbolresolver.h"
+#include "sharedobjectmanager.h"
 #include "common.h"
 #include "log.h"
 
@@ -43,6 +43,7 @@
 #include "../api/sega/libsegaapi.h"
 #include "../api/graphics/x11bridge.h"
 #include "../api/graphics/glxbridge.h"
+#include "../api/graphics/glutbridge.h"
 #include "../api/graphics/glhooks.h"
 #include "../api/libc/libcbridge.h"
 
@@ -58,56 +59,71 @@
 #define ELF32_R_SYM(val) ((val) >> 8)
 
 // --- GPU Spoofing (OpenGL) ---
-static const char* GPU_VENDOR_STRING = "NVIDIA Corporation";
-static const char* GPU_RENDERER_STRING = "GeForce 7800/PCIe/SSE2";
-static const char* GPU_VERSION_STRING = "2.1.2 NVIDIA 285.05.09";
-static const char* GPU_SL_VERSION_STRING = "1.20 NVIDIA via Cg compiler";
+static const char *GPU_VENDOR_STRING = "NVIDIA Corporation";
+static const char *GPU_RENDERER_STRING = "GeForce 7800/PCIe/SSE2";
+static const char *GPU_VERSION_STRING = "2.1.2 NVIDIA 285.05.09";
+static const char *GPU_SL_VERSION_STRING = "1.20 NVIDIA via Cg compiler";
 
 // =============================================================
 //   Stubs & Utilities
 // =============================================================
 
-extern "C" int my_stub_success() { return 0; }
-extern "C" int my_stub_fail() { return -1; }
-extern "C" void* my_stub_null() { return NULL; }
+extern "C" int my_stub_success()
+{
+    return 0;
+}
+extern "C" int my_stub_fail()
+{
+    return -1;
+}
+extern "C" void *my_stub_null()
+{
+    return NULL;
+}
 
 // =============================================================
 //   Semaphore Wrappers with Logging (using pthread_emu)
 // =============================================================
 
-extern "C" int my_sem_init(void* sem, int pshared, unsigned int value) {
+extern "C" int my_sem_init(void *sem, int pshared, unsigned int value)
+{
     log_info(">>> sem_init: sem=%p, pshared=%d, value=%u", sem, pshared, value);
     int ret = emu_sem_init(sem, pshared, value);
     log_info(">>> sem_init EXIT: ret=%d", ret);
     return ret;
 }
 
-extern "C" int my_sem_destroy(void* sem) {
+extern "C" int my_sem_destroy(void *sem)
+{
     log_debug(">>> sem_destroy: sem=%p", sem);
     return emu_sem_destroy(sem);
 }
 
-extern "C" int my_sem_wait(void* sem) {
+extern "C" int my_sem_wait(void *sem)
+{
     log_info(">>> sem_wait ENTRY: sem=%p (THIS MAY BLOCK!)", sem);
     int ret = emu_sem_wait(sem);
     log_info(">>> sem_wait EXIT: ret=%d", ret);
     return ret;
 }
 
-extern "C" int my_sem_trywait(void* sem) {
+extern "C" int my_sem_trywait(void *sem)
+{
     log_debug(">>> sem_trywait: sem=%p", sem);
     int ret = emu_sem_trywait(sem);
     log_debug(">>> sem_trywait EXIT: ret=%d", ret);
     return ret;
 }
 
-extern "C" int my_sem_post(void* sem) {
+extern "C" int my_sem_post(void *sem)
+{
     log_debug(">>> sem_post: sem=%p", sem);
     int ret = emu_sem_post(sem);
     return ret;
 }
 
-extern "C" int my_sem_getvalue(void* sem, int* sval) {
+extern "C" int my_sem_getvalue(void *sem, int *sval)
+{
     return emu_sem_getvalue(sem, sval);
 }
 
@@ -115,66 +131,83 @@ extern "C" int my_sem_getvalue(void* sem, int* sval) {
 //   Scheduling Stubs
 // =============================================================
 
-extern "C" int my_sched_get_priority_min(int policy) {
+extern "C" int my_sched_get_priority_min(int policy)
+{
     (void)policy;
     return 0;
 }
 
-extern "C" int my_sched_get_priority_max(int policy) {
+extern "C" int my_sched_get_priority_max(int policy)
+{
     (void)policy;
     return 99;
 }
 
-void __declspec(naked) UnimplementedStub() {
+void __declspec(naked) UnimplementedStub()
+{
     __debugbreak();
 #ifdef _MSC_VER
     __asm { pushad }
 #else
-    asm volatile ("pushal\n\t");
+    asm volatile("pushal\n\t");
 #endif
     MessageBoxA(NULL, "Unimplemented Function Called", "Error", MB_OK);
     TerminateProcess(GetCurrentProcess(), 1);
 }
 
-int ExceptionFilter(unsigned int code, struct _EXCEPTION_POINTERS* ep) {
-    if (code == EXCEPTION_ACCESS_VIOLATION) {
+int ExceptionFilter(unsigned int code, struct _EXCEPTION_POINTERS *ep)
+{
+    if (code == EXCEPTION_ACCESS_VIOLATION)
+    {
         return EXCEPTION_EXECUTE_HANDLER;
     }
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
 // GPU Spoofing
-extern "C" const GLubyte* my_glGetString(GLenum name) {
-    switch (name) {
-    case 0x1F00: return (const GLubyte*)GPU_VENDOR_STRING;
-    case 0x1F01: return (const GLubyte*)GPU_RENDERER_STRING;
-    case 0x1F02: return (const GLubyte*)GPU_VERSION_STRING;
-    case 0x8B8C: return (const GLubyte*)GPU_SL_VERSION_STRING;
+extern "C" const GLubyte *my_glGetString(GLenum name)
+{
+    switch (name)
+    {
+        case 0x1F00:
+            return (const GLubyte *)GPU_VENDOR_STRING;
+        case 0x1F01:
+            return (const GLubyte *)GPU_RENDERER_STRING;
+        case 0x1F02:
+            return (const GLubyte *)GPU_VERSION_STRING;
+        case 0x8B8C:
+            return (const GLubyte *)GPU_SL_VERSION_STRING;
     }
-    static auto real_glGetString = (const GLubyte * (APIENTRY*)(GLenum))GetProcAddress(LoadLibraryA("opengl32.dll"), "glGetString");
-    if (real_glGetString) return real_glGetString(name);
+    static auto real_glGetString = (const GLubyte *(APIENTRY *)(GLenum))GetProcAddress(LoadLibraryA("opengl32.dll"), "glGetString");
+    if (real_glGetString)
+        return real_glGetString(name);
     return NULL;
 }
 
 // --- GLUT Support ---
 void (*g_glutKeyboardFunc)(unsigned char key, int x, int y) = nullptr;
 
-extern "C" void my_glutKeyboardFunc(void (*func)(unsigned char key, int x, int y)) {
+extern "C" void my_glutKeyboardFunc(void (*func)(unsigned char key, int x, int y))
+{
     g_glutKeyboardFunc = func;
 }
 
 // --- Missing Libc / System Functions ---
 
-extern "C" void my_bzero(void* s, size_t n) {
+extern "C" void my_bzero(void *s, size_t n)
+{
     memset(s, 0, n);
 }
 
-extern "C" int my_bcmp(const void* s1, const void* s2, size_t n) {
+extern "C" int my_bcmp(const void *s1, const void *s2, size_t n)
+{
     return memcmp(s1, s2, n);
 }
 
-extern "C" int my_clock_gettime(int clk_id, struct timespec* tp) {
-    if (!tp) return -1;
+extern "C" int my_clock_gettime(int clk_id, struct timespec *tp)
+{
+    if (!tp)
+        return -1;
     FILETIME ft;
     GetSystemTimeAsFileTime(&ft);
     unsigned __int64 t = (unsigned __int64)ft.dwHighDateTime << 32 | ft.dwLowDateTime;
@@ -187,43 +220,83 @@ extern "C" int my_clock_gettime(int clk_id, struct timespec* tp) {
 
 // --- File I/O Wrappers ---
 
-extern "C" int my_fsync(int fd) { return _commit(fd); }
-extern "C" int my_fdatasync(int fd) { return _commit(fd); }
-extern "C" void my_sync(void) { _flushall(); }
+extern "C" int my_fsync(int fd)
+{
+    return _commit(fd);
+}
+extern "C" int my_fdatasync(int fd)
+{
+    return _commit(fd);
+}
+extern "C" void my_sync(void)
+{
+    _flushall();
+}
 
-extern "C" int my_access(const char* pathname, int mode) {
-    if (pathname && strstr(pathname, "/dev/") != NULL) {
+extern "C" int my_access(const char *pathname, int mode)
+{
+    if (pathname && strstr(pathname, "/dev/") != NULL)
+    {
         return 0; // Success
     }
-    if (mode == 1) mode = 0;
+    if (mode == 1)
+        mode = 0;
     return _access(pathname, mode);
 }
 
-extern "C" int my_chmod(const char* filename, int pmode) { return _chmod(filename, pmode); }
-extern "C" long my_lseek(int fd, long offset, int origin) { return _lseek(fd, offset, origin); }
+extern "C" int my_chdir(const char *path)
+{
+    log_debug("chdir: %s", path);
+    return _chdir(path);
+}
+
+extern "C" int my_chmod(const char *filename, int pmode)
+{
+    return _chmod(filename, pmode);
+}
+extern "C" long my_lseek(int fd, long offset, int origin)
+{
+    return _lseek(fd, offset, origin);
+}
 
 // Linux __xstat64 -> Windows _stat64
-extern "C" int my_xstat64(int ver, const char* path, struct _stat64* buffer) {
+extern "C" int my_xstat64(int ver, const char *path, struct _stat64 *buffer)
+{
     return _stat64(path, buffer);
+}
+
+extern "C" void my_syslog(int priority, const char *format, ...)
+{
+    char buffer[1024];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+    log_info("syslog: %s", buffer);
 }
 
 // --- Env Wrappers ---
 
-extern "C" int my_setenv(const char* name, const char* value, int overwrite) {
-    if (!overwrite && getenv(name)) return 0;
+extern "C" int my_setenv(const char *name, const char *value, int overwrite)
+{
+    if (!overwrite && getenv(name))
+        return 0;
     return _putenv_s(name, value);
 }
 
-extern "C" int my_unsetenv(const char* name) {
+extern "C" int my_unsetenv(const char *name)
+{
     return _putenv_s(name, "");
 }
 
-extern "C" int my_putenv(char* string) {
+extern "C" int my_putenv(char *string)
+{
     return _putenv(string);
 }
 
 // Stub for sysctl always returning -1 (failure/not implemented)
-extern "C" int my_sysctl(int *name, int nlen, void *oldval, size_t *oldlenp, void *newval, size_t newlen) {
+extern "C" int my_sysctl(int *name, int nlen, void *oldval, size_t *oldlenp, void *newval, size_t newlen)
+{
     return -1;
 }
 
@@ -233,15 +306,17 @@ extern "C" int my_sysctl(int *name, int nlen, void *oldval, size_t *oldlenp, voi
 
 // Macros for Linux FD_SET (matching standard Linux behavior)
 #define LINUX_NFDBITS (8 * sizeof(unsigned long))
-#define LINUX_FD_SET_BIT(n, p)   ((p)->fds_bits[(n) / LINUX_NFDBITS] |= (1UL << ((n) % LINUX_NFDBITS)))
-#define LINUX_FD_CLR_BIT(n, p)   ((p)->fds_bits[(n) / LINUX_NFDBITS] &= ~(1UL << ((n) % LINUX_NFDBITS)))
+#define LINUX_FD_SET_BIT(n, p) ((p)->fds_bits[(n) / LINUX_NFDBITS] |= (1UL << ((n) % LINUX_NFDBITS)))
+#define LINUX_FD_CLR_BIT(n, p) ((p)->fds_bits[(n) / LINUX_NFDBITS] &= ~(1UL << ((n) % LINUX_NFDBITS)))
 #define LINUX_FD_ISSET_BIT(n, p) ((p)->fds_bits[(n) / LINUX_NFDBITS] & (1UL << ((n) % LINUX_NFDBITS)))
-#define LINUX_FD_ZERO_BIT(p)     memset((void*)(p), 0, sizeof(*(p)))
+#define LINUX_FD_ZERO_BIT(p) memset((void *)(p), 0, sizeof(*(p)))
 
-extern "C" int my_select(int nfds, linux_fd_set* readfds, linux_fd_set* writefds, linux_fd_set* exceptfds, struct timeval* timeout) {
+extern "C" int my_select(int nfds, linux_fd_set *readfds, linux_fd_set *writefds, linux_fd_set *exceptfds, struct timeval *timeout)
+{
     // log_info(">>> select called: nfds=%d, timeout=%s", nfds, timeout ? "set" : "NULL");
 
-    if (!readfds && !writefds && !exceptfds && timeout) {
+    if (!readfds && !writefds && !exceptfds && timeout)
+    {
         DWORD ms = (timeout->tv_sec * 1000) + (timeout->tv_usec / 1000);
         Sleep(ms);
         return 0;
@@ -252,22 +327,26 @@ extern "C" int my_select(int nfds, linux_fd_set* readfds, linux_fd_set* writefds
     FD_ZERO(&win_write);
     FD_ZERO(&win_except);
 
-    fd_set* p_win_read = readfds ? &win_read : NULL;
-    fd_set* p_win_write = writefds ? &win_write : NULL;
-    fd_set* p_win_except = exceptfds ? &win_except : NULL;
+    fd_set *p_win_read = readfds ? &win_read : NULL;
+    fd_set *p_win_write = writefds ? &win_write : NULL;
+    fd_set *p_win_except = exceptfds ? &win_except : NULL;
 
     // Convert Linux sets to Windows sets
     // We iterate from 0 to nfds-1 and check bits
     int safe_nfds = (nfds > LINUX_FD_SETSIZE) ? LINUX_FD_SETSIZE : nfds;
 
-    for (int i = 0; i < safe_nfds; i++) {
-        if (readfds && LINUX_FD_ISSET_BIT(i, readfds)) {
+    for (int i = 0; i < safe_nfds; i++)
+    {
+        if (readfds && LINUX_FD_ISSET_BIT(i, readfds))
+        {
             FD_SET((SOCKET)i, &win_read);
         }
-        if (writefds && LINUX_FD_ISSET_BIT(i, writefds)) {
+        if (writefds && LINUX_FD_ISSET_BIT(i, writefds))
+        {
             FD_SET((SOCKET)i, &win_write);
         }
-        if (exceptfds && LINUX_FD_ISSET_BIT(i, exceptfds)) {
+        if (exceptfds && LINUX_FD_ISSET_BIT(i, exceptfds))
+        {
             FD_SET((SOCKET)i, &win_except);
         }
     }
@@ -277,27 +356,40 @@ extern "C" int my_select(int nfds, linux_fd_set* readfds, linux_fd_set* writefds
     int ret = select(nfds, p_win_read, p_win_write, p_win_except, timeout);
 
     // If successful (and not just timeout), map results back to Linux sets
-    if (ret > 0) {
-        if (readfds) LINUX_FD_ZERO_BIT(readfds);
-        if (writefds) LINUX_FD_ZERO_BIT(writefds);
-        if (exceptfds) LINUX_FD_ZERO_BIT(exceptfds);
+    if (ret > 0)
+    {
+        if (readfds)
+            LINUX_FD_ZERO_BIT(readfds);
+        if (writefds)
+            LINUX_FD_ZERO_BIT(writefds);
+        if (exceptfds)
+            LINUX_FD_ZERO_BIT(exceptfds);
 
-        for (int i = 0; i < safe_nfds; i++) {
-            if (p_win_read && FD_ISSET((SOCKET)i, p_win_read)) {
+        for (int i = 0; i < safe_nfds; i++)
+        {
+            if (p_win_read && FD_ISSET((SOCKET)i, p_win_read))
+            {
                 LINUX_FD_SET_BIT(i, readfds);
             }
-            if (p_win_write && FD_ISSET((SOCKET)i, p_win_write)) {
+            if (p_win_write && FD_ISSET((SOCKET)i, p_win_write))
+            {
                 LINUX_FD_SET_BIT(i, writefds);
             }
-            if (p_win_except && FD_ISSET((SOCKET)i, p_win_except)) {
+            if (p_win_except && FD_ISSET((SOCKET)i, p_win_except))
+            {
                 LINUX_FD_SET_BIT(i, exceptfds);
             }
         }
-    } else if (ret == 0) {
+    }
+    else if (ret == 0)
+    {
         // Timeout: clear all sets
-        if (readfds) LINUX_FD_ZERO_BIT(readfds);
-        if (writefds) LINUX_FD_ZERO_BIT(writefds);
-        if (exceptfds) LINUX_FD_ZERO_BIT(exceptfds);
+        if (readfds)
+            LINUX_FD_ZERO_BIT(readfds);
+        if (writefds)
+            LINUX_FD_ZERO_BIT(writefds);
+        if (exceptfds)
+            LINUX_FD_ZERO_BIT(exceptfds);
     }
 
     return ret;
@@ -308,24 +400,28 @@ extern "C" int my_select(int nfds, linux_fd_set* readfds, linux_fd_set* writefds
 // =============================================================
 
 // Linux pollfd structure
-struct linux_pollfd {
+struct linux_pollfd
+{
     int fd;
     short events;
     short revents;
 };
 
-#define LINUX_POLLIN   0x0001
-#define LINUX_POLLOUT  0x0004
-#define LINUX_POLLERR  0x0008
-#define LINUX_POLLHUP  0x0010
+#define LINUX_POLLIN 0x0001
+#define LINUX_POLLOUT 0x0004
+#define LINUX_POLLERR 0x0008
+#define LINUX_POLLHUP 0x0010
 #define LINUX_POLLNVAL 0x0020
 
-extern "C" int my_poll(struct linux_pollfd* fds, unsigned long nfds, int timeout) {
+extern "C" int my_poll(struct linux_pollfd *fds, unsigned long nfds, int timeout)
+{
     // log_info(">>> poll called: nfds=%lu, timeout=%d", nfds, timeout);
 
     // If no fds, just sleep
-    if (nfds == 0) {
-        if (timeout > 0) {
+    if (nfds == 0)
+    {
+        if (timeout > 0)
+        {
             Sleep(timeout);
         }
         return 0;
@@ -339,31 +435,39 @@ extern "C" int my_poll(struct linux_pollfd* fds, unsigned long nfds, int timeout
     int maxfd = 0;
     bool hasValidFd = false;
 
-    for (unsigned long i = 0; i < nfds; i++) {
+    for (unsigned long i = 0; i < nfds; i++)
+    {
         fds[i].revents = 0;
-        if (fds[i].fd < 0) continue;
+        if (fds[i].fd < 0)
+            continue;
 
         hasValidFd = true;
-        if (fds[i].fd > maxfd) maxfd = fds[i].fd;
+        if (fds[i].fd > maxfd)
+            maxfd = fds[i].fd;
 
-        if (fds[i].events & LINUX_POLLIN) {
+        if (fds[i].events & LINUX_POLLIN)
+        {
             FD_SET((SOCKET)fds[i].fd, &readfds);
         }
-        if (fds[i].events & LINUX_POLLOUT) {
+        if (fds[i].events & LINUX_POLLOUT)
+        {
             FD_SET((SOCKET)fds[i].fd, &writefds);
         }
         // Always monitor for errors
         FD_SET((SOCKET)fds[i].fd, &exceptfds);
     }
 
-    if (!hasValidFd) {
-         if (timeout > 0) Sleep(timeout);
-         return 0;
+    if (!hasValidFd)
+    {
+        if (timeout > 0)
+            Sleep(timeout);
+        return 0;
     }
 
     struct timeval tv;
-    struct timeval* tvp = NULL;
-    if (timeout >= 0) {
+    struct timeval *tvp = NULL;
+    if (timeout >= 0)
+    {
         tv.tv_sec = timeout / 1000;
         tv.tv_usec = (timeout % 1000) * 1000;
         tvp = &tv;
@@ -371,26 +475,37 @@ extern "C" int my_poll(struct linux_pollfd* fds, unsigned long nfds, int timeout
 
     int ret = select(maxfd + 1, &readfds, &writefds, &exceptfds, tvp);
 
-    if (ret > 0) {
+    if (ret > 0)
+    {
         int count = 0;
-        for (unsigned long i = 0; i < nfds; i++) {
-            if (fds[i].fd < 0) continue;
+        for (unsigned long i = 0; i < nfds; i++)
+        {
+            if (fds[i].fd < 0)
+                continue;
 
-            if (FD_ISSET((SOCKET)fds[i].fd, &readfds)) {
+            if (FD_ISSET((SOCKET)fds[i].fd, &readfds))
+            {
                 fds[i].revents |= LINUX_POLLIN;
             }
-            if (FD_ISSET((SOCKET)fds[i].fd, &writefds)) {
+            if (FD_ISSET((SOCKET)fds[i].fd, &writefds))
+            {
                 fds[i].revents |= LINUX_POLLOUT;
             }
-            if (FD_ISSET((SOCKET)fds[i].fd, &exceptfds)) {
+            if (FD_ISSET((SOCKET)fds[i].fd, &exceptfds))
+            {
                 fds[i].revents |= LINUX_POLLERR;
             }
-            if (fds[i].revents) count++;
+            if (fds[i].revents)
+                count++;
         }
         return count;
-    } else if (ret == 0) {
+    }
+    else if (ret == 0)
+    {
         return 0;
-    } else {
+    }
+    else
+    {
         // log_error(">>> poll: select failed");
         return -1;
     }
@@ -400,77 +515,88 @@ extern "C" int my_poll(struct linux_pollfd* fds, unsigned long nfds, int timeout
 //   Socket Wrappers (with logging)
 // =============================================================
 
-extern "C" SOCKET my_socket(int af, int type, int protocol) {
+extern "C" SOCKET my_socket(int af, int type, int protocol)
+{
     log_info(">>> socket called: af=%d, type=%d, protocol=%d", af, type, protocol);
     SOCKET s = socket(af, type, protocol);
     log_info(">>> socket EXIT: returning %lld", (long long)s);
     return s;
 }
 
-extern "C" int my_connect(SOCKET s, const struct sockaddr* name, int namelen) {
+extern "C" int my_connect(SOCKET s, const struct sockaddr *name, int namelen)
+{
     log_info(">>> connect called: socket=%lld", (long long)s);
     int ret = connect(s, name, namelen);
     log_info(">>> connect EXIT: returning %d (WSAError=%d)", ret, ret < 0 ? WSAGetLastError() : 0);
     return ret;
 }
 
-extern "C" int my_bind(SOCKET s, const struct sockaddr* name, int namelen) {
+extern "C" int my_bind(SOCKET s, const struct sockaddr *name, int namelen)
+{
     log_info(">>> bind called: socket=%lld", (long long)s);
     int ret = bind(s, name, namelen);
     log_info(">>> bind EXIT: returning %d", ret);
     return ret;
 }
 
-extern "C" int my_listen(SOCKET s, int backlog) {
+extern "C" int my_listen(SOCKET s, int backlog)
+{
     log_info(">>> listen called: socket=%lld, backlog=%d", (long long)s, backlog);
     int ret = listen(s, backlog);
     log_info(">>> listen EXIT: returning %d", ret);
     return ret;
 }
 
-extern "C" SOCKET my_accept(SOCKET s, struct sockaddr* addr, int* addrlen) {
+extern "C" SOCKET my_accept(SOCKET s, struct sockaddr *addr, int *addrlen)
+{
     log_info(">>> accept ENTRY: socket=%lld (THIS MAY BLOCK!)", (long long)s);
     SOCKET ret = accept(s, addr, addrlen);
     log_info(">>> accept EXIT: returning %lld (WSAError=%d)", (long long)ret, ret == INVALID_SOCKET ? WSAGetLastError() : 0);
     return ret;
 }
 
-extern "C" int my_recv(SOCKET s, char* buf, int len, int flags) {
+extern "C" int my_recv(SOCKET s, char *buf, int len, int flags)
+{
     log_info(">>> recv ENTRY: socket=%lld, len=%d (THIS MAY BLOCK!)", (long long)s, len);
     int ret = recv(s, buf, len, flags);
     log_info(">>> recv EXIT: returning %d", ret);
     return ret;
 }
 
-extern "C" int my_send(SOCKET s, const char* buf, int len, int flags) {
+extern "C" int my_send(SOCKET s, const char *buf, int len, int flags)
+{
     log_info(">>> send called: socket=%lld, len=%d", (long long)s, len);
     int ret = send(s, buf, len, flags);
     log_info(">>> send EXIT: returning %d", ret);
     return ret;
 }
 
-extern "C" int my_recvfrom(SOCKET s, char* buf, int len, int flags, struct sockaddr* from, int* fromlen) {
+extern "C" int my_recvfrom(SOCKET s, char *buf, int len, int flags, struct sockaddr *from, int *fromlen)
+{
     log_info(">>> recvfrom ENTRY: socket=%lld, len=%d (THIS MAY BLOCK!)", (long long)s, len);
     int ret = recvfrom(s, buf, len, flags, from, fromlen);
     log_info(">>> recvfrom EXIT: returning %d", ret);
     return ret;
 }
 
-extern "C" int my_sendto(SOCKET s, const char* buf, int len, int flags, const struct sockaddr* to, int tolen) {
+extern "C" int my_sendto(SOCKET s, const char *buf, int len, int flags, const struct sockaddr *to, int tolen)
+{
     log_info(">>> sendto called: socket=%lld, len=%d", (long long)s, len);
     int ret = sendto(s, buf, len, flags, to, tolen);
     log_info(">>> sendto EXIT: returning %d", ret);
     return ret;
 }
 
-extern "C" int my_setsockopt(SOCKET s, int level, int optname, const char* optval, int optlen) {
+extern "C" int my_setsockopt(SOCKET s, int level, int optname, const char *optval, int optlen)
+{
     log_info(">>> setsockopt called: socket=%lld, level=%d, optname=%d", (long long)s, level, optname);
     int ret = setsockopt(s, level, optname, optval, optlen);
     log_info(">>> setsockopt EXIT: returning %d", ret);
     return ret;
 }
 
-extern "C" int my_getsockopt(SOCKET s, int level, int optname, char* optval, int* optlen) {
+extern "C" int my_getsockopt(SOCKET s, int level, int optname, char *optval, int *optlen)
+{
     log_info(">>> getsockopt called: socket=%lld, level=%d, optname=%d", (long long)s, level, optname);
     int ret = getsockopt(s, level, optname, optval, optlen);
     log_info(">>> getsockopt EXIT: returning %d", ret);
@@ -479,129 +605,381 @@ extern "C" int my_getsockopt(SOCKET s, int level, int optname, char* optval, int
 
 // --- Lindbergh Specific Stubs ---
 
-extern "C" void my_kswap_collect(void* p) { return; }
+extern "C" void my_kswap_collect(void *p)
+{
+    return;
+}
 
 // Entrypoint hooking
-typedef int (*MainFunc)(int, char**, char**);
-extern "C" void my_libc_start_main(MainFunc m, int c, char** a, void (*i)(), void (*f)(), void (*r)(), void* s) {
+typedef int (*MainFunc)(int, char **, char **);
+extern "C" void my_libc_start_main(MainFunc m, int c, char **a, void (*i)(), void (*f)(), void (*r)(), void *s)
+{
     log_info("__libc_start_main called");
-    
+
     // Initialize pthread emulation
     PthreadEmu::Initialize();
     log_info("PthreadEmu initialized");
-    
+
     CoInitializeEx(NULL, COINIT_MULTITHREADED);
-    WSADATA wsaData; WSAStartup(MAKEWORD(2, 2), &wsaData);
-    if (i) {
+    WSADATA wsaData;
+    WSAStartup(MAKEWORD(2, 2), &wsaData);
+    if (i)
+    {
         log_debug("Calling init function");
-        #ifdef _MSC_VER
-        __try { i(); }
-        __except (ExceptionFilter(GetExceptionCode(), GetExceptionInformation())) {
+#ifdef _MSC_VER
+        __try
+        {
+            i();
+        }
+        __except (ExceptionFilter(GetExceptionCode(), GetExceptionInformation()))
+        {
             log_error("Exception in init function");
         }
-        #else
+#else
         i();
-        #endif
+#endif
     }
     int result = 0;
     log_info("Calling main(argc=%d)", c);
-    #ifdef _MSC_VER
-    __try { result = m(c, a, nullptr); }
-    __except (ExceptionFilter(GetExceptionCode(), GetExceptionInformation())) {
+#ifdef _MSC_VER
+    __try
+    {
+        result = m(c, a, nullptr);
+    }
+    __except (ExceptionFilter(GetExceptionCode(), GetExceptionInformation()))
+    {
         log_fatal("Exception in main() - process terminated");
         exit(1);
     }
-    #else
+#else
     result = m(c, a, nullptr);
-    #endif
+#endif
     log_info("main() returned %d", result);
-    
+
     // Cleanup pthread emulation
     PthreadEmu::Shutdown();
     log_info("PthreadEmu shutdown complete");
-    
+
     exit(result);
 }
 
 // =============================================================
 //   C++ Exception Handling Stub
 // =============================================================
-extern "C" int my_gxx_personality_v0(int version, int actions, uint64_t exceptionClass, void* exceptionObject, void* context) {
-    (void)version; (void)actions; (void)exceptionClass; (void)exceptionObject; (void)context;
+extern "C" int my_gxx_personality_v0(int version, int actions, uint64_t exceptionClass, void *exceptionObject, void *context)
+{
+    (void)version;
+    (void)actions;
+    (void)exceptionClass;
+    (void)exceptionObject;
+    (void)context;
     log_error("__gxx_personality_v0 called! C++ Exceptions not supported.");
     return 9; // _URC_FATAL_PHASE1_ERROR
 }
 
-extern "C" void my_cfmakeraw(void* termios_p) {
+extern "C" void my_cfmakeraw(void *termios_p)
+{
     (void)termios_p;
     log_debug("cfmakeraw called - stubbed");
 }
 
-extern "C" void my_operator_delete(void* ptr) {
+extern "C" void my_operator_delete(void *ptr)
+{
     log_debug("operator delete(_ZdlPv) called: %p", ptr);
     free(ptr);
 }
 
-extern "C" void* my_operator_new(size_t size) {
+extern "C" void *my_operator_new(size_t size)
+{
     log_debug("operator new(_Znwj) called: size=%zu", size);
     return malloc(size);
+}
+
+extern "C" void *my_operator_new_array(size_t size)
+{
+    log_debug("operator new[](_Znaj) called: size=%zu", size);
+    return malloc(size);
+}
+
+extern "C" void __cdecl LogSymbolCall(const char *name, uintptr_t caller)
+{
+
+    printf("[SYMCALL] %s called from 0x%08X\n", name, (unsigned int)caller);
+}
+
+uintptr_t CreateThunk(const char *name, uintptr_t target)
+{
+
+    uint8_t *thunk = (uint8_t *)VirtualAlloc(NULL, 64, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (!thunk)
+        return target;
+
+    uint8_t *p = thunk;
+
+    *p++ = 0x50; // push eax
+    *p++ = 0x51; // push ecx
+    *p++ = 0x52; // push edx
+
+    *p++ = 0x8B;
+    *p++ = 0x44;
+    *p++ = 0x24;
+    *p++ = 0x0C;
+
+    *p++ = 0x50; // push eax (Arg2: caller address)
+
+    *p++ = 0x68; // push imm32 (Arg1: name pointer)
+    *(uint32_t *)p = (uint32_t)name;
+    p += 4;
+
+    *p++ = 0xE8; // call rel32
+    uint32_t relAddr = (uint32_t)&LogSymbolCall - ((uint32_t)p + 4);
+    *(uint32_t *)p = relAddr;
+    p += 4;
+
+    //  Cleanup arguments
+    *p++ = 0x83;
+    *p++ = 0xC4;
+    *p++ = 0x08;
+
+    *p++ = 0x5A; // pop edx
+    *p++ = 0x59; // pop ecx
+    *p++ = 0x58; // pop eax
+
+    *p++ = 0xE9; // jmp rel32
+    relAddr = (uint32_t)target - ((uint32_t)p + 4);
+    *(uint32_t *)p = relAddr;
+    p += 4;
+
+    return (uintptr_t)thunk;
 }
 
 // =============================================================
 //   Symbol Resolver Main Function
 // =============================================================
-uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
+// ============================================================
+// C++ ABI Stubs (Itanium / GCC 3.x)
+// ============================================================
+
+// std::__default_alloc_template<true, 0>::allocate(unsigned int)
+static void *my_SGI_Alloc_Allocate(unsigned int n)
+{
+    // return ::operator new(n);
+    return malloc(n);
+}
+
+// std::__default_alloc_template<true, 0>::deallocate(void*, unsigned int)
+static void my_SGI_Alloc_Deallocate(void *p, unsigned int n)
+{
+    // ::operator delete(p);
+    free(p);
+}
+
+// std::ios_base::Init::Init()
+static void my_IosBaseInit_Ctor()
+{
+    // No-op for now.
+}
+
+// std::ios_base::Init::~Init()
+static void my_IosBaseInit_Dtor()
+{
+    // No-op
+}
+
+// --- std::string (GCC 3.x ABI: _ZNSs...) ---
+
+// GCC 3.x basic_string ABI structures
+struct GCC_String_Rep
+{
+    size_t length;
+    size_t capacity;
+    int _ref;
+    // The actual string data follows in memory immediately after this struct
+};
+
+// The actual std::string class on the stack is just a pointer
+struct GCC_String
+{
+    char *_M_dataplus; // Points to the string data (which is prepended by Rep)
+};
+
+// std::string::string(char const*, std::allocator<char> const&)
+static void my_StdString_ConstChar_Ctor(void *this_ptr, const char *str, void *alloc)
+{
+    if (!this_ptr || !str)
+        return;
+
+    size_t len = strlen(str);
+
+    // Allocate space for Rep header + string data + null terminator
+    size_t total_size = sizeof(GCC_String_Rep) + len + 1;
+    void *memory = malloc(total_size);
+
+    if (memory)
+    {
+        // Setup the Rep header
+        GCC_String_Rep *rep = (GCC_String_Rep *)memory;
+        rep->length = len;
+        rep->capacity = len;
+        rep->_ref = 0; // Owned by one
+
+        // Copy string data after the header
+        char *data_ptr = (char *)(rep + 1);
+        strcpy(data_ptr, str);
+
+        // The std::string object itself is just a pointer to the data
+        GCC_String *gcc_str = (GCC_String *)this_ptr;
+        gcc_str->_M_dataplus = data_ptr;
+
+        log_info("Safe GCC String Constructed: '%s' (Rep: %p, Data: %p)", str, rep, data_ptr);
+    }
+}
+
+// std::string::string(std::string const&)
+// std::string::string(std::string const&)
+static void my_StdString_CopyCtor(void *this_ptr, void *other_ptr)
+{
+    if (!this_ptr || !other_ptr)
+        return;
+
+    // other_ptr is pointer to GCC_String (which has _M_dataplus)
+    GCC_String *other_str = (GCC_String *)other_ptr;
+    char *other_data = other_str->_M_dataplus;
+
+    if (other_data)
+    {
+        // Retrieve Rep from other string (pointers back -0xC)
+        GCC_String_Rep *other_rep = (GCC_String_Rep *)(other_data - sizeof(GCC_String_Rep));
+
+        // Deep Copy allocation
+        size_t len = other_rep->length;
+        size_t total_size = sizeof(GCC_String_Rep) + len + 1;
+        void *memory = malloc(total_size);
+
+        if (memory)
+        {
+            GCC_String_Rep *rep = (GCC_String_Rep *)memory;
+            rep->length = len;
+            rep->capacity = len;
+            rep->_ref = 0; // Owned by one
+
+            char *data_ptr = (char *)(rep + 1);
+            strcpy(data_ptr, other_data);
+
+            GCC_String *this_str = (GCC_String *)this_ptr;
+            this_str->_M_dataplus = data_ptr;
+            log_debug("GCC String Copy Ctor: '%s'", data_ptr);
+        }
+    }
+}
+
+// std::string::~string() (The implementation often calls _M_destroy)
+// _ZNSs4_Rep10_M_destroyERKSaIcE
+static void my_StringRep_Destroy(void *rep_ptr, void *alloc)
+{
+    if (rep_ptr)
+    {
+        // log_debug("GCC String Rep Destroy: %p", rep_ptr);
+        free(rep_ptr);
+    }
+}
+
+// std::string::append(char const*, unsigned int)
+static void *my_StdString_Append(void *this_ptr, const char *s, unsigned int n)
+{
+    log_warn("STUB: string::append called.");
+    return this_ptr;
+}
+
+// std::string::replace(unsigned int, unsigned int, char const*, unsigned int)
+static void *my_StdString_Replace(void *this_ptr, unsigned int pos, unsigned int n1, const char *s, unsigned int n2)
+{
+    log_warn("STUB: string::replace called.");
+    return this_ptr;
+}
+
+uintptr_t SymbolResolver::GetExternalAddr(const char *name)
+{
 
     // Log symbol resolution requests for debugging (only unresolved ones are logged as warnings)
     // log_trace("Resolving symbol: %s", name);
 
+    // 1. Check loaded Linux Shared Objects first
+    // This allows functions in libssl.so to find themselves or others
+    uintptr_t globalAddr = SharedObjectManager::Instance().GetGlobalSymbol(name);
+    if (globalAddr != 0)
+        return globalAddr;
+
     // Special Handling
-    if (strcmp(name, "glGetString") == 0) return (uintptr_t)&my_glGetString;
+    if (strcmp(name, "glGetString") == 0)
+        return (uintptr_t)&my_glGetString;
 
     // NVIDIA Cg Toolkit
-    if (strncmp(name, "cg", 2) == 0) {
+    if (strncmp(name, "cg", 2) == 0)
+    {
         static HMODULE hCg = NULL;
         static HMODULE hCgGL = NULL;
         static bool attemptedLoad = false;
-        if (!attemptedLoad) {
+        if (!attemptedLoad)
+        {
             hCg = LoadLibraryA("cg.dll");
-            if (hCg) log_info("Loaded cg.dll");
+            if (hCg)
+                log_info("Loaded cg.dll");
             hCgGL = LoadLibraryA("cgGL.dll");
-            if (hCgGL) log_info("Loaded cgGL.dll");
+            if (hCgGL)
+                log_info("Loaded cgGL.dll");
             attemptedLoad = true;
         }
-        void* proc = NULL;
-        if (hCg) proc = (void*)GetProcAddress(hCg, name);
-        if (!proc && hCgGL) proc = (void*)GetProcAddress(hCgGL, name);
-        if (proc) return (uintptr_t)proc;
+        void *proc = NULL;
+        if (hCg)
+            proc = (void *)GetProcAddress(hCg, name);
+        if (!proc && hCgGL)
+            proc = (void *)GetProcAddress(hCgGL, name);
+        if (proc)
+            return (uintptr_t)proc;
     }
 
     // Standard Mapping Macro
-#define MAP(n, f) if (strcmp(name, n) == 0) return (uintptr_t)&f
+#define MAP(n, f)                                                                                                                          \
+    if (strcmp(name, n) == 0)                                                                                                              \
+    return (uintptr_t)&f
     // Overloaded Function Mapping Macro (No & operator)
-#define MAP_OL(n, f) if (strcmp(name, n) == 0) return (uintptr_t)(f)
+#define MAP_OL(n, f)                                                                                                                       \
+    if (strcmp(name, n) == 0)                                                                                                              \
+    return (uintptr_t)(f)
 
     // ============================================================
     // GLUT / GLU
     // ============================================================
-    MAP("glutInit", GLXBridge::glutInit);
-    MAP("glutInitDisplayMode", GLXBridge::glutInitDisplayMode);
-    MAP("glutInitWindowSize", GLXBridge::glutInitWindowSize);
-    MAP("glutInitWindowPosition", GLXBridge::glutInitWindowPosition);
-    MAP("glutEnterGameMode", GLXBridge::glutEnterGameMode);
-    MAP("glutLeaveGameMode", GLXBridge::glutLeaveGameMode);
-    MAP("glutCreateWindow", GLXBridge::glutCreateWindow);
-    MAP("glutMainLoop", GLXBridge::glutMainLoop);
-    MAP("glutDisplayFunc", GLXBridge::glutDisplayFunc);
-    MAP("glutIdleFunc", GLXBridge::glutIdleFunc);
-    MAP("glutPostRedisplay", GLXBridge::glutPostRedisplay);
-    MAP("glutSwapBuffers", GLXBridge::glutSwapBuffers);
-    MAP("glutGet", GLXBridge::glutGet);
-    MAP("glutSetCursor", GLXBridge::glutSetCursor);
-    MAP("glutGameModeString", GLXBridge::glutGameModeString);
-    MAP("glutBitmapCharacter", GLXBridge::glutBitmapCharacter);
-    MAP("glutBitmapWidth", GLXBridge::glutBitmapWidth);
+    MAP("glutInit", GLUTBridge::glutInit);
+    MAP("glutInitDisplayMode", GLUTBridge::glutInitDisplayMode);
+    MAP("glutInitWindowSize", GLUTBridge::glutInitWindowSize);
+    MAP("glutInitWindowPosition", GLUTBridge::glutInitWindowPosition);
+    MAP("glutEnterGameMode", GLUTBridge::glutEnterGameMode);
+    MAP("glutLeaveGameMode", GLUTBridge::glutLeaveGameMode);
+    MAP("glutCreateWindow", GLUTBridge::glutCreateWindow);
+    MAP("glutMainLoop", GLUTBridge::glutMainLoop);
+    MAP("glutDisplayFunc", GLUTBridge::glutDisplayFunc);
+    MAP("glutIdleFunc", GLUTBridge::glutIdleFunc);
+    MAP("glutPostRedisplay", GLUTBridge::glutPostRedisplay);
+    MAP("glutSwapBuffers", GLUTBridge::glutSwapBuffers);
+    MAP("glutGet", GLUTBridge::glutGet);
+    MAP("glutSetCursor", GLUTBridge::glutSetCursor);
+    MAP("glutGameModeString", GLUTBridge::glutGameModeString);
+    MAP("glutBitmapCharacter", GLUTBridge::glutBitmapCharacter);
+    MAP("glutBitmapWidth", GLUTBridge::glutBitmapWidth);
     MAP("glutKeyboardFunc", my_glutKeyboardFunc);
+    MAP("glutMainLoopEvent", GLUTBridge::glutMainLoopEvent);
+    MAP("glutJoystickFunc", GLUTBridge::glutJoystickFunc);
+    MAP("glutPostRedisplay", GLUTBridge::glutPostRedisplay);
+    MAP("glutSwapBuffers", GLUTBridge::glutSwapBuffers);
+    MAP("glutGet", GLUTBridge::glutGet);
+    MAP("glutSetCursor", GLUTBridge::glutSetCursor);
+    MAP("glutGameModeString", GLUTBridge::glutGameModeString);
+    MAP("glutBitmapCharacter", GLUTBridge::glutBitmapCharacter);
+    MAP("glutBitmapWidth", GLUTBridge::glutBitmapWidth);
+    MAP("glutKeyboardFunc", my_glutKeyboardFunc);
+    MAP("glutMainLoopEvent", GLUTBridge::glutMainLoopEvent);
 
     MAP("gluPerspective", GLXBridge::gluPerspective);
     MAP("gluLookAt", GLXBridge::gluLookAt);
@@ -619,6 +997,8 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("lseek", my_lseek);
     MAP("access", my_access);
     MAP("chmod", my_chmod);
+    MAP("chdir", my_chdir);
+    MAP("syslog", my_syslog);
     MAP("__xstat64", my_xstat64);
 
     // Env
@@ -635,22 +1015,20 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     // ============================================================
     // Math Functions (Explicit Casting & MAP_OL macro)
     // ============================================================
-    MAP_OL("atan", (double(*)(double))atan);
-    MAP_OL("atan2", (double(*)(double, double))atan2);
-    MAP_OL("asin", (double(*)(double))asin);
-    MAP_OL("acos", (double(*)(double))acos);
-    MAP_OL("cos", (double(*)(double))cos);
-    MAP_OL("sin", (double(*)(double))sin);
-    MAP_OL("tan", (double(*)(double))tan);
-    MAP_OL("sqrt", (double(*)(double))sqrt);
-    MAP_OL("pow", (double(*)(double, double))pow);
-    MAP_OL("powf", (double(*)(double, double))pow);
-    MAP_OL("floor", (double(*)(double))floor);
-    MAP_OL("ceil", (double(*)(double))ceil);
-    MAP_OL("fmod", (double(*)(double, double))fmod);
-    MAP_OL("abs", (int(*)(int))abs);
-    MAP_OL("fabs", (double(*)(double))fabs);
-
+    MAP_OL("atan", (double (*)(double))atan);
+    MAP_OL("atan2", (double (*)(double, double))atan2);
+    MAP_OL("asin", (double (*)(double))asin);
+    MAP_OL("acos", (double (*)(double))acos);
+    MAP_OL("cos", (double (*)(double))cos);
+    MAP_OL("sin", (double (*)(double))sin);
+    MAP_OL("tan", (double (*)(double))tan);
+    MAP_OL("sqrt", (double (*)(double))sqrt);
+    MAP_OL("pow", (double (*)(double, double))pow);
+    MAP_OL("powf", (double (*)(double, double))pow);
+    MAP_OL("floor", (double (*)(double))floor);
+    MAP_OL("ceil", (double (*)(double))ceil);
+    MAP_OL("fmod", (double (*)(double, double))fmod);
+    MAP_OL("abs", (int (*)(int))abs);
     // ============================================================
     // GCC / GLIBC Internals
     // ============================================================
@@ -678,6 +1056,20 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("__gxx_personality_v0", my_gxx_personality_v0);
     MAP("_ZdlPv", my_operator_delete);
     MAP("_Znwj", my_operator_new);
+    MAP("_Znaj", my_operator_new_array);
+
+    // Missing C++ ABI (GCC 3.x / SGI STL)
+    MAP("_ZNSt24__default_alloc_templateILb1ELi0EE8allocateEj", my_SGI_Alloc_Allocate);
+    MAP("_ZNSt24__default_alloc_templateILb1ELi0EE10deallocateEPvj", my_SGI_Alloc_Deallocate);
+    MAP("_ZNSt8ios_base4InitC1Ev", my_IosBaseInit_Ctor);
+    MAP("_ZNSt8ios_base4InitD1Ev", my_IosBaseInit_Dtor);
+
+    // std::string (GCC 3.x)
+    MAP("_ZNSsC1EPKcRKSaIcE", my_StdString_ConstChar_Ctor);
+    MAP("_ZNSsC1ERKSs", my_StdString_CopyCtor);
+    MAP("_ZNSs4_Rep10_M_destroyERKSaIcE", my_StringRep_Destroy);
+    MAP("_ZNSs6appendEPKcj", my_StdString_Append);
+    MAP("_ZNSs7replaceEjjPKcj", my_StdString_Replace);
 
     // ============================================================
     // Hardware / Low-Level I/O
@@ -705,8 +1097,6 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("shmat", my_shmat);
     MAP("shmctl", my_shmctl);
     MAP("shmdt", my_shmdt);
-
-
 
     // ============================================================
     // Process
@@ -802,12 +1192,12 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("rindex", LibcBridge::strrchr_wrapper);
     MAP("strcoll", LibcBridge::strcoll_wrapper);
     MAP("strxfrm", LibcBridge::strxfrm_wrapper);
+    MAP("strpbrk", LibcBridge::strpbrk_wrapper);
     MAP("strcpy", strcpy);
     MAP("strlen", strlen);
     MAP("strcmp", strcmp);
     MAP("strncmp", strncmp);
     MAP("strcat", strcat);
-    //MAP("strpbrk", strpbrk);
     MAP("strcspn", strcspn);
     MAP("strspn", strspn);
     MAP("strtok", strtok);
@@ -935,7 +1325,7 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("XF86VidModeGetViewPort", X11Bridge::VidModeGetViewPort);
     MAP("XF86VidModeLockModeSwitch", X11Bridge::VidModeLockModeSwitch);
 
-    //X11 Misc
+    // X11 Misc
     MAP("XOpenDisplay", X11Bridge::OpenDisplay);
     MAP("XCloseDisplay", X11Bridge::CloseDisplay);
     MAP("XInitThreads", X11Bridge::InitThreads);
@@ -963,11 +1353,10 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("XGrabKeyboard", X11Bridge::GrabKeyboard);
     MAP("XUngrabKeyboard", X11Bridge::UngrabKeyboard);
 
-
     // ============================================================
     // Pthreads
     // ============================================================
-    
+
     // Thread functions
     MAP("pthread_create", PthreadEmu::pthread_create);
     MAP("pthread_join", PthreadEmu::pthread_join);
@@ -976,7 +1365,7 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("pthread_self", PthreadEmu::pthread_self);
     MAP("pthread_equal", PthreadEmu::pthread_equal);
     MAP("pthread_cancel", PthreadEmu::pthread_cancel);
-    
+
     // Thread attributes
     MAP("pthread_attr_init", PthreadEmu::pthread_attr_init);
     MAP("pthread_attr_destroy", PthreadEmu::pthread_attr_destroy);
@@ -984,7 +1373,7 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("pthread_attr_getstacksize", PthreadEmu::pthread_attr_getstacksize);
     MAP("pthread_attr_setdetachstate", PthreadEmu::pthread_attr_setdetachstate);
     MAP("pthread_attr_getdetachstate", PthreadEmu::pthread_attr_getdetachstate);
-    
+
     // Scheduling : Most of them are stubs
     MAP("pthread_attr_setschedparam", my_stub_success);
     MAP("pthread_attr_setschedpolicy", my_stub_success);
@@ -995,7 +1384,7 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("sched_get_priority_max", my_sched_get_priority_max);
     MAP("sched_getaffinity", my_stub_success);
     MAP("sched_setaffinity", my_stub_success);
-    
+
     // Mutex functions
     MAP("pthread_mutex_init", PthreadEmu::pthread_mutex_init);
     MAP("pthread_mutex_destroy", PthreadEmu::pthread_mutex_destroy);
@@ -1003,13 +1392,13 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("pthread_mutex_trylock", PthreadEmu::pthread_mutex_trylock);
     MAP("pthread_mutex_timedlock", PthreadEmu::pthread_mutex_timedlock);
     MAP("pthread_mutex_unlock", PthreadEmu::pthread_mutex_unlock);
-    
+
     // Mutex attributes
     MAP("pthread_mutexattr_init", PthreadEmu::pthread_mutexattr_init);
     MAP("pthread_mutexattr_destroy", PthreadEmu::pthread_mutexattr_destroy);
     MAP("pthread_mutexattr_settype", PthreadEmu::pthread_mutexattr_settype);
     MAP("pthread_mutexattr_gettype", PthreadEmu::pthread_mutexattr_gettype);
-    
+
     // Condition variable functions
     MAP("pthread_cond_init", PthreadEmu::pthread_cond_init);
     MAP("pthread_cond_destroy", PthreadEmu::pthread_cond_destroy);
@@ -1017,11 +1406,11 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("pthread_cond_timedwait", PthreadEmu::pthread_cond_timedwait);
     MAP("pthread_cond_signal", PthreadEmu::pthread_cond_signal);
     MAP("pthread_cond_broadcast", PthreadEmu::pthread_cond_broadcast);
-    
+
     // Condition variable attributes
     MAP("pthread_condattr_init", PthreadEmu::pthread_condattr_init);
     MAP("pthread_condattr_destroy", PthreadEmu::pthread_condattr_destroy);
-    
+
     // Read-write lock functions
     MAP("pthread_rwlock_init", PthreadEmu::pthread_rwlock_init);
     MAP("pthread_rwlock_destroy", PthreadEmu::pthread_rwlock_destroy);
@@ -1030,28 +1419,28 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("pthread_rwlock_wrlock", PthreadEmu::pthread_rwlock_wrlock);
     MAP("pthread_rwlock_trywrlock", PthreadEmu::pthread_rwlock_trywrlock);
     MAP("pthread_rwlock_unlock", PthreadEmu::pthread_rwlock_unlock);
-    
+
     // Once control
     MAP("pthread_once", PthreadEmu::pthread_once);
-    
+
     // TLS functions
     MAP("pthread_key_create", PthreadEmu::pthread_key_create);
     MAP("pthread_key_delete", PthreadEmu::pthread_key_delete);
     MAP("pthread_setspecific", PthreadEmu::pthread_setspecific);
     MAP("pthread_getspecific", PthreadEmu::pthread_getspecific);
-    
+
     // Barrier functions
     MAP("pthread_barrier_init", PthreadEmu::pthread_barrier_init);
     MAP("pthread_barrier_destroy", PthreadEmu::pthread_barrier_destroy);
     MAP("pthread_barrier_wait", PthreadEmu::pthread_barrier_wait);
-    
+
     // Spinlock functions
     MAP("pthread_spin_init", PthreadEmu::pthread_spin_init);
     MAP("pthread_spin_destroy", PthreadEmu::pthread_spin_destroy);
     MAP("pthread_spin_lock", PthreadEmu::pthread_spin_lock);
     MAP("pthread_spin_trylock", PthreadEmu::pthread_spin_trylock);
     MAP("pthread_spin_unlock", PthreadEmu::pthread_spin_unlock);
-    
+
     // Semaphore functions (POSIX semaphores)
     MAP("sem_init", my_sem_init);
     MAP("sem_destroy", my_sem_destroy);
@@ -1061,91 +1450,203 @@ uintptr_t SymbolResolver::GetExternalAddr(const char* name) {
     MAP("sem_getvalue", my_sem_getvalue);
 
     // Sega API
-    if (strncmp(name, "SEGAAPI_", 8) == 0) {
-        if (strcmp(name, "SEGAAPI_Init") == 0) return (uintptr_t)&SEGAAPI_Init;
-        if (strcmp(name, "SEGAAPI_Exit") == 0) return (uintptr_t)&SEGAAPI_Exit;
-        if (strcmp(name, "SEGAAPI_Reset") == 0) return (uintptr_t)&SEGAAPI_Reset;
-        if (strcmp(name, "SEGAAPI_Play") == 0) return (uintptr_t)&SEGAAPI_Play;
-        if (strcmp(name, "SEGAAPI_Pause") == 0) return (uintptr_t)&SEGAAPI_Pause;
-        if (strcmp(name, "SEGAAPI_Stop") == 0) return (uintptr_t)&SEGAAPI_Stop;
-        if (strcmp(name, "SEGAAPI_PlayWithSetup") == 0) return (uintptr_t)&SEGAAPI_PlayWithSetup;
-        if (strcmp(name, "SEGAAPI_GetPlaybackStatus") == 0) return (uintptr_t)&SEGAAPI_GetPlaybackStatus;
-        if (strcmp(name, "SEGAAPI_SetPlaybackPosition") == 0) return (uintptr_t)&SEGAAPI_SetPlaybackPosition;
-        if (strcmp(name, "SEGAAPI_GetPlaybackPosition") == 0) return (uintptr_t)&SEGAAPI_GetPlaybackPosition;
-        if (strcmp(name, "SEGAAPI_SetReleaseState") == 0) return (uintptr_t)&SEGAAPI_SetReleaseState;
-        if (strcmp(name, "SEGAAPI_CreateBuffer") == 0) return (uintptr_t)&SEGAAPI_CreateBuffer;
-        if (strcmp(name, "SEGAAPI_DestroyBuffer") == 0) return (uintptr_t)&SEGAAPI_DestroyBuffer;
-        if (strcmp(name, "SEGAAPI_UpdateBuffer") == 0) return (uintptr_t)&SEGAAPI_UpdateBuffer;
-        if (strcmp(name, "SEGAAPI_SetFormat") == 0) return (uintptr_t)&SEGAAPI_SetFormat;
-        if (strcmp(name, "SEGAAPI_GetFormat") == 0) return (uintptr_t)&SEGAAPI_GetFormat;
-        if (strcmp(name, "SEGAAPI_SetSampleRate") == 0) return (uintptr_t)&SEGAAPI_SetSampleRate;
-        if (strcmp(name, "SEGAAPI_GetSampleRate") == 0) return (uintptr_t)&SEGAAPI_GetSampleRate;
-        if (strcmp(name, "SEGAAPI_SetPriority") == 0) return (uintptr_t)&SEGAAPI_SetPriority;
-        if (strcmp(name, "SEGAAPI_GetPriority") == 0) return (uintptr_t)&SEGAAPI_GetPriority;
-        if (strcmp(name, "SEGAAPI_SetUserData") == 0) return (uintptr_t)&SEGAAPI_SetUserData;
-        if (strcmp(name, "SEGAAPI_GetUserData") == 0) return (uintptr_t)&SEGAAPI_GetUserData;
-        if (strcmp(name, "SEGAAPI_SetSendRouting") == 0) return (uintptr_t)&SEGAAPI_SetSendRouting;
-        if (strcmp(name, "SEGAAPI_GetSendRouting") == 0) return (uintptr_t)&SEGAAPI_GetSendRouting;
-        if (strcmp(name, "SEGAAPI_SetSendLevel") == 0) return (uintptr_t)&SEGAAPI_SetSendLevel;
-        if (strcmp(name, "SEGAAPI_GetSendLevel") == 0) return (uintptr_t)&SEGAAPI_GetSendLevel;
-        if (strcmp(name, "SEGAAPI_SetChannelVolume") == 0) return (uintptr_t)&SEGAAPI_SetChannelVolume;
-        if (strcmp(name, "SEGAAPI_GetChannelVolume") == 0) return (uintptr_t)&SEGAAPI_GetChannelVolume;
-        if (strcmp(name, "SEGAAPI_SetNotificationFrequency") == 0) return (uintptr_t)&SEGAAPI_SetNotificationFrequency;
-        if (strcmp(name, "SEGAAPI_SetNotificationPoint") == 0) return (uintptr_t)&SEGAAPI_SetNotificationPoint;
-        if (strcmp(name, "SEGAAPI_ClearNotificationPoint") == 0) return (uintptr_t)&SEGAAPI_ClearNotificationPoint;
-        if (strcmp(name, "SEGAAPI_SetStartLoopOffset") == 0) return (uintptr_t)&SEGAAPI_SetStartLoopOffset;
-        if (strcmp(name, "SEGAAPI_GetStartLoopOffset") == 0) return (uintptr_t)&SEGAAPI_GetStartLoopOffset;
-        if (strcmp(name, "SEGAAPI_SetEndLoopOffset") == 0) return (uintptr_t)&SEGAAPI_SetEndLoopOffset;
-        if (strcmp(name, "SEGAAPI_GetEndLoopOffset") == 0) return (uintptr_t)&SEGAAPI_GetEndLoopOffset;
-        if (strcmp(name, "SEGAAPI_SetEndOffset") == 0) return (uintptr_t)&SEGAAPI_SetEndOffset;
-        if (strcmp(name, "SEGAAPI_GetEndOffset") == 0) return (uintptr_t)&SEGAAPI_GetEndOffset;
-        if (strcmp(name, "SEGAAPI_SetLoopState") == 0) return (uintptr_t)&SEGAAPI_SetLoopState;
-        if (strcmp(name, "SEGAAPI_GetLoopState") == 0) return (uintptr_t)&SEGAAPI_GetLoopState;
-        if (strcmp(name, "SEGAAPI_SetSynthParam") == 0) return (uintptr_t)&SEGAAPI_SetSynthParam;
-        if (strcmp(name, "SEGAAPI_GetSynthParam") == 0) return (uintptr_t)&SEGAAPI_GetSynthParam;
-        if (strcmp(name, "SEGAAPI_SetSynthParamMultiple") == 0) return (uintptr_t)&SEGAAPI_SetSynthParamMultiple;
-        if (strcmp(name, "SEGAAPI_GetSynthParamMultiple") == 0) return (uintptr_t)&SEGAAPI_GetSynthParamMultiple;
-        if (strcmp(name, "SEGAAPI_SetGlobalEAXProperty") == 0) return (uintptr_t)&SEGAAPI_SetGlobalEAXProperty;
-        if (strcmp(name, "SEGAAPI_GetGlobalEAXProperty") == 0) return (uintptr_t)&SEGAAPI_GetGlobalEAXProperty;
-        if (strcmp(name, "SEGAAPI_SetSPDIFOutChannelStatus") == 0) return (uintptr_t)&SEGAAPI_SetSPDIFOutChannelStatus;
-        if (strcmp(name, "SEGAAPI_GetSPDIFOutChannelStatus") == 0) return (uintptr_t)&SEGAAPI_GetSPDIFOutChannelStatus;
-        if (strcmp(name, "SEGAAPI_SetSPDIFOutSampleRate") == 0) return (uintptr_t)&SEGAAPI_SetSPDIFOutSampleRate;
-        if (strcmp(name, "SEGAAPI_GetSPDIFOutSampleRate") == 0) return (uintptr_t)&SEGAAPI_GetSPDIFOutSampleRate;
-        if (strcmp(name, "SEGAAPI_SetSPDIFOutChannelRouting") == 0) return (uintptr_t)&SEGAAPI_SetSPDIFOutChannelRouting;
-        if (strcmp(name, "SEGAAPI_GetSPDIFOutChannelRouting") == 0) return (uintptr_t)&SEGAAPI_GetSPDIFOutChannelRouting;
-        if (strcmp(name, "SEGAAPI_SetIOVolume") == 0) return (uintptr_t)&SEGAAPI_SetIOVolume;
-        if (strcmp(name, "SEGAAPI_GetIOVolume") == 0) return (uintptr_t)&SEGAAPI_GetIOVolume;
-        if (strcmp(name, "SEGAAPI_SetLastStatus") == 0) return (uintptr_t)&SEGAAPI_SetLastStatus;
-        if (strcmp(name, "SEGAAPI_GetLastStatus") == 0) return (uintptr_t)&SEGAAPI_GetLastStatus;
+    if (strncmp(name, "SEGAAPI_", 8) == 0)
+    {
+        if (strcmp(name, "SEGAAPI_Init") == 0)
+            return (uintptr_t)&SEGAAPI_Init;
+        if (strcmp(name, "SEGAAPI_Exit") == 0)
+            return (uintptr_t)&SEGAAPI_Exit;
+        if (strcmp(name, "SEGAAPI_Reset") == 0)
+            return (uintptr_t)&SEGAAPI_Reset;
+        if (strcmp(name, "SEGAAPI_Play") == 0)
+            return (uintptr_t)&SEGAAPI_Play;
+        if (strcmp(name, "SEGAAPI_Pause") == 0)
+            return (uintptr_t)&SEGAAPI_Pause;
+        if (strcmp(name, "SEGAAPI_Stop") == 0)
+            return (uintptr_t)&SEGAAPI_Stop;
+        if (strcmp(name, "SEGAAPI_PlayWithSetup") == 0)
+            return (uintptr_t)&SEGAAPI_PlayWithSetup;
+        if (strcmp(name, "SEGAAPI_GetPlaybackStatus") == 0)
+            return (uintptr_t)&SEGAAPI_GetPlaybackStatus;
+        if (strcmp(name, "SEGAAPI_SetPlaybackPosition") == 0)
+            return (uintptr_t)&SEGAAPI_SetPlaybackPosition;
+        if (strcmp(name, "SEGAAPI_GetPlaybackPosition") == 0)
+            return (uintptr_t)&SEGAAPI_GetPlaybackPosition;
+        if (strcmp(name, "SEGAAPI_SetReleaseState") == 0)
+            return (uintptr_t)&SEGAAPI_SetReleaseState;
+        if (strcmp(name, "SEGAAPI_CreateBuffer") == 0)
+            return (uintptr_t)&SEGAAPI_CreateBuffer;
+        if (strcmp(name, "SEGAAPI_DestroyBuffer") == 0)
+            return (uintptr_t)&SEGAAPI_DestroyBuffer;
+        if (strcmp(name, "SEGAAPI_UpdateBuffer") == 0)
+            return (uintptr_t)&SEGAAPI_UpdateBuffer;
+        if (strcmp(name, "SEGAAPI_SetFormat") == 0)
+            return (uintptr_t)&SEGAAPI_SetFormat;
+        if (strcmp(name, "SEGAAPI_GetFormat") == 0)
+            return (uintptr_t)&SEGAAPI_GetFormat;
+        if (strcmp(name, "SEGAAPI_SetSampleRate") == 0)
+            return (uintptr_t)&SEGAAPI_SetSampleRate;
+        if (strcmp(name, "SEGAAPI_GetSampleRate") == 0)
+            return (uintptr_t)&SEGAAPI_GetSampleRate;
+        if (strcmp(name, "SEGAAPI_SetPriority") == 0)
+            return (uintptr_t)&SEGAAPI_SetPriority;
+        if (strcmp(name, "SEGAAPI_GetPriority") == 0)
+            return (uintptr_t)&SEGAAPI_GetPriority;
+        if (strcmp(name, "SEGAAPI_SetUserData") == 0)
+            return (uintptr_t)&SEGAAPI_SetUserData;
+        if (strcmp(name, "SEGAAPI_GetUserData") == 0)
+            return (uintptr_t)&SEGAAPI_GetUserData;
+        if (strcmp(name, "SEGAAPI_SetSendRouting") == 0)
+            return (uintptr_t)&SEGAAPI_SetSendRouting;
+        if (strcmp(name, "SEGAAPI_GetSendRouting") == 0)
+            return (uintptr_t)&SEGAAPI_GetSendRouting;
+        if (strcmp(name, "SEGAAPI_SetSendLevel") == 0)
+            return (uintptr_t)&SEGAAPI_SetSendLevel;
+        if (strcmp(name, "SEGAAPI_GetSendLevel") == 0)
+            return (uintptr_t)&SEGAAPI_GetSendLevel;
+        if (strcmp(name, "SEGAAPI_SetChannelVolume") == 0)
+            return (uintptr_t)&SEGAAPI_SetChannelVolume;
+        if (strcmp(name, "SEGAAPI_GetChannelVolume") == 0)
+            return (uintptr_t)&SEGAAPI_GetChannelVolume;
+        if (strcmp(name, "SEGAAPI_SetNotificationFrequency") == 0)
+            return (uintptr_t)&SEGAAPI_SetNotificationFrequency;
+        if (strcmp(name, "SEGAAPI_SetNotificationPoint") == 0)
+            return (uintptr_t)&SEGAAPI_SetNotificationPoint;
+        if (strcmp(name, "SEGAAPI_ClearNotificationPoint") == 0)
+            return (uintptr_t)&SEGAAPI_ClearNotificationPoint;
+        if (strcmp(name, "SEGAAPI_SetStartLoopOffset") == 0)
+            return (uintptr_t)&SEGAAPI_SetStartLoopOffset;
+        if (strcmp(name, "SEGAAPI_GetStartLoopOffset") == 0)
+            return (uintptr_t)&SEGAAPI_GetStartLoopOffset;
+        if (strcmp(name, "SEGAAPI_SetEndLoopOffset") == 0)
+            return (uintptr_t)&SEGAAPI_SetEndLoopOffset;
+        if (strcmp(name, "SEGAAPI_GetEndLoopOffset") == 0)
+            return (uintptr_t)&SEGAAPI_GetEndLoopOffset;
+        if (strcmp(name, "SEGAAPI_SetEndOffset") == 0)
+            return (uintptr_t)&SEGAAPI_SetEndOffset;
+        if (strcmp(name, "SEGAAPI_GetEndOffset") == 0)
+            return (uintptr_t)&SEGAAPI_GetEndOffset;
+        if (strcmp(name, "SEGAAPI_SetLoopState") == 0)
+            return (uintptr_t)&SEGAAPI_SetLoopState;
+        if (strcmp(name, "SEGAAPI_GetLoopState") == 0)
+            return (uintptr_t)&SEGAAPI_GetLoopState;
+        if (strcmp(name, "SEGAAPI_SetSynthParam") == 0)
+            return (uintptr_t)&SEGAAPI_SetSynthParam;
+        if (strcmp(name, "SEGAAPI_GetSynthParam") == 0)
+            return (uintptr_t)&SEGAAPI_GetSynthParam;
+        if (strcmp(name, "SEGAAPI_SetSynthParamMultiple") == 0)
+            return (uintptr_t)&SEGAAPI_SetSynthParamMultiple;
+        if (strcmp(name, "SEGAAPI_GetSynthParamMultiple") == 0)
+            return (uintptr_t)&SEGAAPI_GetSynthParamMultiple;
+        if (strcmp(name, "SEGAAPI_SetGlobalEAXProperty") == 0)
+            return (uintptr_t)&SEGAAPI_SetGlobalEAXProperty;
+        if (strcmp(name, "SEGAAPI_GetGlobalEAXProperty") == 0)
+            return (uintptr_t)&SEGAAPI_GetGlobalEAXProperty;
+        if (strcmp(name, "SEGAAPI_SetSPDIFOutChannelStatus") == 0)
+            return (uintptr_t)&SEGAAPI_SetSPDIFOutChannelStatus;
+        if (strcmp(name, "SEGAAPI_GetSPDIFOutChannelStatus") == 0)
+            return (uintptr_t)&SEGAAPI_GetSPDIFOutChannelStatus;
+        if (strcmp(name, "SEGAAPI_SetSPDIFOutSampleRate") == 0)
+            return (uintptr_t)&SEGAAPI_SetSPDIFOutSampleRate;
+        if (strcmp(name, "SEGAAPI_GetSPDIFOutSampleRate") == 0)
+            return (uintptr_t)&SEGAAPI_GetSPDIFOutSampleRate;
+        if (strcmp(name, "SEGAAPI_SetSPDIFOutChannelRouting") == 0)
+            return (uintptr_t)&SEGAAPI_SetSPDIFOutChannelRouting;
+        if (strcmp(name, "SEGAAPI_GetSPDIFOutChannelRouting") == 0)
+            return (uintptr_t)&SEGAAPI_GetSPDIFOutChannelRouting;
+        if (strcmp(name, "SEGAAPI_SetIOVolume") == 0)
+            return (uintptr_t)&SEGAAPI_SetIOVolume;
+        if (strcmp(name, "SEGAAPI_GetIOVolume") == 0)
+            return (uintptr_t)&SEGAAPI_GetIOVolume;
+        if (strcmp(name, "SEGAAPI_SetLastStatus") == 0)
+            return (uintptr_t)&SEGAAPI_SetLastStatus;
+        if (strcmp(name, "SEGAAPI_GetLastStatus") == 0)
+            return (uintptr_t)&SEGAAPI_GetLastStatus;
     }
 
     // Exception Handling (_Unwind_*)
-    if (strncmp(name, "_Unwind_", 8) == 0) {
-        void* proc = GetLibGccSymbol(name);
-        if (proc) return (uintptr_t)proc;
+    if (strncmp(name, "_Unwind_", 8) == 0)
+    {
+        void *proc = GetLibGccSymbol(name);
+        if (proc)
+            return (uintptr_t)proc;
     }
 
     // OpenGL (Direct)
-    if (strncmp(name, "gl", 2) == 0 && strncmp(name, "glX", 3) != 0 && strncmp(name, "glut", 4) != 0) {
+    if (strncmp(name, "gl", 2) == 0 && strncmp(name, "glX", 3) != 0 && strncmp(name, "glut", 4) != 0)
+    {
         // Route all GL calls through our GLHooks wrapper
         // This ensures CDECL -> STDCALL transition is handled correctly!
-        void* proc = GLHooks::GetProcAddress(name);
-        if (proc) return (uintptr_t)proc;
+        void *proc = GLHooks::GetProcAddress(name);
+        if (proc)
+            return (uintptr_t)proc;
     }
 
     // MSYS2 Fallback
-    void* msysProc = GetMsysSymbol(name);
-    if (msysProc) {
+    void *msysProc = GetMsysSymbol(name);
+    if (msysProc)
+    {
         log_warn("DANGER: Symbol '%s' resolved to MSYS2 function! This will likely crash.", name);
         return (uintptr_t)msysProc;
+    }
+
+    // --- Dynamic GLHooks Bridge ---
+    // If the symbol starts with "gl" and isn't found in our static map,
+    // try asking GLHooks directly. This allows all wrappers in glhooks.cpp
+    // to be found by dlsym-style lookups without manual registration here.
+    if (strncmp(name, "gl", 2) == 0)
+    {
+        // Exclude glX and glut if handled elsewhere, but GLHooks::GetProcAddress checks name exactly.
+        void *proc = GLHooks::GetProcAddress(name);
+        if (proc)
+        {
+            // log_info("SymbolResolver resolved '%s' via GLHooks", name);
+            return (uintptr_t)proc;
+        }
+    }
+
+    // --- Runtime Logging for Missing OpenGL Functions ---
+    if (strncmp(name, "gl", 2) == 0 && strncmp(name, "glX", 3) != 0 && strncmp(name, "glut", 4) != 0)
+    {
+        static std::set<std::string> missingGLSymbols;
+        if (missingGLSymbols.find(name) == missingGLSymbols.end())
+        {
+            missingGLSymbols.insert(name);
+            std::ofstream outfile;
+            outfile.open("glmissing.txt", std::ios_base::app); // Append mode
+            if (outfile.is_open())
+            {
+                outfile << name << ",";
+                outfile.close();
+            }
+        }
+    }
+
+    // --- Runtime Logging for Missing OpenGL Functions ---
+    if (strncmp(name, "X", 2) == 0)
+    {
+        static std::set<std::string> missingGLSymbols;
+        if (missingGLSymbols.find(name) == missingGLSymbols.end())
+        {
+            missingGLSymbols.insert(name);
+            std::ofstream outfile;
+            outfile.open("xmissing.txt", std::ios_base::app); // Append mode
+            if (outfile.is_open())
+            {
+                outfile << name << ",";
+                outfile.close();
+            }
+        }
     }
 
     log_warn("Symbol unresolved: %s -> Using stub", name);
     return (uintptr_t)&UnimplementedStub;
 }
 
-void SymbolResolver::ResolveAll(uintptr_t jmpRel, uintptr_t symTab, uintptr_t strTab, uint32_t pltRelSize) {
-    if (!jmpRel || !symTab || !strTab) {
+void SymbolResolver::ResolveAll(uintptr_t jmpRel, uintptr_t symTab, uintptr_t strTab, uint32_t pltRelSize)
+{
+    if (!jmpRel || !symTab || !strTab)
+    {
         log_error("Invalid PLT/GOT parameters");
         return;
     }
@@ -1156,23 +1657,28 @@ void SymbolResolver::ResolveAll(uintptr_t jmpRel, uintptr_t symTab, uintptr_t st
     int resolved = 0;
     int stubbed = 0;
 
-    for (size_t i = 0; i < relCount; ++i) {
-        Elf32_Rel* rel = (Elf32_Rel*)(jmpRel + i * sizeof(Elf32_Rel));
+    for (size_t i = 0; i < relCount; ++i)
+    {
+        Elf32_Rel *rel = (Elf32_Rel *)(jmpRel + i * sizeof(Elf32_Rel));
         uint32_t symIdx = ELF32_R_SYM(rel->r_info);
-        Elf32_Sym* sym = (Elf32_Sym*)(symTab + symIdx * sizeof(Elf32_Sym));
-        const char* name = (const char*)(strTab + sym->st_name);
+        Elf32_Sym *sym = (Elf32_Sym *)(symTab + symIdx * sizeof(Elf32_Sym));
+        const char *name = (const char *)(strTab + sym->st_name);
         uintptr_t addr = GetExternalAddr(name);
 
-        if (addr == (uintptr_t)&UnimplementedStub) {
+        if (addr == (uintptr_t)&UnimplementedStub)
+        {
             stubbed++;
         }
-        else {
+        else
+        {
             resolved++;
         }
 
+        //addr = CreateThunk(name, addr); //For Debug purposed. Comment out if you have performance issues.
+
         DWORD oldProtect;
         VirtualProtect((LPVOID)rel->r_offset, 4, PAGE_READWRITE, &oldProtect);
-        *(uintptr_t*)(rel->r_offset) = addr;
+        *(uintptr_t *)(rel->r_offset) = addr;
         VirtualProtect((LPVOID)rel->r_offset, 4, oldProtect, &oldProtect);
     }
 

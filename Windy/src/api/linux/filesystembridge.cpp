@@ -12,14 +12,9 @@
 #include <errno.h>
 #include <stdarg.h>
 #include <iostream>
+#include <stdint.h>
 #include <string>
 #include <vector>
-
-// =============================================================
-// Globals
-// =============================================================
-extern uint8_t g_grp;
-extern uint8_t g_enumId;
 
 // =============================================================
 //   Bridge Headers
@@ -158,7 +153,7 @@ extern "C"
     {
         char winPath[MAX_PATH];
         LibcBridge::ConvertPath(winPath, pathname, MAX_PATH);
-        if (strcmp(winPath, "\\home\\disk1\\rankingdata") == 0 && (g_grp == GROUP_OUTRUN || g_grp == GROUP_OUTRUN_TEST))
+        if (strcmp(winPath, "\\home\\disk1\\rankingdata") == 0 && (getConfig()->gameGroup == GROUP_OUTRUN || getConfig()->gameGroup == GROUP_OUTRUN_TEST))
         {
             strcpy(winPath, ".\\rankingdata");
         }
@@ -176,7 +171,7 @@ extern "C"
         char winPath[MAX_PATH];
         LibcBridge::ConvertPath(winPath, name, MAX_PATH);
 
-        if (strcmp(winPath, "\\home\\disk1\\rankingdata") == 0 && (g_grp == GROUP_OUTRUN || g_grp == GROUP_OUTRUN_TEST))
+        if (strcmp(winPath, "\\home\\disk1\\rankingdata") == 0 && (getConfig()->gameGroup == GROUP_OUTRUN || getConfig()->gameGroup == GROUP_OUTRUN_TEST))
         {
             strcpy(winPath, ".\\rankingdata");
         }

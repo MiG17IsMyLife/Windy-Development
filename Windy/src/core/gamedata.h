@@ -201,7 +201,7 @@ inline const GameDataEntry* GetGameDatabase() {
                  WORKING, SEGA_TYPE_3, DRIVING, 800, 480, GROUP_OUTRUN,
                  false, true, true, false, false, false, YELLOW},
 
-                {0xFE8C6E87, "Outrun 2 SP SDX Rev A", "DVP-0015A", "SBMB", OUTRUN_2_SP_SDX_REVA,
+                {0xB2CE9B23, "Outrun 2 SP SDX Rev A", "DVP-0015A", "SBMB", OUTRUN_2_SP_SDX_REVA,
                  WORKING, SEGA_TYPE_3, DRIVING, 800, 480, GROUP_OUTRUN,
                  false, true, true, false, false, false, YELLOW},
 
@@ -294,7 +294,7 @@ inline const GameDataEntry* GetGameDatabase() {
                         WORKING, SEGA_TYPE_3, SHOOTING, 1280, 768, GROUP_HOD4,
                         false, false, false, false, false, false, YELLOW},
 
-                       {0x6E1CF723, "The House of the Dead 4 Rev C Test", "DVP-0003C", "SBLC", THE_HOUSE_OF_THE_DEAD_4_REVC_TEST,
+                       {0x6DA6E511, "The House of the Dead 4 Rev C Test", "DVP-0003C", "SBLC", THE_HOUSE_OF_THE_DEAD_4_REVC_TEST,
                         NOT_WORKING, SEGA_TYPE_3, SHOOTING, 1280, 768, GROUP_HOD4_TEST,
                         false, false, false, false, false, false, YELLOW},
 
@@ -310,7 +310,7 @@ inline const GameDataEntry* GetGameDatabase() {
                         WORKING, SEGA_TYPE_3, SHOOTING, 1024, 768, GROUP_HOD4_SP,
                         true, false, false, false, false, false, YELLOW},
 
-                       {0x4C04DA61, "The House of the Dead 4 Special Rev B Test", "DVP-0010B", "SBLS", THE_HOUSE_OF_THE_DEAD_4_SPECIAL_REVB_TEST,
+                       {0x302FEB00, "The House of the Dead 4 Special Rev B Test", "DVP-0010B", "SBLS", THE_HOUSE_OF_THE_DEAD_4_SPECIAL_REVB_TEST,
                         NOT_WORKING, SEGA_TYPE_3, SHOOTING, 1024, 768, GROUP_HOD4_SP_TEST,
                         true, false, false, false, false, false, YELLOW},
 

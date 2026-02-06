@@ -185,7 +185,7 @@ void Patches::PatchMemoryFromString(uintptr_t address, const char *value)
     }
 
     memcpy((void *)address, bytes.data(), bytes.size());
-    
+
     // Restore protection
     VirtualProtect((void *)address, bytes.size(), oldProtect, &oldProtect);
 }
@@ -224,7 +224,7 @@ void Patches::Apply(uint8_t gameId)
             MH_CreateHook((void *)0x080fd3ee, (void *)amDongleInit, NULL);
             MH_CreateHook((void *)0x080fbe39, (void *)amDongleIsAvailable, NULL);
             MH_CreateHook((void *)0x080fc89d, (void *)amDongleUpdate, NULL);
-            
+
             amDipswContextAddr = (void *)0x083bc4e8; // Address of amDipswContext
             MH_CreateHook((void *)0x080fbbcc, (void *)amDipswInit, NULL);
             MH_CreateHook((void *)0x080fbc50, (void *)amDipswExit, NULL);
@@ -246,6 +246,63 @@ void Patches::Apply(uint8_t gameId)
 
             // CPU patch to support AMD processors
             PatchMemoryFromString(0x0804e46c, "9090909090"); //__intel_new_proc_init_P
+            break;
+        }
+        case THE_HOUSE_OF_THE_DEAD_4_REVC_TEST:
+        {
+            MH_CreateHook((void *)0x0806228c, (void *)amDongleInit, NULL);
+            MH_CreateHook((void *)0x0806259f, (void *)amDongleIsAvailable, NULL);
+            MH_CreateHook((void *)0x08062506, (void *)amDongleUpdate, NULL);
+            // //  Fixes
+            amDipswContextAddr = (void *)0x080980e8; // Address of amDipswContext
+            MH_CreateHook((void *)0x08062034, (void *)amDipswInit, NULL);
+            MH_CreateHook((void *)0x080620c9, (void *)amDipswExit, NULL);
+            MH_CreateHook((void *)0x0806213f, (void *)amDipswGetData, NULL);
+            MH_CreateHook((void *)0x080621b7, (void *)amDipswSetLed, NULL);
+
+            // CPU patch to support AMD processors
+            PatchMemoryFromString(0x08049f4d, "9090909090"); //__intel_new_proc_init_P
+            break;
+        }
+        case THE_HOUSE_OF_THE_DEAD_4_SPECIAL_REVB_TEST:
+        {
+            MH_CreateHook((void *)0x0806e914, (void *)amDongleInit, NULL);
+            MH_CreateHook((void *)0x0806ec27, (void *)amDongleIsAvailable, NULL);
+            MH_CreateHook((void *)0x0806eb8e, (void *)amDongleUpdate, NULL);
+            // Fixes
+            amDipswContextAddr = (void *)0x080adfe8; // Address of amDipswContext
+            MH_CreateHook((void *)0x0806e6bc, (void *)amDipswInit, NULL);
+            MH_CreateHook((void *)0x0806e751, (void *)amDipswExit, NULL);
+            MH_CreateHook((void *)0x0806e7c7, (void *)amDipswGetData, NULL);
+            MH_CreateHook((void *)0x0806e83f, (void *)amDipswSetLed, NULL);
+
+            // CPU patch to support AMD processors
+            PatchMemoryFromString(0x08054820, "9090909090"); //__intel_new_proc_init_P
+            break;
+        }
+        case OUTRUN_2_SP_SDX_REVA:
+        {
+            // Security
+            MH_CreateHook((void *)0x08190e80, (void *)amDongleInit, NULL);
+            MH_CreateHook((void *)0x08191201, (void *)amDongleIsAvailable, NULL);
+            MH_CreateHook((void *)0x08191125, (void *)amDongleUpdate, NULL);
+            MH_CreateHook((void *)0x08191221, (void *)amDongleIsDevelop, NULL);
+            // Fixes
+            amDipswContextAddr = (void *)0x0896A088;
+            MH_CreateHook((void *)0x08190ca4, (void *)amDipswInit, NULL);
+            MH_CreateHook((void *)0x08190D40, (void *)amDipswExit, NULL);
+            MH_CreateHook((void *)0x08190db6, (void *)amDipswGetData, NULL);
+            MH_CreateHook((void *)0x08190e2e, (void *)amDipswSetLed, NULL);
+
+            // Taken from original patched OUTRUN 2 SP SDX by Android and improved a little
+            PatchMemoryFromString(0x08105317, "e91f000000");
+            PatchMemoryFromString(0x08109593, "9090");
+            PatchMemoryFromString(0x08109597, "9090");
+            PatchMemoryFromString(0x0810959D, "77");
+
+            // Bypass checks for Actuator and Force Feedback
+            MH_CreateHook((void *)0x08103eaa, (void *)stubRetOne, NULL); // Steering wheel
+            MH_CreateHook((void *)0x08105d88, (void *)stubRetOne, NULL); // Actuator
             break;
         }
         default:

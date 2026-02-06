@@ -20,7 +20,10 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\api\graphics\glhooks.cpp" />
+    <ClCompile Include="src\api\graphics\glutbridge.cpp" />
     <ClCompile Include="src\api\graphics\glxbridge.cpp" />
+    <ClCompile Include="src\api\graphics\sdlcalls.cpp" />
+    <ClCompile Include="src\api\graphics\shaderpatches.cpp" />
     <ClCompile Include="src\api\graphics\x11bridge.cpp" />
     <ClCompile Include="src\api\libc\libcbridge.cpp" />
     <ClCompile Include="src\api\libc\pthread_barrier.cpp" />
@@ -47,6 +50,7 @@
     <ClCompile Include="src\core\log.cpp" />
     <ClCompile Include="src\core\memorymanager.cpp" />
     <ClCompile Include="src\core\patches.cpp" />
+    <ClCompile Include="src\core\sharedobjectmanager.cpp" />
     <ClCompile Include="src\core\symbolresolver.cpp" />
     <ClCompile Include="src\hardware\baseboard.cpp" />
     <ClCompile Include="src\hardware\eepromboard.cpp" />
@@ -62,7 +66,10 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\api\graphics\glhooks.h" />
+    <ClInclude Include="src\api\graphics\glutbridge.h" />
     <ClInclude Include="src\api\graphics\glxbridge.h" />
+    <ClInclude Include="src\api\graphics\sdlcalls.h" />
+    <ClInclude Include="src\api\graphics\shaderpatches.h" />
     <ClInclude Include="src\api\graphics\x11bridge.h" />
     <ClInclude Include="src\api\graphics\x11types.h" />
     <ClInclude Include="src\api\libc\libcbridge.h" />
@@ -79,11 +86,14 @@
     <ClInclude Include="src\core\config.h" />
     <ClInclude Include="src\core\elfloader.h" />
     <ClInclude Include="src\core\gamedata.h" />
+    <ClInclude Include="src\core\ilibraryloader.h" />
     <ClInclude Include="src\core\iniparser.h" />
     <ClInclude Include="src\core\linuxstack.h" />
     <ClInclude Include="src\core\log.h" />
     <ClInclude Include="src\core\memorymanager.h" />
+    <ClInclude Include="src\core\nativedllloader.h" />
     <ClInclude Include="src\core\patches.h" />
+    <ClInclude Include="src\core\sharedobjectmanager.h" />
     <ClInclude Include="src\core\symbolresolver.h" />
     <ClInclude Include="src\hardware\baseboard.h" />
     <ClInclude Include="src\hardware\eepromboard.h" />
@@ -163,6 +173,7 @@
       <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>$(ProjectDir)include;$(ProjectDir)src\minhook\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -183,6 +194,7 @@
       <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <AdditionalIncludeDirectories>$(ProjectDir)include;$(ProjectDir)src\minhook\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>

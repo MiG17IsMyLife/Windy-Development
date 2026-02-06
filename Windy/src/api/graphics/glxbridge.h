@@ -83,25 +83,6 @@ class GLXBridge
     static GLXPbuffer CreateGLXPbufferSGIX(Display *dpy, GLXFBConfig config, unsigned int width, unsigned int height, int *attrib_list);
     static void DestroyGLXPbufferSGIX(Display *dpy, GLXPbuffer pbuf);
 
-    // --- GLUT (Toolkit) Integration ---
-    static void glutInit(int *argcp, char **argv);
-    static void glutInitDisplayMode(unsigned int mode);
-    static void glutInitWindowSize(int width, int height);
-    static void glutInitWindowPosition(int x, int y);
-    static int glutCreateWindow(const char *title);
-    static int glutEnterGameMode();
-    static void glutLeaveGameMode();
-    static void glutMainLoop();
-    static void glutDisplayFunc(void (*func)(void));
-    static void glutIdleFunc(void (*func)(void));
-    static void glutPostRedisplay();
-    static void glutSwapBuffers();
-    static int glutGet(int state);
-    static void glutSetCursor(int cursor);
-    static void glutGameModeString(const char *string);
-    static void glutBitmapCharacter(void *font, int character);
-    static int glutBitmapWidth(void *font, int character);
-
     // --- GLU Utilities ---
     static void gluPerspective(double fovy, double aspect, double zNear, double zFar);
     static void gluLookAt(double eyeX, double eyeY, double eyeZ, double centerX, double centerY, double centerZ, double upX, double upY,

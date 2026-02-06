@@ -87,7 +87,8 @@ enum JVSInput {
     ANALOGUE_1 = 0,
     ANALOGUE_2 = 1,
     ANALOGUE_3 = 2,
-    ANALOGUE_4 = 3
+    ANALOGUE_4 = 3,
+    COIN = 98,
 };
 
 enum JVSPlayer {

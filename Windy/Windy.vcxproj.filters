@@ -156,6 +156,18 @@
     <ClCompile Include="src\minhook\src\trampoline.c">
       <Filter>src\minhook\src</Filter>
     </ClCompile>
+    <ClCompile Include="src\api\graphics\glutbridge.cpp">
+      <Filter>src\api\graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="src\api\graphics\sdlcalls.cpp">
+      <Filter>src\api\graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="src\api\graphics\shaderpatches.cpp">
+      <Filter>src\api\graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="src\core\sharedobjectmanager.cpp">
+      <Filter>src\core</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\api\sega\libsegaapi.h">
@@ -259,6 +271,24 @@
     </ClInclude>
     <ClInclude Include="src\minhook\src\trampoline.h">
       <Filter>src\minhook\src</Filter>
+    </ClInclude>
+    <ClInclude Include="src\api\graphics\glutbridge.h">
+      <Filter>src\api\graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="src\api\graphics\sdlcalls.h">
+      <Filter>src\api\graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="src\api\graphics\shaderpatches.h">
+      <Filter>src\api\graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\ilibraryloader.h">
+      <Filter>src\core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\nativedllloader.h">
+      <Filter>src\core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\core\sharedobjectmanager.h">
+      <Filter>src\core</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

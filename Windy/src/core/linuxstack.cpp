@@ -1,4 +1,5 @@
 #define _CRT_SECURE_NO_WARNINGS
+
 #include "linuxstack.h"
 
 uint32_t LinuxStack::Setup(uint32_t size, const std::vector<std::string>& args) {
