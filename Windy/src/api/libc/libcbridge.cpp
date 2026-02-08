@@ -121,6 +121,7 @@ FILE *LibcBridge::fopen_wrapper(const char *filename, const char *mode)
         strncpy(winPath, ".\\LucidaConsole_12.abc", MAX_PATH);
     }
 
+
     if (strcmp(winPath, "\\usr\\lib\\boot\\logo.tga") == 0)
     {
         printf("LibcBridge: fopen mapped to Windows path: %s\n", winPath);
@@ -445,8 +446,7 @@ int LibcBridge::remove_wrapper(const char *pathname)
 {
     char winPath[MAX_PATH];
     ConvertPath(winPath, pathname, MAX_PATH);
-    if (strcmp(winPath, "\\home\\disk1\\rankingdata\\%s") == 0 &&
-        (getConfig()->gameGroup == GROUP_OUTRUN || getConfig()->gameGroup == GROUP_OUTRUN_TEST))
+    if (strcmp(winPath, "\\home\\disk1\\rankingdata\\%s") == 0 && (getConfig()->gameGroup == GROUP_OUTRUN || getConfig()->gameGroup == GROUP_OUTRUN_TEST))
     {
         return remove(".\\rankingdata\\%s");
     }
@@ -689,10 +689,6 @@ char *LibcBridge::strrchr_wrapper(const char *s, int c)
 char *LibcBridge::strstr_wrapper(const char *haystack, const char *needle)
 {
     return (char *)strstr(haystack, needle);
-}
-char *LibcBridge::strpbrk_wrapper(const char *s, const char *accept)
-{
-    return (char *)strpbrk(s, accept);
 }
 void *LibcBridge::memchr_wrapper(const void *s, int c, size_t n)
 {

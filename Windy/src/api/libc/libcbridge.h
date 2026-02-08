@@ -17,7 +17,7 @@
 #include <cwctype>
 #include <cstdint>
 #include <sys/types.h>
-//#include <winsock2.h>
+//#include <winsock2.h> // Include it if you build with MinGW
 #include <functional>
 
 // Linux off64_t definition
@@ -99,7 +99,6 @@ class LibcBridge
     static int strcoll_wrapper(const char *s1, const char *s2);
     static size_t strxfrm_wrapper(char *dest, const char *src, size_t n);
     static char *strerror_wrapper(int errnum);
-    static char *strpbrk_wrapper(const char *s, const char *accept);
 
     static void *malloc_wrapper(size_t size);
     static void free_wrapper(void *ptr);

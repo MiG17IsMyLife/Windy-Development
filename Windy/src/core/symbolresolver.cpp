@@ -23,6 +23,7 @@
 #include <stdlib.h>
 #include <fstream>
 #include <set>
+#include <crtdbg.h>
 #include "../api/graphics/glhooks.h"
 
 // --- OpenGL ---
@@ -604,16 +605,28 @@ extern "C" int my_getsockopt(SOCKET s, int level, int optname, char *optval, int
 }
 
 // --- Lindbergh Specific Stubs ---
-
-extern "C" void my_kswap_collect(void *p)
+void MyInvalidParameterHandler(const wchar_t *expression, const wchar_t *function, const wchar_t *file, unsigned int line,
+                               uintptr_t pReserved)
 {
-    return;
+    printf("CRT Invalid Parameter detected in function: %ws\n", function ? function : L"Unknown");
+}
+
+extern "C" int my_kswap_collect(void *p)
+{
+    return 0;
 }
 
 // Entrypoint hooking
 typedef int (*MainFunc)(int, char **, char **);
+
 extern "C" void my_libc_start_main(MainFunc m, int c, char **a, void (*i)(), void (*f)(), void (*r)(), void *s)
 {
+    // handler for invailed parameter
+    _set_invalid_parameter_handler(MyInvalidParameterHandler);
+
+    _CrtSetReportMode(_CRT_ASSERT, 0);
+    _CrtSetReportMode(_CRT_ERROR, 0);
+
     log_info("__libc_start_main called");
 
     // Initialize pthread emulation
@@ -641,10 +654,14 @@ extern "C" void my_libc_start_main(MainFunc m, int c, char **a, void (*i)(), voi
     }
     int result = 0;
     log_info("Calling main(argc=%d)", c);
+
+    static char *empty_env[] = {NULL};
+
 #ifdef _MSC_VER
     __try
     {
-        result = m(c, a, nullptr);
+
+        result = m(c, a, empty_env);
     }
     __except (ExceptionFilter(GetExceptionCode(), GetExceptionInformation()))
     {
@@ -652,7 +669,7 @@ extern "C" void my_libc_start_main(MainFunc m, int c, char **a, void (*i)(), voi
         exit(1);
     }
 #else
-    result = m(c, a, nullptr);
+    result = m(c, a, empty_env);
 #endif
     log_info("main() returned %d", result);
 
@@ -701,54 +718,48 @@ extern "C" void *my_operator_new_array(size_t size)
     return malloc(size);
 }
 
-extern "C" void __cdecl LogSymbolCall(const char *name, uintptr_t caller)
-{
+extern "C" void __cdecl LogSymbolCall(const char* name, uintptr_t caller) {
 
     printf("[SYMCALL] %s called from 0x%08X\n", name, (unsigned int)caller);
+
 }
 
-uintptr_t CreateThunk(const char *name, uintptr_t target)
-{
+uintptr_t CreateThunk(const char* name, uintptr_t target) {
 
-    uint8_t *thunk = (uint8_t *)VirtualAlloc(NULL, 64, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-    if (!thunk)
-        return target;
+    uint8_t* thunk = (uint8_t*)VirtualAlloc(NULL, 64, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (!thunk) return target;
 
-    uint8_t *p = thunk;
+    uint8_t* p = thunk;
 
     *p++ = 0x50; // push eax
     *p++ = 0x51; // push ecx
     *p++ = 0x52; // push edx
 
-    *p++ = 0x8B;
-    *p++ = 0x44;
-    *p++ = 0x24;
-    *p++ = 0x0C;
 
+    *p++ = 0x8B; *p++ = 0x44; *p++ = 0x24; *p++ = 0x0C;
+    
     *p++ = 0x50; // push eax (Arg2: caller address)
 
     *p++ = 0x68; // push imm32 (Arg1: name pointer)
-    *(uint32_t *)p = (uint32_t)name;
-    p += 4;
+    *(uint32_t*)p = (uint32_t)name; p += 4;
+
 
     *p++ = 0xE8; // call rel32
     uint32_t relAddr = (uint32_t)&LogSymbolCall - ((uint32_t)p + 4);
-    *(uint32_t *)p = relAddr;
-    p += 4;
+    *(uint32_t*)p = relAddr; p += 4;
 
-    //  Cleanup arguments
-    *p++ = 0x83;
-    *p++ = 0xC4;
-    *p++ = 0x08;
+    //  Cleanup arguments 
+    *p++ = 0x83; *p++ = 0xC4; *p++ = 0x08;
+
 
     *p++ = 0x5A; // pop edx
     *p++ = 0x59; // pop ecx
     *p++ = 0x58; // pop eax
 
+
     *p++ = 0xE9; // jmp rel32
     relAddr = (uint32_t)target - ((uint32_t)p + 4);
-    *(uint32_t *)p = relAddr;
-    p += 4;
+    *(uint32_t*)p = relAddr; p += 4;
 
     return (uintptr_t)thunk;
 }
@@ -761,112 +772,99 @@ uintptr_t CreateThunk(const char *name, uintptr_t target)
 // ============================================================
 
 // std::__default_alloc_template<true, 0>::allocate(unsigned int)
-static void *my_SGI_Alloc_Allocate(unsigned int n)
-{
+static void* my_SGI_Alloc_Allocate(unsigned int n) {
     // return ::operator new(n);
     return malloc(n);
 }
 
 // std::__default_alloc_template<true, 0>::deallocate(void*, unsigned int)
-static void my_SGI_Alloc_Deallocate(void *p, unsigned int n)
-{
+static void my_SGI_Alloc_Deallocate(void* p, unsigned int n) {
     // ::operator delete(p);
     free(p);
 }
 
 // std::ios_base::Init::Init()
-static void my_IosBaseInit_Ctor()
-{
-    // No-op for now.
+static void my_IosBaseInit_Ctor() {
+    // No-op for now. 
 }
 
 // std::ios_base::Init::~Init()
-static void my_IosBaseInit_Dtor()
-{
+static void my_IosBaseInit_Dtor() {
     // No-op
 }
 
 // --- std::string (GCC 3.x ABI: _ZNSs...) ---
 
 // GCC 3.x basic_string ABI structures
-struct GCC_String_Rep
-{
+struct GCC_String_Rep {
     size_t length;
     size_t capacity;
-    int _ref;
+    int _ref; 
     // The actual string data follows in memory immediately after this struct
 };
 
 // The actual std::string class on the stack is just a pointer
-struct GCC_String
-{
-    char *_M_dataplus; // Points to the string data (which is prepended by Rep)
+struct GCC_String {
+    char* _M_dataplus; // Points to the string data (which is prepended by Rep)
 };
 
 // std::string::string(char const*, std::allocator<char> const&)
-static void my_StdString_ConstChar_Ctor(void *this_ptr, const char *str, void *alloc)
-{
-    if (!this_ptr || !str)
-        return;
+static void my_StdString_ConstChar_Ctor(void* this_ptr, const char* str, void* alloc) {
+    if (!this_ptr || !str) return;
 
     size_t len = strlen(str);
-
+    
     // Allocate space for Rep header + string data + null terminator
     size_t total_size = sizeof(GCC_String_Rep) + len + 1;
-    void *memory = malloc(total_size);
+    void* memory = malloc(total_size); 
 
-    if (memory)
-    {
+    if (memory) {
         // Setup the Rep header
-        GCC_String_Rep *rep = (GCC_String_Rep *)memory;
+        GCC_String_Rep* rep = (GCC_String_Rep*)memory;
         rep->length = len;
         rep->capacity = len;
         rep->_ref = 0; // Owned by one
 
         // Copy string data after the header
-        char *data_ptr = (char *)(rep + 1);
+        char* data_ptr = (char*)(rep + 1);
         strcpy(data_ptr, str);
 
         // The std::string object itself is just a pointer to the data
-        GCC_String *gcc_str = (GCC_String *)this_ptr;
+        GCC_String* gcc_str = (GCC_String*)this_ptr;
         gcc_str->_M_dataplus = data_ptr;
-
+        
         log_info("Safe GCC String Constructed: '%s' (Rep: %p, Data: %p)", str, rep, data_ptr);
     }
 }
 
 // std::string::string(std::string const&)
 // std::string::string(std::string const&)
-static void my_StdString_CopyCtor(void *this_ptr, void *other_ptr)
-{
-    if (!this_ptr || !other_ptr)
-        return;
+static void my_StdString_CopyCtor(void* this_ptr, void* other_ptr) {
+    if (!this_ptr || !other_ptr) return;
 
     // other_ptr is pointer to GCC_String (which has _M_dataplus)
-    GCC_String *other_str = (GCC_String *)other_ptr;
-    char *other_data = other_str->_M_dataplus;
+    GCC_String* other_str = (GCC_String*)other_ptr;
+    char* other_data = other_str->_M_dataplus;
 
-    if (other_data)
-    {
+    if (other_data) {
         // Retrieve Rep from other string (pointers back -0xC)
-        GCC_String_Rep *other_rep = (GCC_String_Rep *)(other_data - sizeof(GCC_String_Rep));
-
+        GCC_String_Rep* other_rep = (GCC_String_Rep*)(other_data - sizeof(GCC_String_Rep));
+        
         // Deep Copy allocation
         size_t len = other_rep->length;
         size_t total_size = sizeof(GCC_String_Rep) + len + 1;
-        void *memory = malloc(total_size);
+        void* memory = malloc(total_size);
 
-        if (memory)
-        {
-            GCC_String_Rep *rep = (GCC_String_Rep *)memory;
+        if (memory) {
+            GCC_String_Rep* rep = (GCC_String_Rep*)memory;
             rep->length = len;
             rep->capacity = len;
             rep->_ref = 0; // Owned by one
 
-            char *data_ptr = (char *)(rep + 1);
+            char* data_ptr = (char*)(rep + 1);
             strcpy(data_ptr, other_data);
 
-            GCC_String *this_str = (GCC_String *)this_ptr;
+            GCC_String* this_str = (GCC_String*)this_ptr;
             this_str->_M_dataplus = data_ptr;
             log_debug("GCC String Copy Ctor: '%s'", data_ptr);
         }
@@ -875,25 +873,21 @@ static void my_StdString_CopyCtor(void *this_ptr, void *other_ptr)
 
 // std::string::~string() (The implementation often calls _M_destroy)
 // _ZNSs4_Rep10_M_destroyERKSaIcE
-static void my_StringRep_Destroy(void *rep_ptr, void *alloc)
-{
-    if (rep_ptr)
-    {
+static void my_StringRep_Destroy(void* rep_ptr, void* alloc) {
+    if (rep_ptr) {
         // log_debug("GCC String Rep Destroy: %p", rep_ptr);
         free(rep_ptr);
     }
 }
 
 // std::string::append(char const*, unsigned int)
-static void *my_StdString_Append(void *this_ptr, const char *s, unsigned int n)
-{
+static void* my_StdString_Append(void* this_ptr, const char* s, unsigned int n) {
     log_warn("STUB: string::append called.");
     return this_ptr;
 }
 
 // std::string::replace(unsigned int, unsigned int, char const*, unsigned int)
-static void *my_StdString_Replace(void *this_ptr, unsigned int pos, unsigned int n1, const char *s, unsigned int n2)
-{
+static void* my_StdString_Replace(void* this_ptr, unsigned int pos, unsigned int n1, const char* s, unsigned int n2) {
     log_warn("STUB: string::replace called.");
     return this_ptr;
 }
@@ -1057,13 +1051,13 @@ uintptr_t SymbolResolver::GetExternalAddr(const char *name)
     MAP("_ZdlPv", my_operator_delete);
     MAP("_Znwj", my_operator_new);
     MAP("_Znaj", my_operator_new_array);
-
+    
     // Missing C++ ABI (GCC 3.x / SGI STL)
     MAP("_ZNSt24__default_alloc_templateILb1ELi0EE8allocateEj", my_SGI_Alloc_Allocate);
     MAP("_ZNSt24__default_alloc_templateILb1ELi0EE10deallocateEPvj", my_SGI_Alloc_Deallocate);
     MAP("_ZNSt8ios_base4InitC1Ev", my_IosBaseInit_Ctor);
     MAP("_ZNSt8ios_base4InitD1Ev", my_IosBaseInit_Dtor);
-
+    
     // std::string (GCC 3.x)
     MAP("_ZNSsC1EPKcRKSaIcE", my_StdString_ConstChar_Ctor);
     MAP("_ZNSsC1ERKSs", my_StdString_CopyCtor);
@@ -1192,7 +1186,6 @@ uintptr_t SymbolResolver::GetExternalAddr(const char *name)
     MAP("rindex", LibcBridge::strrchr_wrapper);
     MAP("strcoll", LibcBridge::strcoll_wrapper);
     MAP("strxfrm", LibcBridge::strxfrm_wrapper);
-    MAP("strpbrk", LibcBridge::strpbrk_wrapper);
     MAP("strcpy", strcpy);
     MAP("strlen", strlen);
     MAP("strcmp", strcmp);
@@ -1212,6 +1205,7 @@ uintptr_t SymbolResolver::GetExternalAddr(const char *name)
     MAP("memalign", LibcBridge::memalign_wrapper);
     MAP("memcpy", memcpy);
     MAP("memset", memset);
+    MAP_OL("strpbrk", (char *(*)(char *, const char *))strpbrk);
 
     // Path / Environment
     MAP("getcwd", LibcBridge::getcwd_wrapper);
@@ -1591,48 +1585,40 @@ uintptr_t SymbolResolver::GetExternalAddr(const char *name)
     }
 
     // --- Dynamic GLHooks Bridge ---
-    // If the symbol starts with "gl" and isn't found in our static map,
-    // try asking GLHooks directly. This allows all wrappers in glhooks.cpp
+    // If the symbol starts with "gl" and isn't found in our static map, 
+    // try asking GLHooks directly. This allows all wrappers in glhooks.cpp 
     // to be found by dlsym-style lookups without manual registration here.
-    if (strncmp(name, "gl", 2) == 0)
-    {
+    if (strncmp(name, "gl", 2) == 0) {
         // Exclude glX and glut if handled elsewhere, but GLHooks::GetProcAddress checks name exactly.
-        void *proc = GLHooks::GetProcAddress(name);
-        if (proc)
-        {
+        void* proc = GLHooks::GetProcAddress(name);
+        if (proc) {
             // log_info("SymbolResolver resolved '%s' via GLHooks", name);
             return (uintptr_t)proc;
         }
     }
 
     // --- Runtime Logging for Missing OpenGL Functions ---
-    if (strncmp(name, "gl", 2) == 0 && strncmp(name, "glX", 3) != 0 && strncmp(name, "glut", 4) != 0)
-    {
+    if (strncmp(name, "gl", 2) == 0 && strncmp(name, "glX", 3) != 0 && strncmp(name, "glut", 4) != 0) {
         static std::set<std::string> missingGLSymbols;
-        if (missingGLSymbols.find(name) == missingGLSymbols.end())
-        {
+        if (missingGLSymbols.find(name) == missingGLSymbols.end()) {
             missingGLSymbols.insert(name);
             std::ofstream outfile;
             outfile.open("glmissing.txt", std::ios_base::app); // Append mode
-            if (outfile.is_open())
-            {
+            if (outfile.is_open()) {
                 outfile << name << ",";
                 outfile.close();
             }
         }
     }
 
-    // --- Runtime Logging for Missing OpenGL Functions ---
-    if (strncmp(name, "X", 2) == 0)
-    {
+   // --- Runtime Logging for Missing OpenGL Functions ---
+    if (strncmp(name, "X", 2) == 0 ) {
         static std::set<std::string> missingGLSymbols;
-        if (missingGLSymbols.find(name) == missingGLSymbols.end())
-        {
+        if (missingGLSymbols.find(name) == missingGLSymbols.end()) {
             missingGLSymbols.insert(name);
             std::ofstream outfile;
             outfile.open("xmissing.txt", std::ios_base::app); // Append mode
-            if (outfile.is_open())
-            {
+            if (outfile.is_open()) {
                 outfile << name << ",";
                 outfile.close();
             }
@@ -1674,7 +1660,7 @@ void SymbolResolver::ResolveAll(uintptr_t jmpRel, uintptr_t symTab, uintptr_t st
             resolved++;
         }
 
-        //addr = CreateThunk(name, addr); //For Debug purposed. Comment out if you have performance issues.
+        //addr = CreateThunk(name, addr);
 
         DWORD oldProtect;
         VirtualProtect((LPVOID)rel->r_offset, 4, PAGE_READWRITE, &oldProtect);

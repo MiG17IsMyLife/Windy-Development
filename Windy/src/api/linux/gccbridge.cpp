@@ -223,10 +223,8 @@ extern "C"
         uint64_t r;
         _udivmoddi4(a, b, &r);
         if (neg)
-#pragma warning(disable : 4146)
-            r = -r;
-#pragma warning(default : 4146)
-        return r;
+            r = (uint64_t)(-(int64_t)r);
+        return (int64_t)r;
     }
     uint64_t __fixunsdfdi(double a)
     {
