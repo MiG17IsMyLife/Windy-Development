@@ -30,6 +30,8 @@ class X11Bridge
     static int SelectInput(Display *dpy, Window win, long event_mask);
     static int SetCloseDownMode(Display *dpy, int close_mode);
     static int SetInputFocus(Display *dpy, Window win, int revert_to, Time time);
+    static int TranslateCoordinates(Display *dpy, Window src_w, Window dest_w, int src_x, int src_y, int *dest_x_return, int *dest_y_return,
+                                    Window *child_return);
 
     // --- Input (Mouse/Keyboard) ---
     static int QueryPointer(Display *dpy, Window win, Window *root_return, Window *child_return, int *root_x_return, int *root_y_return,
@@ -39,6 +41,8 @@ class X11Bridge
     static void GrabPointer(Display *dpy, Window win, int owner_events, unsigned int event_mask, int pointer_mode, int keyboard_mode,
                             Window confine_to, Cursor cursor, Time time);
     static void UngrabPointer(Display *dpy, Time time);
+    static int LookupString(XKeyEvent *event_struct, char *buffer_return, int bytes_buffer, KeySym *keysym_return,
+                            XComposeStatus *status_in_out);
     static int GrabKeyboard(Display *dpy, Window win, int owner_events, int pointer_mode, int keyboard_mode, Time time);
     static int UngrabKeyboard(Display *dpy, Time time);
     static int AutoRepeatOn(Display *dpy);
@@ -49,6 +53,8 @@ class X11Bridge
                            unsigned int *height_return, unsigned int *border_width_return, unsigned int *depth_return);
     static Atom InternAtom(Display *dpy, const char *name, int only_if_exists);
     static int StoreName(Display *dpy, Window win, const char *name);
+    static Colormap CreateColormap(Display *dpy, Window w, void *visual, int alloc);
+    static int ParseColor(Display *dpy, Colormap colormap, const char *spec, XColor *color_return);
     static int ChangeProperty(Display *dpy, Window win, Atom property, Atom type, int format, int mode, const unsigned char *data,
                               int nelements);
 

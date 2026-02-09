@@ -1327,6 +1327,24 @@ uintptr_t SymbolResolver::GetExternalAddr(const char *name)
     MAP("XUnlockDisplay", X11Bridge::UnlockDisplay);
     MAP("XSync", X11Bridge::Sync);
     MAP("XFlush", X11Bridge::Flush);
+    MAP("XCreateWindow", X11Bridge::XCreateWindow);
+    MAP("XDestroyWindow", X11Bridge::DestroyWindow);
+    MAP("XMapWindow", X11Bridge::MapWindow);
+    MAP("XMoveWindow", X11Bridge::MoveWindow);
+    MAP("XResizeWindow", X11Bridge::ResizeWindow);
+    MAP("XPending", X11Bridge::Pending);
+    MAP("XNextEvent", X11Bridge::NextEvent);
+    MAP("XTranslateCoordinates", X11Bridge::TranslateCoordinates);
+    MAP("XQueryPointer", X11Bridge::QueryPointer);
+    MAP("XWarpPointer", X11Bridge::WarpPointer);
+    MAP("XGrabPointer", X11Bridge::GrabPointer);
+    MAP("XUngrabPointer", X11Bridge::UngrabPointer);
+    MAP("XLookupString", X11Bridge::LookupString);
+    MAP("XInternAtom", X11Bridge::InternAtom);
+    MAP("XStoreName", X11Bridge::StoreName);
+    MAP("XCreateColormap", X11Bridge::CreateColormap);
+    MAP("XParseColor", X11Bridge::ParseColor);
+    MAP("XFree", X11Bridge::Free);
 
     MAP("XSetErrorHandler", X11Bridge::SetErrorHandler);
     MAP("XGetErrorText", X11Bridge::GetErrorText);

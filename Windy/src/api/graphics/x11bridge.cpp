@@ -10,8 +10,11 @@
 #include <deque>
 #include <map>
 #include <mutex>
+#include <atomic>
+#include <cctype>
 #include <cstring>
 #include <cstdlib>
+#include <string>
 
 // Windows API
 #define WIN32_LEAN_AND_MEAN
@@ -170,6 +173,117 @@ class XServerState
     std::mutex eventQueueMutex;
 };
 
+namespace
+{
+bool ParseHexColor(const char *spec, XColor *color)
+{
+    if (!spec || spec[0] != '#' || !color)
+        return false;
+
+    size_t len = strlen(spec + 1);
+    const char *hex = spec + 1;
+    auto hexValue = [](char c) -> int {
+        if (c >= '0' && c <= '9')
+            return c - '0';
+        if (c >= 'a' && c <= 'f')
+            return 10 + (c - 'a');
+        if (c >= 'A' && c <= 'F')
+            return 10 + (c - 'A');
+        return -1;
+    };
+
+    auto parseComponent = [&](int digits, unsigned short &out) -> bool {
+        int value = 0;
+        for (int i = 0; i < digits; ++i)
+        {
+            int v = hexValue(hex[i]);
+            if (v < 0)
+                return false;
+            value = (value << 4) | v;
+        }
+        if (digits == 1)
+            out = static_cast<unsigned short>(value * 0x1111);
+        else if (digits == 2)
+            out = static_cast<unsigned short>(value * 0x0101);
+        else
+            out = static_cast<unsigned short>(value);
+        hex += digits;
+        return true;
+    };
+
+    if (len == 3)
+    {
+        if (!parseComponent(1, color->red) || !parseComponent(1, color->green) || !parseComponent(1, color->blue))
+            return false;
+    }
+    else if (len == 6)
+    {
+        if (!parseComponent(2, color->red) || !parseComponent(2, color->green) || !parseComponent(2, color->blue))
+            return false;
+    }
+    else if (len == 12)
+    {
+        if (!parseComponent(4, color->red) || !parseComponent(4, color->green) || !parseComponent(4, color->blue))
+            return false;
+    }
+    else
+    {
+        return false;
+    }
+
+    color->flags = 0x07;
+    return true;
+}
+
+bool ParseNamedColor(const char *spec, XColor *color)
+{
+    if (!spec || !color)
+        return false;
+
+    std::string name;
+    for (const char *p = spec; *p; ++p)
+        name.push_back(static_cast<char>(std::tolower(*p)));
+
+    if (name == "black")
+    {
+        color->red = 0;
+        color->green = 0;
+        color->blue = 0;
+    }
+    else if (name == "white")
+    {
+        color->red = 0xFFFF;
+        color->green = 0xFFFF;
+        color->blue = 0xFFFF;
+    }
+    else if (name == "red")
+    {
+        color->red = 0xFFFF;
+        color->green = 0;
+        color->blue = 0;
+    }
+    else if (name == "green")
+    {
+        color->red = 0;
+        color->green = 0xFFFF;
+        color->blue = 0;
+    }
+    else if (name == "blue")
+    {
+        color->red = 0;
+        color->green = 0;
+        color->blue = 0xFFFF;
+    }
+    else
+    {
+        return false;
+    }
+
+    color->flags = 0x07;
+    return true;
+}
+} // namespace
+
 // --------------------------------------------------------------------------
 // X11Bridge Implementation
 // --------------------------------------------------------------------------
@@ -201,6 +315,9 @@ Window X11Bridge::XCreateWindow(Display *dpy, Window parent, int x, int y, unsig
 
 int X11Bridge::DestroyWindow(Display *dpy, Window win)
 {
+    SDL_Window *sdlWin = XServerState::Instance().GetSDLWindow(win);
+    if (sdlWin)
+        SDL_HideWindow(sdlWin);
     return 1;
 }
 
@@ -294,6 +411,34 @@ int X11Bridge::SetInputFocus(Display *dpy, Window win, int revert_to, Time time)
     return 1;
 }
 
+int X11Bridge::TranslateCoordinates(Display *dpy, Window src_w, Window dest_w, int src_x, int src_y, int *dest_x_return, int *dest_y_return,
+                                    Window *child_return)
+{
+    SDL_Window *srcWin = XServerState::Instance().GetSDLWindow(src_w);
+    SDL_Window *destWin = XServerState::Instance().GetSDLWindow(dest_w);
+
+    int srcWinX = 0;
+    int srcWinY = 0;
+    int destWinX = 0;
+    int destWinY = 0;
+
+    if (srcWin)
+        SDL_GetWindowPosition(srcWin, &srcWinX, &srcWinY);
+    if (destWin)
+        SDL_GetWindowPosition(destWin, &destWinX, &destWinY);
+
+    int globalX = src_x + srcWinX;
+    int globalY = src_y + srcWinY;
+
+    if (dest_x_return)
+        *dest_x_return = globalX - destWinX;
+    if (dest_y_return)
+        *dest_y_return = globalY - destWinY;
+    if (child_return)
+        *child_return = 0;
+    return 1;
+}
+
 // --- Input (Mouse/Keyboard) ---
 
 int X11Bridge::QueryPointer(Display *dpy, Window win, Window *root_return, Window *child_return, int *root_x_return, int *root_y_return,
@@ -343,6 +488,30 @@ void X11Bridge::UngrabPointer(Display *dpy, Time time)
 {
     if (SDLCalls::GetWindow())
         SDL_SetWindowMouseGrab(SDLCalls::GetWindow(), false);
+}
+
+int X11Bridge::LookupString(XKeyEvent *event_struct, char *buffer_return, int bytes_buffer, KeySym *keysym_return,
+                            XComposeStatus *status_in_out)
+{
+    if (!event_struct)
+        return 0;
+
+    SDL_Keycode keycode = SDL_GetKeyFromScancode(static_cast<SDL_Scancode>(event_struct->keycode), SDL_KMOD_NONE, false);
+    if (keysym_return)
+        *keysym_return = static_cast<KeySym>(keycode);
+
+    if (!buffer_return || bytes_buffer <= 0)
+        return 0;
+
+    if (keycode >= 0x20 && keycode <= 0x7E)
+    {
+        buffer_return[0] = static_cast<char>(keycode);
+        return 1;
+    }
+
+    if (bytes_buffer > 0)
+        buffer_return[0] = '\0';
+    return 0;
 }
 
 int X11Bridge::GrabKeyboard(Display *dpy, Window win, int owner_events, int pointer_mode, int keyboard_mode, Time time)
@@ -433,6 +602,32 @@ int X11Bridge::StoreName(Display *dpy, Window win, const char *name)
     SDL_Window *sdlWin = XServerState::Instance().GetSDLWindow(win);
     if (sdlWin && name)
         SDL_SetWindowTitle(sdlWin, name);
+    return 0;
+}
+
+Colormap X11Bridge::CreateColormap(Display *dpy, Window w, void *visual, int alloc)
+{
+    static std::atomic<Colormap> nextColormap{1};
+    return nextColormap++;
+}
+
+int X11Bridge::ParseColor(Display *dpy, Colormap colormap, const char *spec, XColor *color_return)
+{
+    if (!color_return || !spec)
+        return 0;
+
+    color_return->pixel = 0;
+    color_return->red = 0;
+    color_return->green = 0;
+    color_return->blue = 0;
+    color_return->flags = 0;
+    color_return->pad = 0;
+
+    if (ParseHexColor(spec, color_return))
+        return 1;
+    if (ParseNamedColor(spec, color_return))
+        return 1;
+
     return 0;
 }
 

@@ -14,6 +14,7 @@ typedef unsigned long VisualID;
 typedef unsigned long Pixmap;
 typedef unsigned long Cursor;
 typedef unsigned long Colormap;
+typedef unsigned long KeySym;
 
 // --------------------------------------------------------------------------
 // X11 Event Constants
@@ -161,6 +162,21 @@ typedef struct
     int format;
     unsigned long nitems;
 } XTextProperty;
+
+typedef struct
+{
+    unsigned long pixel;
+    unsigned short red;
+    unsigned short green;
+    unsigned short blue;
+    unsigned char flags;
+    unsigned char pad;
+} XColor;
+
+typedef struct
+{
+    int dummy;
+} XComposeStatus;
 
 typedef struct
 {
