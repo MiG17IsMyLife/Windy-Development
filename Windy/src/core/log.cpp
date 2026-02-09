@@ -29,7 +29,7 @@
 // ============================================================
 
 // Minimum level to output logs (can be changed at runtime)
-static int g_logMinLevel = LOG_FATAL;
+static int g_logMinLevel = LOG_TRACE;
 
 // Show file/line info
 static int g_logShowFileInfo = 1;

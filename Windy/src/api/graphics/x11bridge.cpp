@@ -11,10 +11,8 @@
 #include <map>
 #include <mutex>
 #include <atomic>
-#include <cctype>
 #include <cstring>
 #include <cstdlib>
-#include <string>
 
 // Windows API
 #define WIN32_LEAN_AND_MEAN
@@ -48,18 +46,21 @@ class XServerState
         }
     }
 
-    Window CreateVirtualWindow(int width, int height)
+    Window CreateVirtualWindow(int x, int y, int width, int height)
     {
-        if (SDLCalls::GetWindow())
+        SDL_Window *sdlWin = SDLCalls::GetWindow();
+        if (!sdlWin)
         {
-            SDL_SetWindowSize(SDLCalls::GetWindow(), width, height);
-            RegisterWindow(SDLCalls::GetWindow());
-            return mainWindowID;
+            SDLCalls::Start(0, 0);
+            sdlWin = SDLCalls::GetWindow();
         }
+        if (!sdlWin)
+            return 0;
 
-        SDLCalls::Start(0, 0);
-        RegisterWindow(SDLCalls::GetWindow());
-        return mainWindowID;
+        SDL_SetWindowSize(sdlWin, width, height);
+        SDL_SetWindowPosition(sdlWin, x, y);
+        RegisterWindow(sdlWin);
+        return GetXID(sdlWin);
     }
 
     void RegisterWindow(SDL_Window *sdlWin)
@@ -180,7 +181,7 @@ bool ParseHexColor(const char *spec, XColor *color)
     if (!spec || spec[0] != '#' || !color)
         return false;
 
-    size_t len = strlen(spec + 1);
+    size_t len = SDL_strlen(spec + 1);
     const char *hex = spec + 1;
     auto hexValue = [](char c) -> int {
         if (c >= '0' && c <= '9')
@@ -240,35 +241,31 @@ bool ParseNamedColor(const char *spec, XColor *color)
     if (!spec || !color)
         return false;
 
-    std::string name;
-    for (const char *p = spec; *p; ++p)
-        name.push_back(static_cast<char>(std::tolower(*p)));
-
-    if (name == "black")
+    if (SDL_strcasecmp(spec, "black") == 0)
     {
         color->red = 0;
         color->green = 0;
         color->blue = 0;
     }
-    else if (name == "white")
+    else if (SDL_strcasecmp(spec, "white") == 0)
     {
         color->red = 0xFFFF;
         color->green = 0xFFFF;
         color->blue = 0xFFFF;
     }
-    else if (name == "red")
+    else if (SDL_strcasecmp(spec, "red") == 0)
     {
         color->red = 0xFFFF;
         color->green = 0;
         color->blue = 0;
     }
-    else if (name == "green")
+    else if (SDL_strcasecmp(spec, "green") == 0)
     {
         color->red = 0;
         color->green = 0xFFFF;
         color->blue = 0;
     }
-    else if (name == "blue")
+    else if (SDL_strcasecmp(spec, "blue") == 0)
     {
         color->red = 0;
         color->green = 0;
@@ -310,7 +307,7 @@ Window X11Bridge::XCreateWindow(Display *dpy, Window parent, int x, int y, unsig
                                 XSetWindowAttributes *attributes)
 {
     log_info("XCreateWindow: %ux%u", width, height);
-    return XServerState::Instance().CreateVirtualWindow(width, height);
+    return XServerState::Instance().CreateVirtualWindow(x, y, width, height);
 }
 
 int X11Bridge::DestroyWindow(Display *dpy, Window win)
@@ -652,11 +649,11 @@ int X11Bridge::StringListToTextProperty(char **list, int count, XTextProperty *t
 {
     if (text_prop_return && count > 0 && list && list[0])
     {
-        size_t len = strlen(list[0]);
-        // Note: In a real X11 impl, XFree should free this. We use _aligned_malloc in original, here just malloc.
-        text_prop_return->value = (unsigned char *)malloc(len + 1);
+        size_t len = SDL_strlen(list[0]);
+        // Note: In a real X11 impl, XFree should free this.
+        text_prop_return->value = (unsigned char *)SDL_malloc(len + 1);
         if (text_prop_return->value)
-            strcpy((char *)text_prop_return->value, list[0]);
+            SDL_strlcpy((char *)text_prop_return->value, list[0], len + 1);
         text_prop_return->encoding = 31;
         text_prop_return->format = 8;
         text_prop_return->nitems = len;
@@ -668,7 +665,7 @@ int X11Bridge::StringListToTextProperty(char **list, int count, XTextProperty *t
 void X11Bridge::Free(void *data)
 {
     if (data)
-        free(data);
+        SDL_free(data);
 }
 
 // --- Pixmaps & Cursors ---
