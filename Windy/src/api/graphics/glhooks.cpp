@@ -264,20 +264,17 @@ WRAP_VOID(glReadPixels, (GLint x, GLint y, GLsizei width, GLsizei height, GLenum
 
 // Shaders / Programs
 WRAP(glCreateShader, GLuint, (GLenum type), (type))
-WRAP_VOID(glShaderSource, (GLuint shader, GLsizei count, const GLchar *const *string, const GLint *length),
-          (shader, count, string, length))
+WRAP_VOID(glShaderSource, (GLuint shader, GLsizei count, const GLchar *const *string, const GLint *length), (shader, count, string, length))
 WRAP_VOID(glCompileShader, (GLuint shader), (shader))
 WRAP_VOID(glGetShaderiv, (GLuint shader, GLenum pname, GLint *params), (shader, pname, params))
-WRAP_VOID(glGetShaderInfoLog, (GLuint shader, GLsizei bufSize, GLsizei *length, GLchar *infoLog),
-          (shader, bufSize, length, infoLog))
+WRAP_VOID(glGetShaderInfoLog, (GLuint shader, GLsizei bufSize, GLsizei *length, GLchar *infoLog), (shader, bufSize, length, infoLog))
 WRAP_VOID(glDeleteShader, (GLuint shader), (shader))
 
 WRAP(glCreateProgram, GLuint, (), ())
 WRAP_VOID(glAttachShader, (GLuint program, GLuint shader), (program, shader))
 WRAP_VOID(glLinkProgram, (GLuint program), (program))
 WRAP_VOID(glGetProgramiv, (GLuint program, GLenum pname, GLint *params), (program, pname, params))
-WRAP_VOID(glGetProgramInfoLog, (GLuint program, GLsizei bufSize, GLsizei *length, GLchar *infoLog),
-          (program, bufSize, length, infoLog))
+WRAP_VOID(glGetProgramInfoLog, (GLuint program, GLsizei bufSize, GLsizei *length, GLchar *infoLog), (program, bufSize, length, infoLog))
 WRAP_VOID(glUseProgram, (GLuint program), (program))
 WRAP_VOID(glDeleteProgram, (GLuint program), (program))
 
@@ -310,9 +307,9 @@ WRAP_VOID(glVertexAttribPointer, (GLuint index, GLint size, GLenum type, GLboole
 
 // Textures
 WRAP_VOID(glTexParameterf, (GLenum target, GLenum pname, GLfloat param), (target, pname, param))
-WRAP_VOID(glTexSubImage2D,
-          (GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height, GLenum format, GLenum type, const GLvoid *pixels),
-          (target, level, xoffset, yoffset, width, height, format, type, pixels))
+WRAP_VOID(glTexSubImage2D, 
+         (GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height, GLenum format, GLenum type, const GLvoid *pixels),
+         (target, level, xoffset, yoffset, width, height, format, type, pixels)) 
 
 // Misc
 WRAP_VOID(glColorMask, (GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha), (red, green, blue, alpha))
@@ -321,6 +318,75 @@ WRAP_VOID(glClearStencil, (GLint s), (s))
 WRAP_VOID(glStencilMask, (GLuint mask), (mask))
 WRAP_VOID(glLoadMatrixf, (const GLfloat *m), (m))
 WRAP_VOID(glDrawBuffer, (GLenum mode), (mode))
+
+// ARB_vertex_buffer_object (ARB variants)
+WRAP(glMapBufferARB, void *, (GLenum target, GLenum access), (target, access))
+WRAP(glUnmapBufferARB, GLboolean, (GLenum target), (target))
+WRAP_VOID(glBindBufferARB, (GLenum target, GLuint buffer), (target, buffer))
+WRAP_VOID(glDeleteBuffersARB, (GLsizei n, const GLuint *buffers), (n, buffers))
+WRAP_VOID(glGenBuffersARB, (GLsizei n, GLuint *buffers), (n, buffers))
+WRAP_VOID(glBufferDataARB, (GLenum target, GLsizeiptr size, const GLvoid *data, GLenum usage), (target, size, data, usage))
+WRAP_VOID(glBufferSubDataARB, (GLenum target, GLintptr offset, GLsizeiptr size, const GLvoid *data), (target, offset, size, data))
+
+// ARB_occlusion_query
+WRAP_VOID(glGenQueriesARB, (GLsizei n, GLuint *ids), (n, ids))
+WRAP_VOID(glDeleteQueriesARB, (GLsizei n, const GLuint *ids), (n, ids))
+WRAP_VOID(glBeginQueryARB, (GLenum target, GLuint id), (target, id))
+WRAP_VOID(glEndQueryARB, (GLenum target), (target))
+WRAP_VOID(glGetQueryObjectuivARB, (GLuint id, GLenum pname, GLuint *params), (id, pname, params))
+
+// GL 1.2 / 1.0 core (missing)
+WRAP_VOID(glDrawRangeElements, (GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type, const GLvoid *indices),
+          (mode, start, end, count, type, indices))
+WRAP_VOID(glCopyPixels, (GLint x, GLint y, GLsizei width, GLsizei height, GLenum type), (x, y, width, height, type))
+WRAP_VOID(glCopyTexSubImage2D, (GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint x, GLint y, GLsizei width, GLsizei height),
+          (target, level, xoffset, yoffset, x, y, width, height))
+WRAP_VOID(glGetTexLevelParameteriv, (GLenum target, GLint level, GLenum pname, GLint *params), (target, level, pname, params))
+WRAP_VOID(glGetTexImage, (GLenum target, GLint level, GLenum format, GLenum type, GLvoid *pixels), (target, level, format, type, pixels))
+
+// NV_primitive_restart
+WRAP_VOID(glPrimitiveRestartIndexNV, (GLuint index), (index))
+
+// ARB_vertex_program (missing entries)
+WRAP_VOID(glDeleteProgramsARB, (GLsizei n, const GLuint *programs), (n, programs))
+WRAP_VOID(glProgramEnvParameter4fvARB, (GLenum target, GLuint index, const GLfloat *params), (target, index, params))
+
+// EXT_blend extensions
+WRAP_VOID(glBlendFuncSeparateEXT, (GLenum sfactorRGB, GLenum dfactorRGB, GLenum sfactorAlpha, GLenum dfactorAlpha),
+          (sfactorRGB, dfactorRGB, sfactorAlpha, dfactorAlpha))
+WRAP_VOID(glBlendEquationEXT, (GLenum mode), (mode))
+WRAP_VOID(glBlendColorEXT, (GLclampf red, GLclampf green, GLclampf blue, GLclampf alpha), (red, green, blue, alpha))
+WRAP_VOID(glBlendEquationSeparateEXT, (GLenum modeRGB, GLenum modeAlpha), (modeRGB, modeAlpha))
+
+// ARB_window_pos
+WRAP_VOID(glWindowPos2sARB, (GLshort x, GLshort y), (x, y))
+
+// ARB_shader_objects (old-style GLhandleARB API, mapped to GLuint)
+WRAP(glCreateShaderObjectARB, GLuint, (GLenum shaderType), (shaderType))
+WRAP_VOID(glShaderSourceARB, (GLuint shaderObj, GLsizei count, const GLchar **string, const GLint *length),
+          (shaderObj, count, string, length))
+WRAP_VOID(glCompileShaderARB, (GLuint shaderObj), (shaderObj))
+WRAP_VOID(glUseProgramObjectARB, (GLuint programObj), (programObj))
+WRAP_VOID(glDeleteObjectARB, (GLuint obj), (obj))
+WRAP_VOID(glLinkProgramARB, (GLuint programObj), (programObj))
+WRAP_VOID(glGetObjectParameterivARB, (GLuint obj, GLenum pname, GLint *params), (obj, pname, params))
+WRAP_VOID(glGetInfoLogARB, (GLuint obj, GLsizei maxLength, GLsizei *length, GLchar *infoLog), (obj, maxLength, length, infoLog))
+
+// EXT_framebuffer_object (missing renderbuffer entries)
+WRAP_VOID(glDeleteRenderbuffersEXT, (GLsizei n, const GLuint *renderbuffers), (n, renderbuffers))
+WRAP_VOID(glGenRenderbuffersEXT, (GLsizei n, GLuint *renderbuffers), (n, renderbuffers))
+WRAP(glCheckFramebufferStatusEXT, GLenum, (GLenum target), (target))
+WRAP_VOID(glBindRenderbufferEXT, (GLenum target, GLuint renderbuffer), (target, renderbuffer))
+WRAP_VOID(glRenderbufferStorageEXT, (GLenum target, GLenum internalformat, GLsizei width, GLsizei height),
+          (target, internalformat, width, height))
+WRAP_VOID(glFramebufferRenderbufferEXT, (GLenum target, GLenum attachment, GLenum renderbuffertarget, GLuint renderbuffer),
+          (target, attachment, renderbuffertarget, renderbuffer))
+
+// ARB_texture_compression
+WRAP_VOID(glCompressedTexSubImage2DARB,
+          (GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height, GLenum format, GLsizei imageSize,
+           const GLvoid *data),
+          (target, level, xoffset, yoffset, width, height, format, imageSize, data))
 
 void *GLHooks::GetProcAddress(const char *procName)
 {
@@ -496,7 +562,6 @@ void *GLHooks::GetProcAddress(const char *procName)
     MAP(glFogf);
     MAP(gluErrorString);
 
-
     // Restored MAPs for non-NV functions
     MAP(glTexCoord4f);
     MAP(glVertex4f);
@@ -529,22 +594,95 @@ void *GLHooks::GetProcAddress(const char *procName)
     MAP(glDisableVertexAttribArrayARB);
     MAP(glIsProgramARB);
 
+    // ARB_vertex_buffer_object (ARB variants)
+    MAP(glMapBufferARB);
+    MAP(glUnmapBufferARB);
+    MAP(glBindBufferARB);
+    MAP(glDeleteBuffersARB);
+    MAP(glGenBuffersARB);
+    MAP(glBufferDataARB);
+    MAP(glBufferSubDataARB);
+
+    // ARB_occlusion_query
+    MAP(glGenQueriesARB);
+    MAP(glDeleteQueriesARB);
+    MAP(glBeginQueryARB);
+    MAP(glEndQueryARB);
+    MAP(glGetQueryObjectuivARB);
+
+    // GL core
+    MAP(glDrawRangeElements);
+    MAP(glCopyPixels);
+    MAP(glCopyTexSubImage2D);
+    MAP(glGetTexLevelParameteriv);
+    MAP(glGetTexImage);
+
+    // NV_primitive_restart
+    MAP(glPrimitiveRestartIndexNV);
+
+    // ARB_vertex_program (missing)
+    MAP(glDeleteProgramsARB);
+    MAP(glProgramEnvParameter4fvARB);
+
+    // EXT_blend extensions
+    MAP(glBlendFuncSeparateEXT);
+    MAP(glBlendEquationEXT);
+    MAP(glBlendColorEXT);
+    MAP(glBlendEquationSeparateEXT);
+
+    // ARB_window_pos
+    MAP(glWindowPos2sARB);
+
+    // ARB_shader_objects (old-style)
+    MAP(glCreateShaderObjectARB);
+    MAP(glShaderSourceARB);
+    MAP(glCompileShaderARB);
+    MAP(glUseProgramObjectARB);
+    MAP(glDeleteObjectARB);
+    MAP(glLinkProgramARB);
+    MAP(glGetObjectParameterivARB);
+    MAP(glGetInfoLogARB);
+
+    // EXT_framebuffer_object
+    MAP(glDeleteRenderbuffersEXT);
+    MAP(glGenRenderbuffersEXT);
+    MAP(glCheckFramebufferStatusEXT);
+    MAP(glBindRenderbufferEXT);
+    MAP(glRenderbufferStorageEXT);
+    MAP(glFramebufferRenderbufferEXT);
+
+    // ARB_texture_compression
+    MAP(glCompressedTexSubImage2DARB);
+
     // Extensions: Vertex Programs (NV) - Mapped to ShaderPatches
-    if (strcmp(procName, "glGenProgramsNV") == 0) return (void *)&ShaderPatches::glGenProgramsNV;
-    if (strcmp(procName, "glDeleteProgramsNV") == 0) return (void *)&ShaderPatches::glDeleteProgramsNV;
-    if (strcmp(procName, "glBindProgramNV") == 0) return (void *)&ShaderPatches::glBindProgramNV;
-    if (strcmp(procName, "glLoadProgramNV") == 0) return (void *)&ShaderPatches::glLoadProgramNV;
-    if (strcmp(procName, "glIsProgramNV") == 0) return (void *)&ShaderPatches::glIsProgramNV;
-    if (strcmp(procName, "glTrackMatrixNV") == 0) return (void *)&ShaderPatches::glTrackMatrixNV;
-    if (strcmp(procName, "glProgramParameter4fNV") == 0) return (void *)&ShaderPatches::glProgramParameter4fNV;
-    if (strcmp(procName, "glProgramParameter4fvNV") == 0) return (void *)&ShaderPatches::glProgramParameter4fvNV;
-    if (strcmp(procName, "glProgramParameters4fvNV") == 0) return (void *)&ShaderPatches::glProgramParameters4fvNV;
-    
+    if (strcmp(procName, "glGenProgramsNV") == 0)
+        return (void *)&ShaderPatches::glGenProgramsNV;
+    if (strcmp(procName, "glDeleteProgramsNV") == 0)
+        return (void *)&ShaderPatches::glDeleteProgramsNV;
+    if (strcmp(procName, "glBindProgramNV") == 0)
+        return (void *)&ShaderPatches::glBindProgramNV;
+    if (strcmp(procName, "glLoadProgramNV") == 0)
+        return (void *)&ShaderPatches::glLoadProgramNV;
+    if (strcmp(procName, "glIsProgramNV") == 0)
+        return (void *)&ShaderPatches::glIsProgramNV;
+    if (strcmp(procName, "glTrackMatrixNV") == 0)
+        return (void *)&ShaderPatches::glTrackMatrixNV;
+    if (strcmp(procName, "glProgramParameter4fNV") == 0)
+        return (void *)&ShaderPatches::glProgramParameter4fNV;
+    if (strcmp(procName, "glProgramParameter4fvNV") == 0)
+        return (void *)&ShaderPatches::glProgramParameter4fvNV;
+    if (strcmp(procName, "glProgramParameters4fvNV") == 0)
+        return (void *)&ShaderPatches::glProgramParameters4fvNV;
+
     // Extensions: Occlusion Query (NV)
-    if (strcmp(procName, "glGenOcclusionQueriesNV") == 0) return (void *)&ShaderPatches::glGenOcclusionQueriesNV;
-    if (strcmp(procName, "glBeginOcclusionQueryNV") == 0) return (void *)&ShaderPatches::glBeginOcclusionQueryNV;
-    if (strcmp(procName, "glEndOcclusionQueryNV") == 0) return (void *)&ShaderPatches::glEndOcclusionQueryNV;
-    if (strcmp(procName, "glGetOcclusionQueryuivNV") == 0) return (void *)&ShaderPatches::glGetOcclusionQueryuivNV;
+    if (strcmp(procName, "glGenOcclusionQueriesNV") == 0)
+        return (void *)&ShaderPatches::glGenOcclusionQueriesNV;
+    if (strcmp(procName, "glBeginOcclusionQueryNV") == 0)
+        return (void *)&ShaderPatches::glBeginOcclusionQueryNV;
+    if (strcmp(procName, "glEndOcclusionQueryNV") == 0)
+        return (void *)&ShaderPatches::glEndOcclusionQueryNV;
+    if (strcmp(procName, "glGetOcclusionQueryuivNV") == 0)
+        return (void *)&ShaderPatches::glGetOcclusionQueryuivNV;
 
     return NULL;
 }

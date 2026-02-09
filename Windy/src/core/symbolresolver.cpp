@@ -1348,6 +1348,34 @@ uintptr_t SymbolResolver::GetExternalAddr(const char *name)
     MAP("XUngrabKeyboard", X11Bridge::UngrabKeyboard);
 
     // ============================================================
+    // GLX Functions
+    // ============================================================
+    MAP("glXChooseVisual", GLXBridge::ChooseVisual);
+    MAP("glXCreateContext", GLXBridge::CreateContext);
+    MAP("glXDestroyContext", GLXBridge::DestroyContext);
+    MAP("glXMakeCurrent", GLXBridge::MakeCurrent);
+    MAP("glXSwapBuffers", GLXBridge::SwapBuffers);
+    MAP("glXGetProcAddressARB", GLXBridge::GetProcAddress);
+    MAP("glXGetProcAddress", GLXBridge::GetProcAddress);
+    MAP("glXSwapIntervalSGI", GLXBridge::SwapInterval);
+    MAP("glXQueryExtensionsString", GLXBridge::QueryExtensionsString);
+    MAP("glXQueryServerString", GLXBridge::QueryServerString);
+    MAP("glXGetClientString", GLXBridge::GetClientString);
+    MAP("glXGetCurrentDisplay", GLXBridge::GetCurrentDisplay);
+    MAP("glXGetCurrentContext", GLXBridge::GetCurrentContext);
+    MAP("glXGetCurrentDrawable", GLXBridge::GetCurrentDrawable);
+    MAP("glXIsDirect", GLXBridge::IsDirect);
+    MAP("glXGetConfig", GLXBridge::GetConfig);
+
+    // GLX SGIX / FBConfig Extensions
+    MAP("glXChooseFBConfigSGIX", GLXBridge::ChooseFBConfigSGIX);
+    MAP("glXGetFBConfigAttribSGIX", GLXBridge::GetFBConfigAttribSGIX);
+    MAP("glXGetVisualFromFBConfig", GLXBridge::GetVisualFromFBConfig);
+    MAP("glXCreateContextWithConfigSGIX", GLXBridge::CreateContextWithConfigSGIX);
+    MAP("glXCreateGLXPbufferSGIX", GLXBridge::CreateGLXPbufferSGIX);
+    MAP("glXDestroyGLXPbufferSGIX", GLXBridge::DestroyGLXPbufferSGIX);
+
+    // ============================================================
     // Pthreads
     // ============================================================
 
