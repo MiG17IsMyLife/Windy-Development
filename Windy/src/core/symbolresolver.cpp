@@ -1706,7 +1706,7 @@ void SymbolResolver::ResolveAll(uintptr_t jmpRel, uintptr_t symTab, uintptr_t st
             resolved++;
         }
 
-        //addr = CreateThunk(name, addr);
+        addr = CreateThunk(name, addr);
 
         DWORD oldProtect;
         VirtualProtect((LPVOID)rel->r_offset, 4, PAGE_READWRITE, &oldProtect);

@@ -10,6 +10,7 @@
 #include <deque>
 #include <map>
 #include <mutex>
+#include <cstdint>
 #include <atomic>
 #include <cstring>
 #include <cstdlib>
@@ -44,6 +45,20 @@ class XServerState
                 log_info("X11Bridge: SDL Subsystem Initialized");
             }
         }
+    }
+
+    Display *GetDisplayFromSDL() const
+    {
+        Display *dpy = SDLCalls::GetX11Display();
+        if (dpy)
+            return dpy;
+        return GetFallbackDisplay();
+    }
+
+    static Display *GetFallbackDisplay()
+    {
+        static Display fallbackDisplay = static_cast<Display>(0x58444953); // "XDIS"
+        return &fallbackDisplay;
     }
 
     Window CreateVirtualWindow(int x, int y, int width, int height)
@@ -140,7 +155,7 @@ class XServerState
                 xev.xkey.window = winID;
                 xev.xkey.keycode = e.key.scancode;
                 xev.xkey.time = (Time)e.key.timestamp;
-                xev.xkey.display = (Display *)0x1111;
+                xev.xkey.display = GetDisplayFromSDL();
                 PushEvent(xev);
                 break;
             case SDL_EVENT_MOUSE_MOTION:
@@ -149,7 +164,7 @@ class XServerState
                 xev.xmotion.x = (int)e.motion.x;
                 xev.xmotion.y = (int)e.motion.y;
                 xev.xmotion.time = (Time)e.motion.timestamp;
-                xev.xmotion.display = (Display *)0x1111;
+                xev.xmotion.display = GetDisplayFromSDL();
                 PushEvent(xev);
                 break;
             case SDL_EVENT_MOUSE_BUTTON_DOWN:
@@ -160,7 +175,7 @@ class XServerState
                 xev.xbutton.x = (int)e.button.x;
                 xev.xbutton.y = (int)e.button.y;
                 xev.xbutton.time = (Time)e.button.timestamp;
-                xev.xbutton.display = (Display *)0x1111;
+                xev.xbutton.display = GetDisplayFromSDL();
                 PushEvent(xev);
                 break;
         }
@@ -293,12 +308,27 @@ int X11Bridge::InitThreads()
 Display *X11Bridge::OpenDisplay(const char *name)
 {
     log_info("XOpenDisplay(\"%s\")", name ? name : "NULL");
+
     XServerState::Instance().Initialize();
-    return (Display *)0x1111;
+    
+    if (!SDLCalls::GetWindow())
+        SDLCalls::Start(nullptr, nullptr);
+
+    Display *display = SDLCalls::GetX11Display();
+    if (display)
+        return display;
+
+    if (name && name[0] != '\0')
+        log_warn("X11Bridge: SDL backend has no X11 display for '%s', using virtual display handle", name);
+    else
+        log_warn("X11Bridge: SDL backend has no X11 display, using virtual display handle");
+
+    return XServerState::Instance().GetFallbackDisplay();
 }
 
 int X11Bridge::CloseDisplay(Display *dpy)
 {
+    (void)dpy;
     return 0;
 }
 
