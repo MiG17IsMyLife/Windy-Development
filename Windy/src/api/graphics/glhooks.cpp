@@ -206,6 +206,25 @@ WRAP_VOID(glCompressedTexImage2DARB, (GLenum target, GLint level, GLenum interna
 WRAP_VOID(glTexParameterfv, (GLenum target, GLenum pname, const GLfloat *params), (target, pname, params))
 WRAP_VOID(glPointParameterf, (GLenum pname, GLfloat param), (pname, param))
 WRAP_VOID(glPointParameterfv, (GLenum pname, const GLfloat *params), (pname, params))
+static void my_glPointParameterfARB(GLenum pname, GLfloat param)
+{
+    using ArbFn = void (*)(GLenum, GLfloat);
+    static ArbFn real = nullptr;
+    if (!real)
+    {
+        real = (ArbFn)GLXBridge::GetProcAddress("glPointParameterfARB");
+        if (!real)
+            real = (ArbFn)GLXBridge::GetProcAddress("glPointParameterf");
+        if (!real)
+            real = (ArbFn)GLXBridge::GetProcAddress("glPointParameterfEXT");
+    }
+    if (!real)
+    {
+        log_error("GLHooks: Missing glPointParameterfARB");
+        return;
+    }
+    real(pname, param);
+}
 
 // Vertex / Matrix
 WRAP_VOID(glVertex4f, (GLfloat x, GLfloat y, GLfloat z, GLfloat w), (x, y, z, w))
@@ -334,6 +353,43 @@ WRAP_VOID(glDeleteQueriesARB, (GLsizei n, const GLuint *ids), (n, ids))
 WRAP_VOID(glBeginQueryARB, (GLenum target, GLuint id), (target, id))
 WRAP_VOID(glEndQueryARB, (GLenum target), (target))
 WRAP_VOID(glGetQueryObjectuivARB, (GLuint id, GLenum pname, GLuint *params), (id, pname, params))
+static void my_glGetQueryObjectivARB(GLuint id, GLenum pname, GLint *params)
+{
+    using ArbFn = void (*)(GLuint, GLenum, GLint *);
+    static ArbFn real = nullptr;
+    if (!real)
+    {
+        real = (ArbFn)GLXBridge::GetProcAddress("glGetQueryObjectivARB");
+        if (!real)
+            real = (ArbFn)GLXBridge::GetProcAddress("glGetQueryObjectiv");
+        if (!real)
+            real = (ArbFn)GLXBridge::GetProcAddress("glGetQueryObjectivEXT");
+    }
+    if (!real)
+    {
+        log_error("GLHooks: Missing glGetQueryObjectivARB");
+        return;
+    }
+    real(id, pname, params);
+}
+
+static void my_glDrawArraysEXT(GLenum mode, GLint first, GLsizei count)
+{
+    using ExtFn = void (*)(GLenum, GLint, GLsizei);
+    static ExtFn real = nullptr;
+    if (!real)
+    {
+        real = (ExtFn)GLXBridge::GetProcAddress("glDrawArraysEXT");
+        if (!real)
+            real = (ExtFn)GLXBridge::GetProcAddress("glDrawArrays");
+    }
+    if (!real)
+    {
+        log_error("GLHooks: Missing glDrawArraysEXT");
+        return;
+    }
+    real(mode, first, count);
+}
 
 // GL 1.2 / 1.0 core (missing)
 WRAP_VOID(glDrawRangeElements, (GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type, const GLvoid *indices),
@@ -577,6 +633,7 @@ void *GLHooks::GetProcAddress(const char *procName)
     MAP(glVertexAttribPointerARB);
     MAP(glDeleteFramebuffersEXT);
     MAP(glPointParameterf);
+    MAP(glPointParameterfARB);
     MAP(glProgramLocalParameter4fARB);
     MAP(glProgramLocalParameter4fvARB);
     MAP(glColorMaterial);
@@ -609,6 +666,8 @@ void *GLHooks::GetProcAddress(const char *procName)
     MAP(glBeginQueryARB);
     MAP(glEndQueryARB);
     MAP(glGetQueryObjectuivARB);
+    MAP(glGetQueryObjectivARB);
+    MAP(glDrawArraysEXT);
 
     // GL core
     MAP(glDrawRangeElements);

@@ -11,9 +11,9 @@
 #include <map>
 #include <mutex>
 #include <cstdint>
-#include <atomic>
 #include <cstring>
 #include <cstdlib>
+#include <string>
 
 // Windows API
 #define WIN32_LEAN_AND_MEAN
@@ -74,18 +74,28 @@ class XServerState
 
         SDL_SetWindowSize(sdlWin, width, height);
         SDL_SetWindowPosition(sdlWin, x, y);
-        RegisterWindow(sdlWin);
-        return GetXID(sdlWin);
+        return RegisterWindow(sdlWin);
     }
 
-    void RegisterWindow(SDL_Window *sdlWin)
+    Window RegisterWindow(SDL_Window *sdlWin)
     {
-        if (reverseWindowMap.find(sdlWin) == reverseWindowMap.end())
+        auto existing = reverseWindowMap.find(sdlWin);
+        if (existing != reverseWindowMap.end())
+            return existing->second;
+
+        Window xid = 0;
+        SDL_PropertiesID props = SDL_GetWindowProperties(sdlWin);
+        if (props)
         {
-            mainWindowID = 1;
-            windowMap[mainWindowID] = sdlWin;
-            reverseWindowMap[sdlWin] = mainWindowID;
+            xid = static_cast<Window>(SDL_GetNumberProperty(props, SDL_PROP_WINDOW_X11_WINDOW_NUMBER, 0));
         }
+
+        if (xid == 0)
+            xid = ++mainWindowID;
+
+        windowMap[xid] = sdlWin;
+        reverseWindowMap[sdlWin] = xid;
+        return xid;
     }
 
     SDL_Window *GetSDLWindow(Window win)
@@ -103,7 +113,41 @@ class XServerState
         {
             return reverseWindowMap[win];
         }
+        if (win == SDLCalls::GetWindow() && SDLCalls::GetX11Window())
+            return SDLCalls::GetX11Window();
         return 1;
+    }
+
+    Atom InternAtom(const char *name, int only_if_exists)
+    {
+        if (!name)
+            return 0;
+
+        auto it = atomNameToId.find(name);
+        if (it != atomNameToId.end())
+            return it->second;
+
+        if (only_if_exists)
+            return 0;
+
+        Atom atom = nextAtomId++;
+        atomNameToId[name] = atom;
+        return atom;
+    }
+
+    Colormap CreateColormap(Window win)
+    {
+        SDL_Window *sdlWin = GetSDLWindow(win);
+        if (!sdlWin)
+            return nextColormapId++;
+
+        auto existing = windowColormapMap.find(sdlWin);
+        if (existing != windowColormapMap.end())
+            return existing->second;
+
+        Colormap cmap = nextColormapId++;
+        windowColormapMap[sdlWin] = cmap;
+        return cmap;
     }
 
     void PushEvent(const XEvent &ev)
@@ -183,8 +227,12 @@ class XServerState
 
     bool sdlInitialized = false;
     Window mainWindowID = 1;
+    Atom nextAtomId = 1;
+    Colormap nextColormapId = 1;
     std::map<Window, SDL_Window *> windowMap;
     std::map<SDL_Window *, Window> reverseWindowMap;
+    std::map<std::string, Atom> atomNameToId;
+    std::map<SDL_Window *, Colormap> windowColormapMap;
     std::deque<XEvent> eventQueue;
     std::mutex eventQueueMutex;
 };
@@ -615,13 +663,7 @@ int X11Bridge::GetGeometry(Display *dpy, Drawable d, Window *root_return, int *x
 
 Atom X11Bridge::InternAtom(Display *dpy, const char *name, int only_if_exists)
 {
-    unsigned long hash = 0;
-    if (name)
-    {
-        for (const char *p = name; *p; p++)
-            hash = hash * 33 + *p;
-    }
-    return hash;
+    return XServerState::Instance().InternAtom(name, only_if_exists);
 }
 
 int X11Bridge::StoreName(Display *dpy, Window win, const char *name)
@@ -634,8 +676,7 @@ int X11Bridge::StoreName(Display *dpy, Window win, const char *name)
 
 Colormap X11Bridge::CreateColormap(Display *dpy, Window w, void *visual, int alloc)
 {
-    static std::atomic<Colormap> nextColormap{1};
-    return nextColormap++;
+    return XServerState::Instance().CreateColormap(w);
 }
 
 int X11Bridge::ParseColor(Display *dpy, Colormap colormap, const char *spec, XColor *color_return)
