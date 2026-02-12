@@ -12,7 +12,9 @@
 #include <cstdlib>
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+
 void *amDipswContextAddr;
+static char elfID[4];
 
 // =============================================================
 // amDongle Stubs
@@ -71,6 +73,16 @@ static int amDongleUserInfoEx(int a, int b, char *_arcadeContext)
     //     default:
     //         break;
     // }
+
+    GameID gameId = getConfig()->gameId;
+    switch (gameId)
+    {
+        case INITIALD_5_JAP_REVA:
+            memcpy(_arcadeContext, elfID, 4);
+            break;
+        default:
+            break;
+    }
     return 0;
 }
 
@@ -156,8 +168,33 @@ int amDipswGetData(uint8_t *dip)
 }
 
 // =============================================================
+// Hook Helper Macro (logs errors on failure)
+// =============================================================
+#define HOOK(addr, func)                                                                                                                   \
+    do                                                                                                                                     \
+    {                                                                                                                                      \
+        MH_STATUS _s = MH_CreateHook((void *)(addr), (void *)(func), NULL);                                                                \
+        if (_s != MH_OK)                                                                                                                   \
+            log_error("MH_CreateHook(0x%08X, %s) FAILED: %s", (addr), #func, MH_StatusToString(_s));                                       \
+        else                                                                                                                               \
+            log_info("MH_CreateHook(0x%08X, %s) OK", (addr), #func);                                                                       \
+    } while (0)
+
+// =============================================================
 // Patches Implementation
 // =============================================================
+
+void Patches::SetVariable(uintptr_t address, uint32_t value)
+{
+    DWORD oldProtect;
+    if (!VirtualProtect((void *)address, sizeof(uint32_t), PAGE_EXECUTE_READWRITE, &oldProtect))
+    {
+        log_error("SetVariable: Cannot unprotect memory at 0x%08X", address);
+        return;
+    }
+    *(uint32_t *)address = value;
+    VirtualProtect((void *)address, sizeof(uint32_t), oldProtect, &oldProtect);
+}
 
 void Patches::PatchMemoryFromString(uintptr_t address, const char *value)
 {
@@ -198,6 +235,8 @@ void Patches::Apply(uint8_t gameId)
         log_error("Patches: MinHook initialization failed: %s", MH_StatusToString(status));
         return;
     }
+
+    WindyConfig *config = getConfig();
 
     switch (gameId)
     {
@@ -303,6 +342,37 @@ void Patches::Apply(uint8_t gameId)
             // Bypass checks for Actuator and Force Feedback
             MH_CreateHook((void *)0x08103eaa, (void *)stubRetOne, NULL); // Steering wheel
             MH_CreateHook((void *)0x08105d88, (void *)stubRetOne, NULL); // Actuator
+            break;
+        }
+        case INITIALD_5_JAP_REVA: // Initial D Arcade Stage 5 Japan Rev.A (DVP-0070A)
+        {
+            // Security
+            HOOK(0x089111da, amDongleInit);
+            HOOK(0x0890fc25, amDongleIsAvailable);
+            HOOK(0x08910689, amDongleUpdate);
+            HOOK(0x089110a1, amDongleUserInfoEx);
+            memcpy(elfID, (void *)0x084e1707, 4); // Get gameID from the ELF
+
+            // Fixes
+            amDipswContextAddr = (void *)0x093d93a8;
+            HOOK(0x0890f9b8, amDipswInit);
+            HOOK(0x0890fa3c, amDipswExit);
+            HOOK(0x0890fab1, amDipswGetData);
+            HOOK(0x0890fb28, amDipswSetLed);
+
+            HOOK(0x08321968, stubRetOne);  // isEthLinkUp
+            HOOK(0x08307b62, stubRetOne);  // Skip Kickback initialization
+            HOOK(0x084de0dc, stubRetZero); // doesNeedRollerCleaning
+            HOOK(0x084de0f8, stubRetZero); // doesNeedStockerCleaning
+
+            PatchMemoryFromString(0x0843f068, "c0270900");     // tickInitStoreNetwork
+            PatchMemoryFromString(0x089e308c, "BA");           // Skips initialization
+            PatchMemoryFromString(0x08788e59, "e92601000090"); // Prevents Full Screen set from the game : This functions will crash for somehow. Someone please fix it.
+            PatchMemoryFromString(0x08441f99, "eb60");         // tickInitAddress
+
+            // Shader
+            HOOK(0x08388cb4, stubRetOne);            // isExistNewerSource (forces shader recompilation)
+            PatchMemoryFromString(0x0874433e, "00"); // Fix cutscenes
             break;
         }
         default:

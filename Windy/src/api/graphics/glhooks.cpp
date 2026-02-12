@@ -1,7 +1,3 @@
-// Re-implementation of GLHooks using standard C++ wrappers.
-// These wrappers automatically handle the ABI transition from the Linux Host (CDECL)
-// to the Windows OpenGL Driver (STDCALL).
-
 #define WIN32_LEAN_AND_MEAN
 // Ensure we get prototypes for GL extensions (glActiveTexture, etc)
 #define GL_GLEXT_PROTOTYPES
