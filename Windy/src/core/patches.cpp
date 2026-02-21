@@ -271,6 +271,20 @@ void Patches::Apply(uint8_t gameId)
             MH_CreateHook((void *)0x080fbd3c, (void *)amDipswSetLed, NULL); // amDipswSetLED
             break;
         }
+        case INITIALD_5_EXP_SBRY_SERVERBOX:
+        {
+            // Security
+            MH_CreateHook((void *)0x080fcdfe, (void *)amDongleInit, NULL);
+            MH_CreateHook((void *)0x080fb849, (void *)amDongleIsAvailable, NULL);
+            MH_CreateHook((void *)0x080fc2ad, (void *)amDongleUpdate, NULL);
+
+            amDipswContextAddr = (void *)0x083bbe88; // Address of amDipswContext
+            MH_CreateHook((void *)0x080fb5dc, (void *)amDipswInit, NULL);
+            MH_CreateHook((void *)0x080fb660, (void *)amDipswExit, NULL);
+            MH_CreateHook((void *)0x080fb6d5, (void *)amDipswGetData, NULL);
+            MH_CreateHook((void *)0x080fb74c, (void *)amDipswSetLed, NULL); // amDipswSetLED
+            break;
+        }
         case THE_HOUSE_OF_THE_DEAD_4_REVA_TEST:
         {
             MH_CreateHook((void *)0x080677a0, (void *)amDongleInit, NULL);

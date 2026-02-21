@@ -121,19 +121,27 @@ inline const GameDataEntry* GetGameDatabase() {
          NOT_WORKING, SEGA_TYPE_3, DRIVING, 1360, 768, GROUP_ID4_JAP,
          false, false, false, false, true, false, YELLOW},
 
+        {0x9BFD0D98, "Initial D Arcade Stage 4 Rev D Serverbox", "DVP-0019D", "SBML", INITIALD_4_REVD, 
+         NOT_WORKING, SEGA_TYPE_3, DRIVING, 640, 480, GROUP_ID_SERVERBOX, 
+         false, false, false, false, true, false, YELLOW},
+
         {0x9CF9BBCC, "Initial D Arcade Stage 4 Rev G", "DVP-0019G", "SBML", INITIALD_4_REVG,
          NOT_WORKING, SEGA_TYPE_3, DRIVING, 1360, 768, GROUP_ID4_JAP,
          false, false, false, false, true, false, YELLOW},
 
-        {0xC345E213, "Initial D4 Export Rev B", "DVP-0030B", "SBNK", INITIALD_4_EXP_REVB,
+        {0x9CF9BBCC, "Initial D Arcade Stage 4 Rev G Serverbox", "DVP-0019G", "SBML", INITIALD_4_REVG, 
+         NOT_WORKING, SEGA_TYPE_3, DRIVING, 640, 480, GROUP_ID_SERVERBOX, 
+         false, false, false, false, true, false, YELLOW},
+
+        {0xC345E213, "Initial D4 Rev B", "DVP-0030B", "SBNK", INITIALD_4_EXP_REVB,
          NOT_WORKING, SEGA_TYPE_3, DRIVING, 1360, 768, GROUP_ID4_EXP,
          false, false, false, false, true, false, YELLOW},
 
-        {0x98E6A516, "Initial D4 Export Rev C", "DVP-0030C", "SBNK", INITIALD_4_EXP_REVC,
+        {0x98E6A516, "Initial D4 Rev C", "DVP-0030C", "SBNK", INITIALD_4_EXP_REVC,
          NOT_WORKING, SEGA_TYPE_3, DRIVING, 1360, 768, GROUP_ID4_EXP,
          false, false, false, false, true, false, YELLOW},
 
-        {0xF67365C9, "Initial D4 Export Rev D", "DVP-0030D", "SBNK", INITIALD_4_EXP_REVD,
+        {0xF67365C9, "Initial D4 Rev D", "DVP-0030D", "SBNK", INITIALD_4_EXP_REVD,
          NOT_WORKING, SEGA_TYPE_3, DRIVING, 1360, 768, GROUP_ID4_EXP,
          false, false, false, false, true, false, YELLOW},
 
@@ -152,15 +160,19 @@ inline const GameDataEntry* GetGameDatabase() {
          NOT_WORKING, SEGA_TYPE_3, DRIVING, 1360, 768, GROUP_ID5,
          false, false, false, false, true, false, YELLOW},
 
-        {0xAEEE6BEF, "Initial D Arcade Stage 5 ServerBox", "DVP-0070", "SBQZ", INITIALD_5_JAP_SBQZ_SERVERBOX,
-         WORKING, SEGA_TYPE_3, DRIVING, 640, 480, GROUP_ID_SERVERBOX   ,
+        {0xAEEE6BEF, "Initial D Arcade Stage 5 Japanese Rev A ServerBox", "DVP-0070", "SBQZ", INITIALD_5_JAP_SBQZ_SERVERBOX,
+         WORKING, SEGA_TYPE_3, DRIVING, 640, 480, GROUP_ID_SERVERBOX,
          false, false, false, false, false, false, YELLOW},
 
-        {0xF99A3CDB, "Initial D5 EXP", "DVP-0075", "SBRY", INITIALD_5_EXP,
+        {0xF99A3CDB, "Initial D Arcade Stage 5 EXP", "DVP-0075", "SBRY", INITIALD_5_EXP,
          NOT_WORKING, SEGA_TYPE_3, DRIVING, 1360, 768, GROUP_ID5,
          false, false, false, false, true, false, YELLOW},
 
-        {0x8DF6BBF9, "Initial D5 EXP 2.0", "DVP-0084", "SBTS", INITIALD_5_EXP_20,
+        {0x3B5D2522, "Initial D Arcade Stage 5 Export 1.0 ServerBox", "DVP-0075", "SBRY", INITIALD_5_EXP_SBRY_SERVERBOX, WORKING,
+         SEGA_TYPE_3, DRIVING, 640, 480, GROUP_ID_SERVERBOX, 
+         false, false, false, false, false, false, YELLOW},
+
+        {0x8DF6BBF9, "Initial D Arcade Stage 5 EXP 2.0", "DVP-0084", "SBTS", INITIALD_5_EXP_20,
          NOT_WORKING, SEGA_TYPE_3, DRIVING, 1360, 768, GROUP_ID5,
          false, false, false, false, true, false, YELLOW},
 
