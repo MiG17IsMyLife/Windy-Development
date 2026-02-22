@@ -223,8 +223,7 @@ static void ChangeDirectoryToElfLocation(const char *elfPath)
 static void PrintBanner()
 {
     log_info("==============================================");
-    log_info("   Windy - SEGA Lindbergh Emulator");
-    log_info("   Windows Native Port");
+    log_info("   Windy - SEGA Lindbergh Loader for Windows");
     log_info("   Build: %s %s", __DATE__, __TIME__);
     log_info("==============================================");
 }
