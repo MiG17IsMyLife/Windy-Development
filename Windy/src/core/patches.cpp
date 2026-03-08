@@ -1,18 +1,19 @@
+#define _CRT_SECURE_NO_WARNINGS
+
 #include "patches.h"
 #include "config.h"
 #include "log.h"
 #include "MinHook.h"
 #include "../hardware/securityboard.h"
-#include <cstdint>
+#include "../api/graphics/shaderpatches.h"
 #include <cstdio>
-#include <cstdint>
-#include <cstdio>
-#include <vector>
-#include <string>
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_opengl.h>
+
 #include <cstdlib>
+#include <minwindef.h>
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
-
 void *amDipswContextAddr;
 static char elfID[4];
 
@@ -41,42 +42,10 @@ static int amDongleIsDevelop()
 
 static int amDongleUserInfoEx(int a, int b, char *_arcadeContext)
 {
-    // char *gameID;
-    // switch (g_gameId)
-    // {
-    //     case RAMBO_SBQL:
-    //         memcpy(_arcadeContext, "SBQL", 4);
-    //         break;
-    //     case HUMMER_EXTREME_SBST:
-    //     case HUMMER_EXTREME_MDX_SBTL:
-    //         memcpy(_arcadeContext, "SBST", 4);
-    //         break;
-    //     case GHOST_SQUAD_EVOLUTION_SBNJ:
-    //         memcpy(_arcadeContext, getConfig()->gameID, 4);
-    //         break;
-    //     case INITIALD_4_SBML_REVA:
-    //     case INITIALD_4_SBML_REVB:
-    //     case INITIALD_4_SBML_REVC:
-    //     case INITIALD_4_SBML_REVD:
-    //     case INITIALD_4_SBML_REVG:
-    //     case INITIALD_4_EXP_SBNK_REVB:
-    //     case INITIALD_4_EXP_SBNK_REVC:
-    //     case INITIALD_4_EXP_SBNK_REVD:
-    //     case INITIALD_5_JAP_SBQZ_REVA:
-    //     case INITIALD_5_JAP_SBQZ_REVC:
-    //     case INITIALD_5_JAP_SBQZ_REVF:
-    //     case INITIALD_5_EXP_SBRY:
-    //     case INITIALD_5_EXP20_SBTS:
-    //     case INITIALD_5_EXP20_SBTS_REVA:
-    //         memcpy(_arcadeContext, elfID, 4);
-    //         break;
-    //     default:
-    //         break;
-    // }
-
     GameID gameId = getConfig()->gameId;
     switch (gameId)
     {
+        case INITIALD_4_REVD:
         case INITIALD_5_JAP_REVA:
             memcpy(_arcadeContext, elfID, 4);
             break;
@@ -167,64 +136,106 @@ int amDipswGetData(uint8_t *dip)
     return 0;
 }
 
-// =============================================================
-// Hook Helper Macro (logs errors on failure)
-// =============================================================
-#define HOOK(addr, func)                                                                                                                   \
-    do                                                                                                                                     \
-    {                                                                                                                                      \
-        MH_STATUS _s = MH_CreateHook((void *)(addr), (void *)(func), NULL);                                                                \
-        if (_s != MH_OK)                                                                                                                   \
-            log_error("MH_CreateHook(0x%08X, %s) FAILED: %s", (addr), #func, MH_StatusToString(_s));                                       \
-        else                                                                                                                               \
-            log_info("MH_CreateHook(0x%08X, %s) OK", (addr), #func);                                                                       \
-    } while (0)
+void _putConsole(const char *format, ...)
+{
+    va_list args;
+    va_start(args, format);
+
+    char output[1000];
+    vsprintf(output, format, args);
+    printf("%s", output);
+    va_end(args);
+    printf("\n");
+}
 
 // =============================================================
 // Patches Implementation
 // =============================================================
 
-void Patches::SetVariable(uintptr_t address, uint32_t value)
+template <typename T> void detourFunction(size_t address, T function)
 {
-    DWORD oldProtect;
-    if (!VirtualProtect((void *)address, sizeof(uint32_t), PAGE_EXECUTE_READWRITE, &oldProtect))
-    {
-        log_error("SetVariable: Cannot unprotect memory at 0x%08X", address);
-        return;
-    }
-    *(uint32_t *)address = value;
-    VirtualProtect((void *)address, sizeof(uint32_t), oldProtect, &oldProtect);
+    MH_CreateHook((void *)address, (void *)function, NULL);
 }
 
-void Patches::PatchMemoryFromString(uintptr_t address, const char *value)
+void replaceCallAtAddress(uintptr_t address, void *function)
 {
-    std::string hex = value;
-    if (hex.length() % 2 != 0)
-    {
-        log_error("Patch string len should be even.");
-        return;
-    }
-
-    std::vector<uint8_t> bytes;
-    bytes.reserve(hex.length() / 2);
-
-    for (size_t i = 0; i < hex.length(); i += 2)
-    {
-        std::string byteString = hex.substr(i, 2);
-        bytes.push_back((uint8_t)strtol(byteString.c_str(), NULL, 16));
-    }
-
     DWORD oldProtect;
-    if (!VirtualProtect((void *)address, bytes.size(), PAGE_EXECUTE_READWRITE, &oldProtect))
+    if (!VirtualProtect((void *)address, 5, PAGE_EXECUTE_READWRITE, &oldProtect))
     {
         log_error("Error: Cannot unprotect memory region at 0x%p", (void *)address);
         return;
     }
 
-    memcpy((void *)address, bytes.data(), bytes.size());
+    uint32_t callAddress = (uintptr_t)function - address - 5;
 
-    // Restore protection
-    VirtualProtect((void *)address, bytes.size(), oldProtect, &oldProtect);
+    char cave[5] = {(char)0xE8, 0x00, 0x00, 0x00, 0x00};
+    cave[4] = (callAddress >> 24) & 0xFF;
+    cave[3] = (callAddress >> 16) & 0xFF;
+    cave[2] = (callAddress >> 8) & 0xFF;
+    cave[1] = callAddress & 0xFF;
+
+    memcpy((void *)address, cave, 5);
+
+    VirtualProtect((void *)address, 5, oldProtect, &oldProtect);
+}
+
+void Patches::patchMemoryFromString(uintptr_t address, const char *value)
+{
+    size_t len = strlen(value);
+    if (len % 2 != 0)
+    {
+        log_error("Patch string len should be even.");
+        return;
+    }
+
+    DWORD oldProtect;
+    if (!VirtualProtect((void *)address, len / 2, PAGE_EXECUTE_READWRITE, &oldProtect))
+    {
+        log_error("Error: Cannot unprotect memory region at 0x%p", (void *)address);
+        return;
+    }
+
+    uint8_t *target = (uint8_t *)address;
+    for (size_t i = 0; i < len; i += 2)
+    {
+        auto hexCharToByte = [](char c) -> uint8_t {
+            if (c >= '0' && c <= '9')
+                return c - '0';
+            if (c >= 'a' && c <= 'f')
+                return c - 'a' + 10;
+            if (c >= 'A' && c <= 'F')
+                return c - 'A' + 10;
+            return 0;
+        };
+
+        target[i / 2] = (hexCharToByte(value[i]) << 4) | hexCharToByte(value[i + 1]);
+    }
+
+    VirtualProtect((void *)address, len / 2, oldProtect, &oldProtect);
+}
+
+typedef char *(__stdcall *tTargetFunc2)(char *program, int e);
+
+tTargetFunc2 foricGGetProgramStringAddress = nullptr;
+char tmpShader[150000];
+
+char *_cgGetProgramString(char *program, int e)
+{
+    printf("_cgGetProgramString Called\n");
+    char *prgstr = foricGGetProgramStringAddress(program, e);
+
+    if ((prgstr == NULL) || (*prgstr == '\0'))
+    {
+        return tmpShader;
+    }
+    else
+    {
+        if (sprintf(tmpShader, "%s", prgstr) < 0)
+        {
+            printf("Falied to save shader for next empty one.\n");
+        }
+    }
+    return prgstr;
 }
 
 void Patches::Apply(uint8_t gameId)
@@ -236,8 +247,6 @@ void Patches::Apply(uint8_t gameId)
         return;
     }
 
-    WindyConfig *config = getConfig();
-
     switch (gameId)
     {
         case OUTRUN_2_SP_SDX_REVA_TEST: // OutRun 2 SP SDX Rev A Test
@@ -245,148 +254,163 @@ void Patches::Apply(uint8_t gameId)
             log_info("Patches: Applying hooks for OutRun 2 SP SDX Rev A Test (0x%08X)", gameId);
 
             // Create hooks
-            MH_CreateHook((void *)0x08066220, (void *)amDongleInit, NULL);
-            MH_CreateHook((void *)0x080665a1, (void *)amDongleIsAvailable, NULL);
-            MH_CreateHook((void *)0x080664c5, (void *)amDongleUpdate, NULL);
-            MH_CreateHook((void *)0x080665c1, (void *)amDongleIsDevelop, NULL);
+            detourFunction(0x08066220, amDongleInit);
+            detourFunction(0x080665a1, amDongleIsAvailable);
+            detourFunction(0x080664c5, amDongleUpdate);
+            detourFunction(0x080665c1, amDongleIsDevelop);
 
             amDipswContextAddr = (void *)0x080980e8; // Address of amDipswContext
-            MH_CreateHook((void *)0x08066044, (void *)amDipswInit, NULL);
-            MH_CreateHook((void *)0x080660e0, (void *)amDipswExit, NULL);
-            MH_CreateHook((void *)0x08066156, (void *)amDipswGetData, NULL);
-            MH_CreateHook((void *)0x080661ce, (void *)amDipswSetLed, NULL);
+            detourFunction(0x08066044, amDipswInit);
+            detourFunction(0x080660e0, amDipswExit);
+            detourFunction(0x08066156, amDipswGetData);
+            detourFunction(0x080661ce, amDipswSetLed);
+            break;
+        }
+        case INITIALD_4_REVD:
+        {
+            // Security
+            detourFunction(0x086e8276, amDongleInit);
+            detourFunction(0x086e6cc1, amDongleIsAvailable);
+            detourFunction(0x086e7725, amDongleUpdate);
+            detourFunction(0x086e813d, amDongleUserInfoEx);
+            memcpy(elfID, (void *)0x087929d8, 4); // Gets gameID from the ELF
+            //  Fixes
+            amDipswContextAddr = (void *)0x08da8a68; // Address of amDipswContext
+            detourFunction(0x086e6a54, amDipswInit);
+            detourFunction(0x086e6ad8, amDipswExit);
+            detourFunction(0x086e6b4d, amDipswGetData);
+            detourFunction(0x086e6bc4, amDipswSetLed); // amDipswSetLED
+
+            detourFunction(0x0821f5cc, stubRetOne);          // isEthLinkUp
+            patchMemoryFromString(0x082cd3b2, "c0270900");   // tickInitStoreNetwork
+            patchMemoryFromString(0x082cd679, "e950010000"); // tickWaitDHCP
+            patchMemoryFromString(0x082cedf8, "EB");         // Skip Kickback initialization
+            patchMemoryFromString(0x087a024c, "f2");         // Skips initialization
+            patchMemoryFromString(0x087a025c, "6f");         // Skips initialization
+            // setVariable(0x0855f519, 0x000126e9);             // Avoid Full Screen set from Game
+
+            patchMemoryFromString(0x0854ee03, "31C090"); // cgCreateProgram args argument to 0;
+            detourFunction(0x08257470, stubRetOne);      // isExistNewerSource (forces shader recompilation)
+
+            // uintptr_t origCgCreateProgram = *(uintptr_t *)0x08956eb8;
+            // printf("Hooking _cgCreateProgram at 0x%p\n", (void *)origCgCreateProgram);
+            // foricGCreateProgramAddress = (tTargetFunc)origCgCreateProgram;
+            // replaceCallAtAddress(0x0854ee38, (void*)_cgCreateProgram);
+
+            uintptr_t origCgGetProgramString = *(uintptr_t *)0x08957328;
+            printf("Hooking _cgGetProgramString at 0x%p\n", (void *)origCgGetProgramString);
+            foricGGetProgramStringAddress = (tTargetFunc2)origCgGetProgramString;
+            replaceCallAtAddress(0x0854180c, (void*)_cgGetProgramString);
+            replaceCallAtAddress(0x0854f99e, (void*)_cgGetProgramString);
+            replaceCallAtAddress(0x0854fe3c, (void*)_cgGetProgramString);
+            replaceCallAtAddress(0x0855211c, (void*)_cgGetProgramString);
+            replaceCallAtAddress(0x085537ac, (void*)_cgGetProgramString);
+            replaceCallAtAddress(0x08555b7a, (void*)_cgGetProgramString);
             break;
         }
         case INITIALD_5_JAP_SBQZ_SERVERBOX:
         {
             // Security
-            MH_CreateHook((void *)0x080fd3ee, (void *)amDongleInit, NULL);
-            MH_CreateHook((void *)0x080fbe39, (void *)amDongleIsAvailable, NULL);
-            MH_CreateHook((void *)0x080fc89d, (void *)amDongleUpdate, NULL);
+            detourFunction(0x080fd3ee, amDongleInit);
+            detourFunction(0x080fbe39, amDongleIsAvailable);
+            detourFunction(0x080fc89d, amDongleUpdate);
 
             amDipswContextAddr = (void *)0x083bc4e8; // Address of amDipswContext
-            MH_CreateHook((void *)0x080fbbcc, (void *)amDipswInit, NULL);
-            MH_CreateHook((void *)0x080fbc50, (void *)amDipswExit, NULL);
-            MH_CreateHook((void *)0x080fbcc5, (void *)amDipswGetData, NULL);
-            MH_CreateHook((void *)0x080fbd3c, (void *)amDipswSetLed, NULL); // amDipswSetLED
-            break;
-        }
-        case INITIALD_5_EXP_SBRY_SERVERBOX:
-        {
-            // Security
-            MH_CreateHook((void *)0x080fcdfe, (void *)amDongleInit, NULL);
-            MH_CreateHook((void *)0x080fb849, (void *)amDongleIsAvailable, NULL);
-            MH_CreateHook((void *)0x080fc2ad, (void *)amDongleUpdate, NULL);
-
-            amDipswContextAddr = (void *)0x083bbe88; // Address of amDipswContext
-            MH_CreateHook((void *)0x080fb5dc, (void *)amDipswInit, NULL);
-            MH_CreateHook((void *)0x080fb660, (void *)amDipswExit, NULL);
-            MH_CreateHook((void *)0x080fb6d5, (void *)amDipswGetData, NULL);
-            MH_CreateHook((void *)0x080fb74c, (void *)amDipswSetLed, NULL); // amDipswSetLED
-            break;
-        }
-        case THE_HOUSE_OF_THE_DEAD_4_REVA_TEST:
-        {
-            MH_CreateHook((void *)0x080677a0, (void *)amDongleInit, NULL);
-            MH_CreateHook((void *)0x08067a81, (void *)amDongleIsAvailable, NULL);
-            MH_CreateHook((void *)0x080679e8, (void *)amDongleUpdate, NULL);
-            // Fixes
-            amDipswContextAddr = (void *)0x080a7a48; // Address of amDipswContext
-            MH_CreateHook((void *)0x08067548, (void *)amDipswInit, NULL);
-            MH_CreateHook((void *)0x080675dd, (void *)amDipswExit, NULL);
-            MH_CreateHook((void *)0x08067653, (void *)amDipswGetData, NULL);
-            MH_CreateHook((void *)0x080676cb, (void *)amDipswSetLed, NULL);
-
-            // CPU patch to support AMD processors
-            PatchMemoryFromString(0x0804e46c, "9090909090"); //__intel_new_proc_init_P
-            break;
-        }
-        case THE_HOUSE_OF_THE_DEAD_4_REVC_TEST:
-        {
-            MH_CreateHook((void *)0x0806228c, (void *)amDongleInit, NULL);
-            MH_CreateHook((void *)0x0806259f, (void *)amDongleIsAvailable, NULL);
-            MH_CreateHook((void *)0x08062506, (void *)amDongleUpdate, NULL);
-            // //  Fixes
-            amDipswContextAddr = (void *)0x080980e8; // Address of amDipswContext
-            MH_CreateHook((void *)0x08062034, (void *)amDipswInit, NULL);
-            MH_CreateHook((void *)0x080620c9, (void *)amDipswExit, NULL);
-            MH_CreateHook((void *)0x0806213f, (void *)amDipswGetData, NULL);
-            MH_CreateHook((void *)0x080621b7, (void *)amDipswSetLed, NULL);
-
-            // CPU patch to support AMD processors
-            PatchMemoryFromString(0x08049f4d, "9090909090"); //__intel_new_proc_init_P
-            break;
-        }
-        case THE_HOUSE_OF_THE_DEAD_4_SPECIAL_REVB_TEST:
-        {
-            MH_CreateHook((void *)0x0806e914, (void *)amDongleInit, NULL);
-            MH_CreateHook((void *)0x0806ec27, (void *)amDongleIsAvailable, NULL);
-            MH_CreateHook((void *)0x0806eb8e, (void *)amDongleUpdate, NULL);
-            // Fixes
-            amDipswContextAddr = (void *)0x080adfe8; // Address of amDipswContext
-            MH_CreateHook((void *)0x0806e6bc, (void *)amDipswInit, NULL);
-            MH_CreateHook((void *)0x0806e751, (void *)amDipswExit, NULL);
-            MH_CreateHook((void *)0x0806e7c7, (void *)amDipswGetData, NULL);
-            MH_CreateHook((void *)0x0806e83f, (void *)amDipswSetLed, NULL);
-
-            // CPU patch to support AMD processors
-            PatchMemoryFromString(0x08054820, "9090909090"); //__intel_new_proc_init_P
+            detourFunction(0x080fbbcc, amDipswInit);
+            detourFunction(0x080fbc50, amDipswExit);
+            detourFunction(0x080fbcc5, amDipswGetData);
+            detourFunction(0x080fbd3c, amDipswSetLed); // amDipswSetLED
             break;
         }
         case OUTRUN_2_SP_SDX_REVA:
         {
             // Security
-            MH_CreateHook((void *)0x08190e80, (void *)amDongleInit, NULL);
-            MH_CreateHook((void *)0x08191201, (void *)amDongleIsAvailable, NULL);
-            MH_CreateHook((void *)0x08191125, (void *)amDongleUpdate, NULL);
-            MH_CreateHook((void *)0x08191221, (void *)amDongleIsDevelop, NULL);
+            detourFunction(0x08190e80, amDongleInit);
+            detourFunction(0x08191201, amDongleIsAvailable);
+            detourFunction(0x08191125, amDongleUpdate);
+            detourFunction(0x08191221, amDongleIsDevelop);
             // Fixes
             amDipswContextAddr = (void *)0x0896A088;
-            MH_CreateHook((void *)0x08190ca4, (void *)amDipswInit, NULL);
-            MH_CreateHook((void *)0x08190D40, (void *)amDipswExit, NULL);
-            MH_CreateHook((void *)0x08190db6, (void *)amDipswGetData, NULL);
-            MH_CreateHook((void *)0x08190e2e, (void *)amDipswSetLed, NULL);
+            detourFunction(0x08190ca4, amDipswInit);
+            detourFunction(0x08190D40, amDipswExit);
+            detourFunction(0x08190db6, amDipswGetData);
+            detourFunction(0x08190e2e, amDipswSetLed);
 
             // Taken from original patched OUTRUN 2 SP SDX by Android and improved a little
-            PatchMemoryFromString(0x08105317, "e91f000000");
-            PatchMemoryFromString(0x08109593, "9090");
-            PatchMemoryFromString(0x08109597, "9090");
-            PatchMemoryFromString(0x0810959D, "77");
+            patchMemoryFromString(0x08105317, "e91f000000");
+            patchMemoryFromString(0x08109593, "9090");
+            patchMemoryFromString(0x08109597, "9090");
+            patchMemoryFromString(0x0810959D, "77");
 
             // Bypass checks for Actuator and Force Feedback
-            MH_CreateHook((void *)0x08103eaa, (void *)stubRetOne, NULL); // Steering wheel
-            MH_CreateHook((void *)0x08105d88, (void *)stubRetOne, NULL); // Actuator
+            detourFunction(0x08103eaa, stubRetOne); // Steering wheel
+            detourFunction(0x08105d88, stubRetOne); // Actuator
+
+            // detourFunction(0x0804ca98, ShaderPatches::my_glProgramStringARB);
+            // Mesa Patches
+            // detourFunction(0x0804cf38, ShaderPatches::glGenProgramsNV);             // Replaces glGenProgramsNV
+            // detourFunction(0x0804c548, ShaderPatches::glBindProgramNV);             // Replaces glBindProgramNV
+            // detourFunction(0x0804c788, ShaderPatches::glLoadProgramNV);             // Replaces glLoadProgramNV
+            // detourFunction(0x0804c4e8, ShaderPatches::glDeleteProgramsNV);          // Replaces glDeleteProgramsNV
+            // detourFunction(0x0804c938, ShaderPatches::glProgramParameter4fvNV);  // Replaces glProgramParameter4fvNV
+            // detourFunction(0x0804ce18, ShaderPatches::glProgramParameters4fvNV); // Replaces glProgramParameters4fvNV
+            // detourFunction(0x0804cec8, ShaderPatches::glProgramParameter4fNV);   // Replaces glProgramParameter4fNV
+            // detourFunction(0x0804cb98, ShaderPatches::glIsProgramNV);               // Replaces glIsProgramNV
+            // detourFunction(0x0804c568, ShaderPatches::glEndOcclusionQueryNV);       // Replaces glEndOcclusionQueryNV
+            // detourFunction(0x0804d498, ShaderPatches::glGetOcclusionQueryuivNV);       // Replaces glGetOcclusionQueryuivNV
+            // detourFunction(0x0804d648, ShaderPatches::glGenOcclusionQueriesNV);              // Replaces glGenOcclusionQueriesNV
+            // detourFunction(0x0804d0a8, ShaderPatches::glBeginOcclusionQueryNV);     // Replaces glBeginOcclusionQueryNV
+            // detourFunction(0x0804d158, ShaderPatches::glEnable);     // Patches glEnable
+            // detourFunction(0x0804c888, ShaderPatches::glDisable);     // Patches glDisable
+
+
             break;
         }
         case INITIALD_5_JAP_REVA: // Initial D Arcade Stage 5 Japan Rev.A (DVP-0070A)
         {
             // Security
-            HOOK(0x089111da, amDongleInit);
-            HOOK(0x0890fc25, amDongleIsAvailable);
-            HOOK(0x08910689, amDongleUpdate);
-            HOOK(0x089110a1, amDongleUserInfoEx);
+            detourFunction(0x089111da, amDongleInit);
+            detourFunction(0x0890fc25, amDongleIsAvailable);
+            detourFunction(0x08910689, amDongleUpdate);
+            detourFunction(0x089110a1, amDongleUserInfoEx);
             memcpy(elfID, (void *)0x084e1707, 4); // Get gameID from the ELF
 
             // Fixes
             amDipswContextAddr = (void *)0x093d93a8;
-            HOOK(0x0890f9b8, amDipswInit);
-            HOOK(0x0890fa3c, amDipswExit);
-            HOOK(0x0890fab1, amDipswGetData);
-            HOOK(0x0890fb28, amDipswSetLed);
+            detourFunction(0x0890f9b8, amDipswInit);
+            detourFunction(0x0890fa3c, amDipswExit);
+            detourFunction(0x0890fab1, amDipswGetData);
+            detourFunction(0x0890fb28, amDipswSetLed);
 
-            HOOK(0x08321968, stubRetOne);  // isEthLinkUp
-            HOOK(0x08307b62, stubRetOne);  // Skip Kickback initialization
-            HOOK(0x084de0dc, stubRetZero); // doesNeedRollerCleaning
-            HOOK(0x084de0f8, stubRetZero); // doesNeedStockerCleaning
+            detourFunction(0x08321968, stubRetOne);  // isEthLinkUp
+            detourFunction(0x08307b62, stubRetOne);  // Skip Kickback initialization
+            detourFunction(0x084de0dc, stubRetZero); // doesNeedRollerCleaning
+            detourFunction(0x084de0f8, stubRetZero); // doesNeedStockerCleaning
 
-            PatchMemoryFromString(0x0843f068, "c0270900");     // tickInitStoreNetwork
-            PatchMemoryFromString(0x089e308c, "BA");           // Skips initialization
-            PatchMemoryFromString(0x08788e59, "e92601000090"); // Prevents Full Screen set from the game : This functions will crash for somehow. Someone please fix it.
-            PatchMemoryFromString(0x08441f99, "eb60");         // tickInitAddress
+            patchMemoryFromString(0x0843f068, "c0270900");     // tickInitStoreNetwork
+            patchMemoryFromString(0x089e308c, "BA");           // Skips initialization
+            patchMemoryFromString(0x08788e59, "e92601000090"); // Prevents Full Screen set from the game
+            patchMemoryFromString(0x08441f99, "eb60");         // tickInitAddress
 
             // Shader
-            HOOK(0x08388cb4, stubRetOne);            // isExistNewerSource (forces shader recompilation)
-            PatchMemoryFromString(0x0874433e, "00"); // Fix cutscenes
+            detourFunction(0x08388cb4, stubRetOne); // isExistNewerSource (forces shader recompilation)
+            // detourFunction(0x0807b370, gl_XGetProcAddressARB);
+            patchMemoryFromString(0x0874433e, "00"); // Fix cutscenes
+
+            // test
+            detourFunction(0x08322092, stubRetZero);
+            // patchMemoryFromString(0x0832226d, "9090909090");
+
+
+            uintptr_t origCgGetProgramString = *(uintptr_t *)0x08c179e4;
+            printf("Hooking _cgGetProgramString at 0x%p\n", (void *)origCgGetProgramString);
+            foricGGetProgramStringAddress = (tTargetFunc2)origCgGetProgramString;
+            replaceCallAtAddress(0x0875cbac, (void*)_cgGetProgramString);
+            replaceCallAtAddress(0x0876a4ce, (void*)_cgGetProgramString);
+            replaceCallAtAddress(0x0876a96c, (void*)_cgGetProgramString);
+            replaceCallAtAddress(0x0876cc4c, (void*)_cgGetProgramString);
+            replaceCallAtAddress(0x0876e2dc, (void*)_cgGetProgramString);
+            replaceCallAtAddress(0x087706aa, (void*)_cgGetProgramString);
             break;
         }
         default:
@@ -394,6 +418,7 @@ void Patches::Apply(uint8_t gameId)
             break;
     }
     // Enable hooks
+    // Skycurser test
     status = MH_EnableHook(MH_ALL_HOOKS);
     if (status != MH_OK)
     {

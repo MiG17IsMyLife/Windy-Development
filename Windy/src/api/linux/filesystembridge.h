@@ -38,12 +38,13 @@ extern "C"
     int my_lstat(const char *path, struct linux_stat64 *buf);
 
     // Glibc internal stat versions (ver argument is usually 3)
-    int __xstat(int ver, const char *path, struct linux_stat64 *buf);
-    int __lxstat(int ver, const char *path, struct linux_stat64 *buf);
-    int __fxstat(int ver, int fd, struct linux_stat64 *buf);
-    int __fxstat64(int ver, int fd, struct linux_stat64 *buf);
-    int __xstat64(int ver, const char *path, struct linux_stat64 *buf);
-    int __fxstat64(int ver, int fd, struct linux_stat64 *buf);
+    int fs_xstat(int ver, const char *path, struct linux_stat *buf);
+    int fs_lxstat(int ver, const char *path, struct linux_stat *buf);
+    int fs_fxstat(int ver, int fd, struct linux_stat *buf);
+    int fs_fxstat64(int ver, int fd, struct linux_stat64 *buf);
+    int fs_xstat64(int ver, const char *path, struct linux_stat64 *buf);
+
+    int my_readlink(const char *path, char *buf, size_t bufsiz);
 
     // ---------------------------------------------------------
     // File Control (fcntl.h)

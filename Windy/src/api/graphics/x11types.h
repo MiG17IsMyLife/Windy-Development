@@ -7,14 +7,135 @@
 typedef unsigned long XID;
 typedef unsigned long Window;
 typedef unsigned long Drawable;
-typedef unsigned long Display; // Pointer to Display
+typedef unsigned long VisualID;
+typedef unsigned long Atom;
+typedef unsigned long Time;
+typedef unsigned long Colormap;
+
+typedef struct {
+    void *ext_data;
+    VisualID visualid;
+    int class_type;
+    unsigned long red_mask, green_mask, blue_mask;
+    int bits_per_rgb;
+    int map_entries;
+} Visual;
+
+// --------------------------------------------------------------------------
+// X11 Structure Definitions
+// --------------------------------------------------------------------------
+
+typedef struct {
+    void *ext_data;
+    struct _XDisplay *display;
+    unsigned long root;
+    int width, height;
+    int mwidth, mheight;
+    int ndepths;
+    void *depths;
+    int root_depth;
+    void *root_visual;
+    void *default_gc;
+    unsigned long cmap;
+    unsigned long white_pixel, black_pixel;
+    int max_maps, min_maps;
+    int backing_store;
+    int save_unders;
+    long root_input_mask;
+} Screen;
+
+typedef struct _XDisplay {
+    void *ext_data;
+    struct _XFreeFuncs *free_funcs;
+    int fd;
+    int conn_checker;
+    int proto_major_version;
+    int proto_minor_version;
+    char *vendor;
+    long resource_base;
+    long resource_mask;
+    long resource_id;
+    int resource_shift;
+    long (*resource_alloc)(struct _XDisplay *);
+    int byte_order;
+    int bitmap_unit;
+    int bitmap_pad;
+    int bitmap_bit_order;
+    int nformats;
+    void *pixmap_format;
+    int vnumber;
+    int release;
+    void *head, *tail;
+    int qlen;
+    unsigned long last_request_read;
+    unsigned long request;
+    char *last_req;
+    char *buffer;
+    char *bufptr;
+    char *bufmax;
+    unsigned max_request_size;
+    struct _XrmHashBucketRec *db;
+    int (*synchandler)(struct _XDisplay *);
+    char *display_name;
+    int default_screen;
+    int nscreens;
+    Screen *screens;
+    unsigned long motion_buffer;
+    unsigned long flags;
+    int min_keycode;
+    int max_keycode;
+    void *keysyms;
+    void *modifiermap;
+    int keysyms_per_keycode;
+    char *xdefaults;
+    char *scratch_buffer;
+    unsigned long scratch_length;
+    int ext_number;
+    void *ext_procs;
+    int (*event_vec[128])(struct _XDisplay *, void *, void *);
+    int (*wire_vec[128])(struct _XDisplay *, void *, void *);
+    unsigned long lock_meaning; // lock
+    void *lock;
+    void *async_handlers;
+    unsigned long bigreq_size;
+    void *lock_funcs;
+    void *idlist_alloc;
+    void *key_bindings;
+    unsigned long cursor_font;
+    void *atoms;
+    unsigned int mode_switch;
+    unsigned int num_lock;
+    void *context_db;
+    int (**error_vec)(struct _XDisplay *, void *, void *);
+    void *cms;
+    void *im_filters;
+    void *qfree;
+    unsigned long next_event_serial_num;
+    struct _XExten *flushes;
+    struct _XConnectionInfo *im_fd_info;
+    int im_fd_length;
+    struct _XConnWatchInfo *conn_watchers;
+    int watcher_count;
+    void *filedes;
+    int (*savedsynchandler)(struct _XDisplay *);
+    unsigned long resource_max;
+    int xcmisc_opcode;
+    void *xkb_info;
+    void *trans_conn;
+    struct _X11XCBPrivate *xcb;
+    unsigned int next_cookie;
+} Display;
+
+typedef unsigned long XID;
+typedef unsigned long Window;
+typedef unsigned long Drawable;
+typedef unsigned long Atom;
 typedef unsigned long Atom;
 typedef unsigned long Time;
 typedef unsigned long VisualID;
 typedef unsigned long Pixmap;
 typedef unsigned long Cursor;
 typedef unsigned long Colormap;
-typedef unsigned long KeySym;
 
 // --------------------------------------------------------------------------
 // X11 Event Constants
@@ -107,6 +228,22 @@ typedef struct
     int same_screen;
 } XButtonEvent;
 
+typedef struct {
+    unsigned int dotclock;
+    unsigned short hdisplay;
+    unsigned short hsyncstart;
+    unsigned short hsyncend;
+    unsigned short htotal;
+    unsigned short hskew;
+    unsigned short vdisplay;
+    unsigned short vsyncstart;
+    unsigned short vsyncend;
+    unsigned short vtotal;
+    unsigned int flags;
+    int privsize;
+    int *private_data;
+} XF86VidModeModeInfo;
+
 typedef struct
 {
     int type;
@@ -162,21 +299,6 @@ typedef struct
     int format;
     unsigned long nitems;
 } XTextProperty;
-
-typedef struct
-{
-    unsigned long pixel;
-    unsigned short red;
-    unsigned short green;
-    unsigned short blue;
-    unsigned char flags;
-    unsigned char pad;
-} XColor;
-
-typedef struct
-{
-    int dummy;
-} XComposeStatus;
 
 typedef struct
 {

@@ -17,7 +17,7 @@
 #include <cwctype>
 #include <cstdint>
 #include <sys/types.h>
-//#include <winsock2.h> // Include it if you build with MinGW
+// #include <winsock2.h> // Include it if you build with MinGW
 #include <functional>
 
 // Linux off64_t definition
@@ -26,12 +26,28 @@ typedef int64_t off64_t;
 class LibcBridge
 {
   public:
+    struct tm32
+    {
+        int tm_sec;
+        int tm_min;
+        int tm_hour;
+        int tm_mday;
+        int tm_mon;
+        int tm_year;
+        int tm_wday;
+        int tm_yday;
+        int tm_isdst;
+        int32_t tm_gmtoff;
+        uint32_t tm_zone;
+    };
     // ========================================================================
     // --- Path Manipulation ---
     // ========================================================================
     // static void SetPathManipulator(std::function<void(char *)> manipulator);
     static void ConvertPath(char *dst, const char *src, size_t size);
 
+    static uint32_t bridgeWctypeL(const char *property, void *locale);
+    static int bridgeIswctypeL(int wc, uint32_t desc, void *locale);
     // ========================================================================
     // --- File Input/Output (stdio.h / io.h) ---
     // ========================================================================
@@ -55,6 +71,7 @@ class LibcBridge
     static int putc_wrapper(int c, FILE *stream);
     static int putchar_wrapper(int c);
     static int puts_wrapper(const char *s);
+    static int fgetpos_wrapper(FILE *stream, fpos_t *pos);
     static int ungetc_wrapper(int c, FILE *stream);
     static int getc_wrapper(FILE *stream);
 
@@ -67,6 +84,7 @@ class LibcBridge
     static void perror_wrapper(const char *s);
     static int setvbuf_wrapper(FILE *stream, char *buf, int mode, size_t size);
     static int remove_wrapper(const char *pathname);
+    //    static int isatty_wrapper(int fd);
 
     // ========================================================================
     // --- Formatted I/O (printf / scanf family) ---
@@ -99,6 +117,7 @@ class LibcBridge
     static int strcoll_wrapper(const char *s1, const char *s2);
     static size_t strxfrm_wrapper(char *dest, const char *src, size_t n);
     static char *strerror_wrapper(int errnum);
+    static double strtod_l_wrapper(const char *nptr, char **endptr, void *loc);
 
     static void *malloc_wrapper(size_t size);
     static void free_wrapper(void *ptr);
@@ -116,7 +135,7 @@ class LibcBridge
     // --- Time & Clock Functions (time.h / sys/time.h) ---
     // ========================================================================
     static time_t mktime_wrapper(struct tm *tm);
-    static struct tm *localtime_wrapper(const time_t *timep);
+    static struct tm32 *localtime_wrapper(const int32_t *timep);
     static size_t strftime_wrapper(char *s, size_t max, const char *format, const struct tm *tm);
     static int utime_wrapper(const char *filename, const void *times);
     static int nanosleep_wrapper(const struct timespec *req, struct timespec *rem);
@@ -176,6 +195,7 @@ class LibcBridge
     static int wcscoll_wrapper(const wchar_t *s1, const wchar_t *s2);
     static size_t wcsxfrm_wrapper(wchar_t *dest, const wchar_t *src, size_t n);
     static size_t wcsftime_wrapper(wchar_t *wcs, size_t maxsize, const wchar_t *format, const struct tm *tm);
+    //    static wchar_t *wcpncpy_wrapper(wchar_t *dest, const wchar_t *src, size_t n);
 
     // --- Character Case & Type ---
     static int tolower_wrapper(int c);
@@ -183,6 +203,7 @@ class LibcBridge
     static wint_t towlower_wrapper(wint_t wc);
     static wint_t towupper_wrapper(wint_t wc);
     static wctype_t wctype_wrapper(const char *property);
+    static wctype_t wctype_l_wrapper(const char *property, void *locale);
     static int iswctype_wrapper(wint_t wc, wctype_t desc);
 
     // ========================================================================
@@ -216,6 +237,28 @@ class LibcBridge
     // ========================================================================
     static int kill_wrapper(int pid, int sig);
 
+    static int32_t time_wrapper(int32_t *tconst);
     static int wait_wrapper(int *wstatus);
     static int __xmknod_wrapper(int ver, const char *path, unsigned int mode, void *dev);
+
+    // ========================================================================
+    // --- Signal Handling ---
+    // ========================================================================
+    static void (*signal_wrapper(int signum, void (*handler)(int)))(int);
 };
+
+// ============================================================================
+// Standalone Libc Functions (extern "C")
+// ============================================================================
+extern "C"
+{
+    // ========================================================================
+    // Missing Libc / System Functions
+    // ========================================================================
+    int my_posix_memalign(void **memptr, size_t alignment, size_t size);
+    uint32_t my_arc4random();
+    //    void my_cfmakeraw(void *termios_p);
+    //    char *my_bindtextdomain(const char *domainname, const char *dirname);
+    //    char *my_textdomain(const char *domainname);
+    //    char *my_gettext(const char *msgid);
+}

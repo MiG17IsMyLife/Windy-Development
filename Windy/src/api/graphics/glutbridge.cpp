@@ -19,6 +19,7 @@
 // GLUT Callbacks
 static void (*g_glutDisplayFunc)(void) = nullptr;
 static void (*g_glutIdleFunc)(void) = nullptr;
+static void (*g_glutVisibilityFunc)(int) = nullptr;
 static bool g_redisplayNeeded = true;
 
 // ==========================================================================
@@ -78,6 +79,8 @@ void GLUTBridge::glutInit(int * /*argcp*/, char ** /*argv*/)
 {
     log_info("glutInit");
     SDLCalls::Init();
+    if(getConfig()->gameGroup == GROUP_OUTRUN_TEST)
+        SDLCalls::Start(NULL, NULL);
 }
 
 void GLUTBridge::glutMainLoop()
@@ -96,13 +99,16 @@ void GLUTBridge::glutMainLoop()
     while (running)
     {
         SDLCalls::PollEvents();
-        while (X11Bridge::Pending(dpy))
+        while (X11Bridge::XPending(dpy))
         {
-            X11Bridge::NextEvent(dpy, &ev);
+            X11Bridge::XNextEvent(dpy, &ev);
         }
 
         if (g_glutIdleFunc)
             g_glutIdleFunc();
+
+        if (g_glutVisibilityFunc)
+            g_glutVisibilityFunc(1);
 
         if (g_redisplayNeeded && g_glutDisplayFunc)
         {
@@ -187,6 +193,31 @@ int GLUTBridge::glutGet(int state)
         return getConfig()->height;
 
     return 0;
+}
+
+int GLUTBridge::glutGetModifiers()
+{
+    // Stub: Return 0 (no modifiers)
+    // TODO: Implement actual modifier check using SDL_GetModState()
+    return 0;
+}
+
+int GLUTBridge::glutExtensionSupported(const char *extension)
+{
+    // Stub: Return 0 (not supported) or check via SDL/GL
+    // For now, returning 0 is safer to avoid using unsupported extensions
+    if (extension && strstr((const char*)glGetString(GL_EXTENSIONS), extension))
+        return 1;
+    return 0;
+}
+
+void GLUTBridge::glutVisibilityFunc(void (*callback)(int))
+{
+    g_glutVisibilityFunc = callback;
+}
+
+void GLUTBridge::glutReshapeFunc(void (*callback)(int, int))
+{
 }
 
 void GLUTBridge::glutSetCursor(int /*cursor*/)

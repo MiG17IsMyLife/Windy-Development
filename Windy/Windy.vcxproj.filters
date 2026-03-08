@@ -34,6 +34,9 @@
     <Filter Include="src\minhook\hde">
       <UniqueIdentifier>{5cc1d5a8-8d08-44e1-bfe6-d4ff1700340b}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\api\graphics\shaderWork">
+      <UniqueIdentifier>{9c3f9f1e-ba95-441d-8723-f030fbb5de14}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\api\sega\libsegaapi.c">
@@ -168,6 +171,12 @@
     <ClCompile Include="src\core\sharedobjectmanager.cpp">
       <Filter>src\core</Filter>
     </ClCompile>
+    <ClCompile Include="src\hardware\input.cpp">
+      <Filter>src\hardware</Filter>
+    </ClCompile>
+    <ClCompile Include="src\api\graphics\shaderWork\or2.c">
+      <Filter>src\api\graphics\shaderWork</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="src\api\sega\libsegaapi.h">
@@ -289,6 +298,15 @@
     </ClInclude>
     <ClInclude Include="src\core\sharedobjectmanager.h">
       <Filter>src\core</Filter>
+    </ClInclude>
+    <ClInclude Include="src\hardware\input.h">
+      <Filter>src\hardware</Filter>
+    </ClInclude>
+    <ClInclude Include="src\api\graphics\shaderWork\common.h">
+      <Filter>src\api\graphics\shaderWork</Filter>
+    </ClInclude>
+    <ClInclude Include="src\api\graphics\shaderWork\or2.h">
+      <Filter>src\api\graphics\shaderWork</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

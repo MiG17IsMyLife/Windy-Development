@@ -61,6 +61,7 @@ void ConfigManager::InitDefaults()
 
     // General
     strcpy(m_config.gamePath, "");
+    strcpy(m_config.elfPath, "");
     strcpy(m_config.eepromPath, "eeprom.bin");
     strcpy(m_config.sramPath, "sram.bin");
 

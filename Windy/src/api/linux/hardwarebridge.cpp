@@ -7,235 +7,12 @@
 #include "hardwarebridge.h"
 #include "../../hardware/lindberghdevice.h"
 #include "../../core/log.h"
-#include "../../core/config.h"
 #include <fcntl.h>
 #include <io.h>
 #include <windows.h>
 #include <sys/stat.h>
 #include <stdio.h>
 #include <errno.h>
-
-#define LINUX_SIOCGIFCONF 0x8912
-#define LINUX_SIOCGIFFLAGS 0x8913
-#define LINUX_SIOCGIFADDR 0x8915
-#define LINUX_SIOCGIFBRDADDR 0x8919
-#define LINUX_SIOCGIFNETMASK 0x891B
-#define LINUX_SIOCGIFMTU 0x8921
-#define LINUX_SIOCGIFHWADDR 0x8927
-#define LINUX_SIOCGIFINDEX 0x8933
-
-// Linux IFF_* flag values (subset)
-#define LINUX_IFF_UP 0x1
-#define LINUX_IFF_BROADCAST 0x2
-#define LINUX_IFF_RUNNING 0x40
-
-struct LinuxSockAddr
-{
-    unsigned short sa_family;
-    char sa_data[14];
-};
-
-struct LinuxIfReq
-{
-    char ifr_name[16];
-    union {
-        LinuxSockAddr ifru_addr;
-        short ifru_flags;
-        int ifru_ifindex;
-        int ifru_mtu;
-    } ifr_ifru;
-};
-
-struct LinuxIfConf
-{
-    int ifc_len;
-    LinuxIfReq *ifc_req;
-};
-
-static bool IsEth0(const LinuxIfReq *req)
-{
-    if (!req)
-    {
-        return false;
-    }
-
-    return strncmp(req->ifr_name, "eth0", 4) == 0;
-}
-
-static const char *SelectIP(const char *value, const char *fallback)
-{
-    if (value && value[0] != '\0')
-    {
-        return value;
-    }
-    return fallback;
-}
-
-static void FillSockAddrIPv4(LinuxSockAddr *addr, const char *ip)
-{
-    if (!addr)
-    {
-        return;
-    }
-
-    memset(addr, 0, sizeof(LinuxSockAddr));
-    addr->sa_family = AF_INET;
-
-    struct in_addr parsed = {};
-    if (ip && inet_pton(AF_INET, ip, &parsed) == 1)
-    {
-        memcpy(addr->sa_data + 2, &parsed, sizeof(parsed));
-    }
-}
-
-static int HandleNetworkIoctl(unsigned long request, void *data)
-{
-    WindyConfig *config = getConfig();
-    const char *ip = SelectIP(config ? config->networkIP : nullptr, "192.168.1.2");
-    const char *netmask = SelectIP(config ? config->networkNetmask : nullptr, "255.255.255.0");
-
-    switch (request)
-    {
-        case LINUX_SIOCGIFCONF:
-        {
-            LinuxIfConf *ifc = static_cast<LinuxIfConf *>(data);
-            if (!ifc)
-            {
-                errno = EFAULT;
-                return -1;
-            }
-
-            const int required = (int)sizeof(LinuxIfReq);
-            if (!ifc->ifc_req || ifc->ifc_len < required)
-            {
-                ifc->ifc_len = required;
-                errno = EINVAL;
-                return -1;
-            }
-
-            LinuxIfReq req = {};
-            strncpy(req.ifr_name, "eth0", sizeof(req.ifr_name) - 1);
-            FillSockAddrIPv4(&req.ifr_ifru.ifru_addr, ip);
-
-            memcpy(ifc->ifc_req, &req, sizeof(req));
-            ifc->ifc_len = sizeof(req);
-            return 0;
-        }
-
-        case LINUX_SIOCGIFFLAGS:
-        {
-            LinuxIfReq *req = static_cast<LinuxIfReq *>(data);
-            if (!req || !IsEth0(req))
-            {
-                errno = ENODEV;
-                return -1;
-            }
-
-            req->ifr_ifru.ifru_flags = (short)(LINUX_IFF_UP | LINUX_IFF_RUNNING | LINUX_IFF_BROADCAST);
-            return 0;
-        }
-
-        case LINUX_SIOCGIFADDR:
-        {
-            LinuxIfReq *req = static_cast<LinuxIfReq *>(data);
-            if (!req || !IsEth0(req))
-            {
-                errno = ENODEV;
-                return -1;
-            }
-
-            FillSockAddrIPv4(&req->ifr_ifru.ifru_addr, ip);
-            return 0;
-        }
-
-        case LINUX_SIOCGIFBRDADDR:
-        {
-            LinuxIfReq *req = static_cast<LinuxIfReq *>(data);
-            if (!req || !IsEth0(req))
-            {
-                errno = ENODEV;
-                return -1;
-            }
-
-            in_addr inIp = {};
-            in_addr inMask = {};
-            const char *bcast = "192.168.1.255";
-            if (inet_pton(AF_INET, ip, &inIp) == 1 && inet_pton(AF_INET, netmask, &inMask) == 1)
-            {
-                in_addr inBcast = {};
-                inBcast.s_addr = (inIp.s_addr & inMask.s_addr) | ~inMask.s_addr;
-                static char bcastBuf[16] = {};
-                inet_ntop(AF_INET, &inBcast, bcastBuf, sizeof(bcastBuf));
-                bcast = bcastBuf;
-            }
-
-            FillSockAddrIPv4(&req->ifr_ifru.ifru_addr, bcast);
-            return 0;
-        }
-
-        case LINUX_SIOCGIFNETMASK:
-        {
-            LinuxIfReq *req = static_cast<LinuxIfReq *>(data);
-            if (!req || !IsEth0(req))
-            {
-                errno = ENODEV;
-                return -1;
-            }
-
-            FillSockAddrIPv4(&req->ifr_ifru.ifru_addr, netmask);
-            return 0;
-        }
-
-        case LINUX_SIOCGIFMTU:
-        {
-            LinuxIfReq *req = static_cast<LinuxIfReq *>(data);
-            if (!req || !IsEth0(req))
-            {
-                errno = ENODEV;
-                return -1;
-            }
-
-            req->ifr_ifru.ifru_mtu = 1500;
-            return 0;
-        }
-
-        case LINUX_SIOCGIFHWADDR:
-        {
-            LinuxIfReq *req = static_cast<LinuxIfReq *>(data);
-            if (!req || !IsEth0(req))
-            {
-                errno = ENODEV;
-                return -1;
-            }
-
-            memset(&req->ifr_ifru.ifru_addr, 0, sizeof(req->ifr_ifru.ifru_addr));
-            req->ifr_ifru.ifru_addr.sa_family = 1; // ARPHRD_ETHER
-            req->ifr_ifru.ifru_addr.sa_data[0] = 0x02;
-            req->ifr_ifru.ifru_addr.sa_data[1] = 0x00;
-            req->ifr_ifru.ifru_addr.sa_data[2] = 0x00;
-            req->ifr_ifru.ifru_addr.sa_data[3] = 0x00;
-            req->ifr_ifru.ifru_addr.sa_data[4] = 0x00;
-            req->ifr_ifru.ifru_addr.sa_data[5] = 0x01;
-            return 0;
-        }
-
-        case LINUX_SIOCGIFINDEX:
-        {
-            LinuxIfReq *req = static_cast<LinuxIfReq *>(data);
-            if (!req || !IsEth0(req))
-            {
-                errno = ENODEV;
-                return -1;
-            }
-
-            req->ifr_ifru.ifru_ifindex = 2;
-            return 0;
-        }
-
-        default:
-            return -2;
-    }
-}
 
 // Linux Open Flags Mapping
 #define LINUX_O_RDONLY 00
@@ -600,11 +377,16 @@ extern "C"
             return res;
         }
 
-        int networkRes = HandleNetworkIoctl(request, data);
-        if (networkRes != -2)
+        if (request == 0x8913)
         {
-            log_debug(">>> my_ioctl: network ioctl 0x%lX -> %d", request, networkRes);
-            return networkRes;
+            log_info(">>> my_ioctl: Emulating SIOCGIFCONF");
+            // struct ifconf { int ifc_len; union { char *ifc_buf; struct ifreq *ifc_req; } ifc_ifcu; };
+
+            if (data)
+            {
+                *(int *)data = 0;
+            }
+            return 0;
         }
 
         // FIONBIO (Non-blocking mode)

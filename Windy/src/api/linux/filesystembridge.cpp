@@ -81,6 +81,36 @@ static void CopyStat(const struct _stat64 &src, struct linux_stat64 *dst)
     dst->st_mode |= (src.st_mode & 0777);
 }
 
+static void CopyStat32(const struct _stat64 &src, struct linux_stat *dst)
+{
+    memset(dst, 0, sizeof(struct linux_stat));
+
+    dst->st_dev = (unsigned long)src.st_dev;
+    dst->st_ino = (unsigned long)src.st_ino;
+    dst->st_nlink = (unsigned short)src.st_nlink;
+    dst->st_uid = (unsigned short)src.st_uid;
+    dst->st_gid = (unsigned short)src.st_gid;
+    dst->st_rdev = (unsigned long)src.st_rdev;
+    dst->st_size = (unsigned long)src.st_size;
+    dst->st_blksize = 4096;
+    dst->st_blocks = (unsigned long)(src.st_size / 512);
+    dst->st_atime = (unsigned long)src.st_atime;
+    dst->st_mtime = (unsigned long)src.st_mtime;
+    dst->st_ctime = (unsigned long)src.st_ctime;
+
+    dst->st_mode = 0;
+    if (src.st_mode & _S_IFDIR)
+        dst->st_mode |= LINUX_S_IFDIR;
+    if (src.st_mode & _S_IFREG)
+        dst->st_mode |= LINUX_S_IFREG;
+    if (src.st_mode & _S_IFCHR)
+        dst->st_mode |= LINUX_S_IFCHR;
+    if (src.st_mode & _S_IFIFO)
+        dst->st_mode |= LINUX_S_IFIFO;
+
+    dst->st_mode |= (src.st_mode & 0777);
+}
+
 // =============================================================
 //   Implementation (extern "C")
 // =============================================================
@@ -110,6 +140,8 @@ extern "C"
             path = "glu32.dll";
         else if (path.find("libglut") != std::string::npos)
             path = "freeglut.dll";
+        else if (path.find("libkswapapi.so") != std::string::npos)
+            return (void *)0xdeadbeef;
 
         HMODULE hLib = LoadLibraryA(path.c_str());
         if (!hLib)
@@ -122,10 +154,23 @@ extern "C"
         return (void *)hLib;
     }
 
+    extern "C" int fake_kswap_collect(void *p)
+    {
+        return 0;
+    }
+
     void *my_dlsym(void *handle, const char *symbol)
     {
         if (!handle)
             return NULL;
+
+        if (handle == (void *)0xdeadbeef)
+        {
+            if (strcmp(symbol, "kswap_collect") == 0)
+                return (void *)fake_kswap_collect;
+            sprintf(g_dlErrorBuf, "Unknown symbol for fake handle: %s", symbol);
+            return NULL;
+        }
 
         void *proc = (void *)GetProcAddress((HMODULE)handle, symbol);
         if (!proc)
@@ -139,6 +184,8 @@ extern "C"
     int my_dlclose(void *handle)
     {
         log_trace("dlclose(%p)", handle);
+        if (handle == (void *)0xdeadbeef)
+            return 0;
         if (handle)
             FreeLibrary((HMODULE)handle);
         return 0;
@@ -153,7 +200,8 @@ extern "C"
     {
         char winPath[MAX_PATH];
         LibcBridge::ConvertPath(winPath, pathname, MAX_PATH);
-        if (strcmp(winPath, "\\home\\disk1\\rankingdata") == 0 && (getConfig()->gameGroup == GROUP_OUTRUN || getConfig()->gameGroup == GROUP_OUTRUN_TEST))
+        if (strcmp(winPath, "\\home\\disk1\\rankingdata") == 0 &&
+            (getConfig()->gameGroup == GROUP_OUTRUN || getConfig()->gameGroup == GROUP_OUTRUN_TEST))
         {
             strcpy(winPath, ".\\rankingdata");
         }
@@ -171,7 +219,8 @@ extern "C"
         char winPath[MAX_PATH];
         LibcBridge::ConvertPath(winPath, name, MAX_PATH);
 
-        if (strcmp(winPath, "\\home\\disk1\\rankingdata") == 0 && (getConfig()->gameGroup == GROUP_OUTRUN || getConfig()->gameGroup == GROUP_OUTRUN_TEST))
+        if (strcmp(winPath, "\\home\\disk1\\rankingdata") == 0 &&
+            (getConfig()->gameGroup == GROUP_OUTRUN || getConfig()->gameGroup == GROUP_OUTRUN_TEST))
         {
             strcpy(winPath, ".\\rankingdata");
         }
@@ -346,29 +395,206 @@ extern "C"
         return my_stat(path, buf);
     }
 
-    int __xstat(int ver, const char *path, struct linux_stat64 *buf)
+struct linux_stat_ver3 {
+    uint64_t st_dev;      
+    uint16_t __pad1;      
+    uint16_t __reserved1; 
+    uint32_t st_ino;      
+    uint32_t st_mode;    
+    uint32_t st_nlink;    
+    uint32_t st_uid;     
+    uint32_t st_gid;     
+    uint64_t st_rdev;   
+    uint16_t __pad2;      
+    uint16_t __reserved2;
+    int32_t  st_size;    
+    uint32_t st_blksize; 
+    int32_t  st_blocks;   
+    uint32_t st_atime;   
+    uint32_t st_atime_nsec;
+    uint32_t st_mtime;   
+    uint32_t st_mtime_nsec;
+    uint32_t st_ctime;   
+    uint32_t st_ctime_nsec; 
+    uint32_t __unused4; 
+    uint32_t __unused5;  
+};
+
+struct linux_stat64_safe {
+    uint64_t st_dev;
+    uint8_t  __pad0[4];
+    uint32_t __st_ino;
+    uint32_t st_mode;
+    uint32_t st_nlink;
+    uint32_t st_uid;
+    uint32_t st_gid;
+    uint64_t st_rdev;
+    uint8_t  __pad3[4];
+    int64_t  st_size;
+    uint32_t st_blksize;
+    uint64_t st_blocks;
+    uint32_t st_atime;
+    uint32_t st_atime_nsec;
+    uint32_t st_mtime;
+    uint32_t st_mtime_nsec;
+    uint32_t st_ctime;
+    uint32_t st_ctime_nsec;
+    uint64_t st_ino;
+};
+
+static void CopyStatVer3(const struct _stat64 &src, void *dst_ptr)
+{
+    struct linux_stat_ver3* dst = (struct linux_stat_ver3*)dst_ptr;
+    memset(dst, 0, sizeof(struct linux_stat_ver3));
+
+    dst->st_dev = (uint64_t)src.st_dev;
+    dst->st_ino = (uint32_t)src.st_ino;
+    dst->st_nlink = src.st_nlink;
+    dst->st_uid = src.st_uid;
+    dst->st_gid = src.st_gid;
+    dst->st_rdev = (uint64_t)src.st_rdev;
+    dst->st_size = (int32_t)src.st_size; // 32-bit size
+    dst->st_blksize = 4096;
+    dst->st_blocks = (int32_t)((src.st_size + 511) / 512);
+    dst->st_atime = (uint32_t)src.st_atime;
+    dst->st_mtime = (uint32_t)src.st_mtime;
+    dst->st_ctime = (uint32_t)src.st_ctime;
+
+    dst->st_mode = 0;
+    if (src.st_mode & _S_IFDIR) dst->st_mode |= LINUX_S_IFDIR;
+    if (src.st_mode & _S_IFREG) dst->st_mode |= LINUX_S_IFREG;
+    if (src.st_mode & _S_IFCHR) dst->st_mode |= LINUX_S_IFCHR;
+    if (src.st_mode & _S_IFIFO) dst->st_mode |= LINUX_S_IFIFO;
+    dst->st_mode |= (src.st_mode & 0777);
+}
+
+static void CopyStat64(const struct _stat64 &src, void *dst_ptr)
+{
+    struct linux_stat64_safe dst;
+    memset(&dst, 0, sizeof(dst));
+    
+    dst.st_dev = (unsigned long long)src.st_dev;
+    dst.__st_ino = (uint32_t)src.st_ino;
+    dst.st_ino = (unsigned long long)src.st_ino;
+    dst.st_nlink = src.st_nlink;
+    dst.st_uid = src.st_uid;
+    dst.st_gid = src.st_gid;
+    dst.st_rdev = (unsigned long long)src.st_rdev;
+    dst.st_size = src.st_size;
+    dst.st_blksize = 4096;
+    dst.st_blocks = (src.st_size + 511) / 512;
+    dst.st_atime = (unsigned long)src.st_atime;
+    dst.st_mtime = (unsigned long)src.st_mtime;
+    dst.st_ctime = (unsigned long)src.st_ctime;
+
+    dst.st_mode = 0;
+    if (src.st_mode & _S_IFDIR) dst.st_mode |= LINUX_S_IFDIR;
+    if (src.st_mode & _S_IFREG) dst.st_mode |= LINUX_S_IFREG;
+    if (src.st_mode & _S_IFCHR) dst.st_mode |= LINUX_S_IFCHR;
+    if (src.st_mode & _S_IFIFO) dst.st_mode |= LINUX_S_IFIFO;
+    dst.st_mode |= (src.st_mode & 0777);
+
+    memcpy(dst_ptr, &dst, sizeof(dst));
+}
+
+    static int my_stat_impl(const char *path, void *buf, bool use_stat64)
     {
-        return my_stat(path, buf);
+
+        if (path && (strstr(path, "/dev/") != NULL || strstr(path, "i2c/") != NULL || strstr(path, "ttyS") != NULL))
+        {
+            log_debug("stat: Spoofing virtual device for %s", path);
+            
+            if (use_stat64) {
+                struct linux_stat64_safe* s = (struct linux_stat64_safe*)buf;
+                memset(s, 0, sizeof(*s));
+                s->st_mode = LINUX_S_IFCHR | 0666;
+                s->st_rdev = 1;
+                s->st_nlink = 1;
+            } else {
+                struct linux_stat_ver3* s = (struct linux_stat_ver3*)buf;
+                memset(s, 0, sizeof(*s));
+                s->st_mode = LINUX_S_IFCHR | 0666;
+                s->st_rdev = 1;
+                s->st_nlink = 1;
+            }
+            return 0;
+        }
+
+        struct _stat64 win_stat;
+        if (_stat64(path, &win_stat) != 0)
+        {
+            log_trace("stat failed: %s", path);
+            return -1;
+        }
+        
+        if (use_stat64) {
+            CopyStat64(win_stat, buf);
+        } else {
+            CopyStatVer3(win_stat, buf);
+        }
+        
+        return 0;
     }
 
-    int __xstat64(int ver, const char *path, struct linux_stat64 *buf)
+    int fs_xstat(int ver, const char *path, struct linux_stat *buf)
     {
-        return my_stat(path, buf);
+        return my_stat_impl(path, buf, false);
     }
 
-    int __lxstat(int ver, const char *path, struct linux_stat64 *buf)
+    int fs_xstat64(int ver, const char *path, struct linux_stat64 *buf)
     {
-        return my_lstat(path, buf);
+        return my_stat_impl(path, buf, true);
     }
 
-    int __fxstat(int ver, int fd, struct linux_stat64 *buf)
+    int fs_lxstat(int ver, const char *path, struct linux_stat *buf)
+    {
+        return fs_xstat(ver, path, buf);
+    }
+
+    int fs_fxstat(int ver, int fd, struct linux_stat *buf)
+    {
+        if (!buf)
+            return -1;
+        struct _stat64 win_stat;
+        if (_fstat64(fd, &win_stat) != 0)
+            return -1;
+        CopyStat32(win_stat, buf);
+        return 0;
+    }
+
+    int fs_fxstat64(int ver, int fd, struct linux_stat64 *buf)
     {
         return my_fstat(fd, buf);
     }
 
-    int __fxstat64(int ver, int fd, struct linux_stat64 *buf)
+    int my_readlink(const char *path, char *buf, size_t bufsiz)
     {
-        return my_fstat(fd, buf);
+        if (!path || !buf || bufsiz == 0)
+            return -1;
+
+        if (strcmp(path, "/proc/self/exe") == 0)
+        {
+            const char *elfPath = getConfig()->elfPath;
+            if (elfPath[0] == '\0')
+            {
+                log_warn("readlink: /proc/self/exe requested but ELF path not set");
+                return -1;
+            }
+
+            // We should return the absolute path to the ELF.
+            // Since we generally run from the ELF directory or have changed to it,
+            // returning the full path provided at startup is best.
+            // Note: If the user provided a relative path, we might want to resolve it to absolute
+            // but for now returning what was passed in is 99% correct for game logic.
+
+            size_t len = strlen(elfPath);
+            if (len > bufsiz)
+                len = bufsiz;
+            memcpy(buf, elfPath, len);
+            return (int)len;
+        }
+        log_error("readlink not implemented for %s", path);
+        return -1;
     }
 
     // ---------------------------------------------------------

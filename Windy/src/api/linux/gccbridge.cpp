@@ -11,6 +11,8 @@
 // =============================================================
 static HMODULE g_hMsys = NULL;
 static HMODULE g_hLibGcc = NULL;
+static HMODULE g_hCg = NULL;
+static HMODULE g_hCgGL = NULL;
 
 void EnsureMsysLoaded()
 {

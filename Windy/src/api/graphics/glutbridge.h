@@ -18,6 +18,9 @@ public:
     static void glutPostRedisplay();
     static void glutSwapBuffers();
     static int glutGet(int state);
+    static int glutGetModifiers();
+    static int glutExtensionSupported(const char *extension);
+    static void glutReshapeFunc(void (*callback)(int, int));
     static void glutSetCursor(int cursor);
     static void glutGameModeString(const char *string);
     static void glutBitmapCharacter(void *font, int character);
@@ -40,4 +43,5 @@ public:
     static void glutSolidCone(double base, double height, GLint slices, GLint stacks);
     static void glutWireCube(double dSize);
     static void glutSolidCube(double dSize);
+    static void glutVisibilityFunc(void (*callback)(int));
 };

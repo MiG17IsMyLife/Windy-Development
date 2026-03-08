@@ -10,10 +10,11 @@
 #include <stdlib.h>
 #include <vector>
 #include <string>
+#include <filesystem>
+#include <algorithm>
 
 // Core
 #include "core/elfloader.h"
-#include "core/symbolresolver.h"
 #include "core/sharedobjectmanager.h"
 #include "core/linuxstack.h"
 #include "core/log.h"
@@ -115,63 +116,6 @@ static void ConfigureHardwareForGame(const GameDataEntry *game, const WindyConfi
     }
 
     // -------------------------------------------------
-    // EEPROM Board Configuration
-    // -------------------------------------------------
-    EepromBoard *eeprom = device.GetEepromBoard();
-    if (eeprom)
-    {
-        // Apply config settings
-        eeprom->SetRegion(static_cast<int>(config.region));
-        eeprom->SetFreeplay(config.freeplay ? 1 : 0);
-
-        if (config.emulateDriveboard)
-        {
-            log_info("EepromBoard: Driveboard emulation enabled");
-        }
-        if (config.emulateMotionboard)
-        {
-            log_info("EepromBoard: Motionboard emulation enabled");
-        }
-
-        // Game-specific patches
-        if (game)
-        {
-            switch (game->gameGroup)
-            {
-                case GROUP_LGJ:
-                case GROUP_HOD4:
-                case GROUP_HOD4_SP:
-                    // Let's Go Jungle / HOD4 Special: Fix credit section
-                    eeprom->FixCreditSection();
-                    log_info("EepromBoard: Applied credit section fix for %s", game->gameTitle);
-                    break;
-
-                case GROUP_HUMMER:
-                    // Hummer series: Fix coin assignments
-                    eeprom->FixCoinAssignmentsHummer();
-                    log_info("EepromBoard: Applied Hummer coin assignment fix");
-                    break;
-
-                default:
-                    break;
-            }
-
-            // Set game ID for any additional internal patches
-            eeprom->EnableEmulationPatches(game->crc32);
-        }
-
-        // Network configuration for OutRun 2 SP SDX
-        if (game && game->gameGroup == GROUP_OUTRUN)
-        {
-            if (config.networkIP[0] != '\0')
-            {
-                eeprom->SetNetworkIP(config.networkIP, config.networkNetmask);
-                log_info("EepromBoard: Set network IP to %s for OutRun", config.networkIP);
-            }
-        }
-    }
-
-    // -------------------------------------------------
     // Security Board Configuration
     // -------------------------------------------------
     SecurityBoard *security = device.GetSecurityBoard();
@@ -188,7 +132,7 @@ static void ConfigureHardwareForGame(const GameDataEntry *game, const WindyConfi
     if (baseboard)
     {
         // SRAM path can be configured per-game in future
-        // baseboard->SetSramPath("sram.bin");
+        baseboard->SetSramPath("sram.bin");
     }
 }
 
@@ -223,7 +167,8 @@ static void ChangeDirectoryToElfLocation(const char *elfPath)
 static void PrintBanner()
 {
     log_info("==============================================");
-    log_info("   Windy - SEGA Lindbergh Loader for Windows");
+    log_info("   Windy - SEGA Lindbergh Emulator");
+    log_info("   Windows Native Port");
     log_info("   Build: %s %s", __DATE__, __TIME__);
     log_info("==============================================");
 }
@@ -316,9 +261,7 @@ int main(int argc, char *argv[])
     const char *elfPath = argv[1];
     const char *configPath = DEFAULT_CONFIG_FILE;
 
-    // Collect arguments for the guest
-    std::vector<std::string> guestArgs;
-    guestArgs.push_back(elfPath); // argv[0] is usually the program name
+    bool testMode = false;
 
     for (int i = 2; i < argc; ++i)
     {
@@ -330,7 +273,7 @@ int main(int argc, char *argv[])
         }
         else if (arg == "-t")
         {
-            guestArgs.push_back(arg);
+            testMode = true;
         }
         else
         {
@@ -338,15 +281,31 @@ int main(int argc, char *argv[])
         }
     }
 
-    log_info("ELF Path:    %s", elfPath);
-    log_info("Config Path: %s", configPath);
+    // Collect arguments for the guest
+    std::vector<std::string> guestArgs;
+    guestArgs.push_back(elfPath); // argv[0] is usually the program name
 
-    // Log Guest Arguments
-    log_info("Guest Arguments:");
-    for (const auto &arg : guestArgs)
+    if (testMode)
     {
-        log_info("  %s", arg.c_str());
+        guestArgs.push_back("-t");
     }
+
+    // Convert to absolute path with forward slashes
+    std::string absoluteElfPath;
+    try
+    {
+        absoluteElfPath = std::filesystem::absolute(elfPath).string();
+        std::replace(absoluteElfPath.begin(), absoluteElfPath.end(), '\\', '/');
+    }
+    catch (const std::exception &e)
+    {
+        log_warn("Failed to resolve absolute ELF path: %s", e.what());
+        absoluteElfPath = elfPath;
+    }
+
+    log_info("ELF Path:    %s", absoluteElfPath.c_str());
+    ConfigManager::Instance().SetElfPath(absoluteElfPath.c_str());
+    log_info("Config Path: %s", configPath);
 
     // -------------------------------------------------
     // Load Configuration
@@ -445,9 +404,14 @@ int main(int argc, char *argv[])
     SharedObjectManager::Instance().AddSearchPath(".");
     SharedObjectManager::Instance().AddSearchPath("lib");
 
-    // Register Native DLL Overrides (The "Database")
-    SharedObjectManager::Instance().RegisterNativeOverride("libopenal.so", "OpenAL32.dll");
+    // Register Native DLL Overrides (Linux .so -> Windows .dll)
+    SharedObjectManager::Instance().RegisterNativeOverride("libopenal.so",   "OpenAL32.dll");
+    SharedObjectManager::Instance().RegisterNativeOverride("libopenal.so.0",   "OpenAL32.dll");
     SharedObjectManager::Instance().RegisterNativeOverride("libopenal.so.1", "OpenAL32.dll");
+    SharedObjectManager::Instance().RegisterNativeOverride("libCg.so",       "cg.dll");
+    SharedObjectManager::Instance().RegisterNativeOverride("libCgGL.so",     "cgGL.dll");
+    SharedObjectManager::Instance().RegisterNativeOverride("libz.so.1", "msys-z.dll");
+    SharedObjectManager::Instance().RegisterNativeOverride("libFAudio.so.0", "FAudio.dll");
 
     for (const auto &dep : loader.GetDependencies())
     {
@@ -455,21 +419,29 @@ int main(int argc, char *argv[])
     }
 
     // -------------------------------------------------
-    // Resolve Symbols (GOT/PLT Patching)
+    // Resolve Symbols and Run Initializers
     // -------------------------------------------------
-    log_info("Resolving dynamic symbols...");
-    SymbolResolver::ResolveAll(loader.GetJmpRel(), loader.GetSymTab(), loader.GetStrTab(), loader.GetPltRelSize());
+    log_info("Resolving dynamic symbols for all objects...");
+    SharedObjectManager::Instance().ResolveAllLibraries();
+
+    log_info("Running initializers for all objects...");
+    SharedObjectManager::Instance().RunAllInitializers();
 
     // -------------------------------------------------
     // Setup Linux Stack
     // -------------------------------------------------
     log_info("Setting up Linux stack...");
 
-    // Use detected game name or default for argv[0] if no args provided?
-    // Actually we now pass the full vector.
-    // If the vector is empty (shouldn't be, has elfPath), we might want to ensure at least that.
-
-    uint32_t finalEsp = LinuxStack::Setup(STACK_SIZE, guestArgs);
+    // Use detected game name or default for argv[0]
+    // const char *argvName = detectedGame ? detectedGame->gameTitle : DEFAULT_ARGV0;
+    
+    // Create argv array for LinuxStack
+    std::vector<char*> guestArgv;
+    for (const auto& arg : guestArgs) {
+        guestArgv.push_back(const_cast<char*>(arg.c_str()));
+    }
+  
+    uint32_t finalEsp = LinuxStack::Setup(STACK_SIZE, (int)guestArgv.size(), guestArgv.data());
     uint32_t entryPoint = loader.GetHeader().e_entry;
 
     log_info("Stack ESP: 0x%08X", finalEsp);

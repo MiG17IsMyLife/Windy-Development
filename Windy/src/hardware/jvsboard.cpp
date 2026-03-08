@@ -184,7 +184,7 @@ bool JvsBoard::ReadPacket(const uint8_t* src, size_t srcLen) {
                 // Checksum byte
                 if (checksum != byte) {
                     log_warn("JvsBoard: Checksum Failure (expected 0x%02X, got 0x%02X)", checksum, byte);
-                    return false;
+                    //return false; Shitty fix.
                 }
                 return true; // Packet complete
             }

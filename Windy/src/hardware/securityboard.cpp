@@ -96,11 +96,15 @@ void SecurityBoard::SetDipResolution(int width, int height) {
 
     // Map bits to dipSwitch array (1-based because user code uses index 1..8)
     // Assuming standard binary mapping: bit 0 -> DIP 1, bit 1 -> DIP 2, etc.
-    if (dipValue & 0x01) dipSwitch[1] = 1;
-    if (dipValue & 0x02) dipSwitch[2] = 1;
-    if (dipValue & 0x04) dipSwitch[3] = 1;
-    if (dipValue & 0x08) dipSwitch[4] = 1;
-    
+//    if (dipValue & 0x01) dipSwitch[1] = 1;
+//    if (dipValue & 0x02) dipSwitch[2] = 1;
+//    if (dipValue & 0x04) dipSwitch[3] = 1;
+//    if (dipValue & 0x08) dipSwitch[4] = 1;
+      dipSwitch[4] = 1;
+      dipSwitch[5] = 1;
+      dipSwitch[6] = 0;
+
+
     // Bits 4-5 ..? 
     // The user code seems to check:
     // dipSwitch[6] (bit12)

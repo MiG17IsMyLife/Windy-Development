@@ -17,6 +17,9 @@ public:
 
     // Global symbol lookup across all loaded libraries
     uintptr_t GetGlobalSymbol(const char* name);
+    
+    // Global symbol lookup excluding the main executable (for R_386_COPY)
+    uintptr_t GetGlobalSymbolExcludingMain(const char* name);
 
     // Add a pre-loaded loader (e.g. the main executable)
     void AddLoader(const std::string& name, ILibraryLoader* loader);
@@ -27,12 +30,17 @@ public:
     // Registry for overrides
     void RegisterNativeOverride(const std::string& linuxName, const std::string& winName);
 
+    // Batch operations
+    void ResolveAllLibraries();
+    void RunAllInitializers();
+
 private:
     SharedObjectManager() {}
     
     std::string FindLibraryPath(const std::string& name);
 
     std::map<std::string, ILibraryLoader*> loadedLibraries;
+    std::vector<std::string> loadOrder;
     std::vector<std::string> searchPaths;
     std::map<std::string, std::string> nativeOverrides;
 };

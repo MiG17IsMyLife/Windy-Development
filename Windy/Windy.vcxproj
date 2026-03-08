@@ -24,6 +24,7 @@
     <ClCompile Include="src\api\graphics\glxbridge.cpp" />
     <ClCompile Include="src\api\graphics\sdlcalls.cpp" />
     <ClCompile Include="src\api\graphics\shaderpatches.cpp" />
+    <ClCompile Include="src\api\graphics\shaderWork\or2.c" />
     <ClCompile Include="src\api\graphics\x11bridge.cpp" />
     <ClCompile Include="src\api\libc\libcbridge.cpp" />
     <ClCompile Include="src\api\libc\pthread_barrier.cpp" />
@@ -54,6 +55,7 @@
     <ClCompile Include="src\core\symbolresolver.cpp" />
     <ClCompile Include="src\hardware\baseboard.cpp" />
     <ClCompile Include="src\hardware\eepromboard.cpp" />
+    <ClCompile Include="src\hardware\input.cpp" />
     <ClCompile Include="src\hardware\jvsboard.cpp" />
     <ClCompile Include="src\hardware\lindberghdevice.cpp" />
     <ClCompile Include="src\hardware\securityboard.cpp" />
@@ -70,6 +72,8 @@
     <ClInclude Include="src\api\graphics\glxbridge.h" />
     <ClInclude Include="src\api\graphics\sdlcalls.h" />
     <ClInclude Include="src\api\graphics\shaderpatches.h" />
+    <ClInclude Include="src\api\graphics\shaderWork\common.h" />
+    <ClInclude Include="src\api\graphics\shaderWork\or2.h" />
     <ClInclude Include="src\api\graphics\x11bridge.h" />
     <ClInclude Include="src\api\graphics\x11types.h" />
     <ClInclude Include="src\api\libc\libcbridge.h" />
@@ -97,6 +101,7 @@
     <ClInclude Include="src\core\symbolresolver.h" />
     <ClInclude Include="src\hardware\baseboard.h" />
     <ClInclude Include="src\hardware\eepromboard.h" />
+    <ClInclude Include="src\hardware\input.h" />
     <ClInclude Include="src\hardware\jvsboard.h" />
     <ClInclude Include="src\hardware\lindberghdevice.h" />
     <ClInclude Include="src\hardware\pciData.h" />
@@ -184,6 +189,7 @@
       <FixedBaseAddress>true</FixedBaseAddress>
       <AdditionalDependencies>SDL3.lib;SDL3_ttf.lib;ws2_32.lib;OpenGL32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>$(ProjectDir)lib\x86;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <UACExecutionLevel>RequireAdministrator</UACExecutionLevel>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -208,6 +214,7 @@
       <FixedBaseAddress>true</FixedBaseAddress>
       <AdditionalDependencies>SDL3.lib;SDL3_ttf.lib;ws2_32.lib;OpenGL32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>$(ProjectDir)lib\x86;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <UACExecutionLevel>RequireAdministrator</UACExecutionLevel>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">

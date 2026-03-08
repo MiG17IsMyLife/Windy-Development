@@ -58,10 +58,10 @@ class GLXBridge
     static XVisualInfo *ChooseVisual(Display *dpy, int screen, int *attribList);
     static GLXContext CreateContext(Display *dpy, XVisualInfo *vis, GLXContext shareList, bool direct);
     static void DestroyContext(Display *dpy, GLXContext ctx);
-    static int MakeCurrent(Display *dpy, GLXDrawable drawable, GLXContext ctx);
     static void SwapBuffers(Display *dpy, GLXDrawable drawable);
     static int SwapInterval(int interval);
     static void *GetProcAddress(const char *procName);
+    static bool QueryVersion(Display *dpy, int *major, int *minor);
 
     // --- GLX Query / Info ---
     static const char *QueryExtensionsString(Display *dpy, int screen);
@@ -70,21 +70,36 @@ class GLXBridge
     static Display *GetCurrentDisplay();
     static GLXContext GetCurrentContext();
     static GLXDrawable GetCurrentDrawable();
+    static bool MakeCurrent(Display *dpy, GLXDrawable drawable, GLXContext ctx);
+    static bool MakeContextCurrent(Display *dpy, GLXDrawable drawable, GLXDrawable read, GLXContext ctx);
     static int IsDirect(Display *dpy, GLXContext ctx);
     static int GetConfig(Display *dpy, XVisualInfo *vis, int attrib, int *value);
+    static GLXFBConfig *ChooseFBConfig(Display *dpy, int screen, int *attrib_list, int *nelements);
 
     // --- GLX SGIX / FBConfig Extensions ---
     static GLXFBConfig *ChooseFBConfigSGIX(Display *dpy, int screen, int *attrib_list, int *nelements);
     static int GetFBConfigAttribSGIX(Display *dpy, GLXFBConfig config, int attribute, int *value);
     static XVisualInfo *GetVisualFromFBConfig(Display *dpy, GLXFBConfig config);
     static GLXContext CreateContextWithConfigSGIX(Display *dpy, GLXFBConfig config, int render_type, GLXContext share_list, bool direct);
+    static int GetVideoSyncSGI(unsigned int *count);
+    static int GetRefreshRateSGI(unsigned int *rate);
+    static int SwapIntervalSGI(int interval);
 
     // PBuffer Stubs
+    static GLXPbuffer CreatePbuffer(Display *dpy, GLXFBConfig config, const int *attrib_list);
+    static void DestroyPbuffer(Display *dpy, GLXPbuffer pbuf);
     static GLXPbuffer CreateGLXPbufferSGIX(Display *dpy, GLXFBConfig config, unsigned int width, unsigned int height, int *attrib_list);
     static void DestroyGLXPbufferSGIX(Display *dpy, GLXPbuffer pbuf);
+
+    // Context Stubs
+    static GLXContext CreateNewContext(Display *dpy, GLXFBConfig config, int render_type, GLXContext share_list, bool direct);
 
     // --- GLU Utilities ---
     static void gluPerspective(double fovy, double aspect, double zNear, double zFar);
     static void gluLookAt(double eyeX, double eyeY, double eyeZ, double centerX, double centerY, double centerZ, double upX, double upY,
                           double upZ);
+    static void gluOrtho2D(double left, double right, double bottom, double top);
+    static const char *gluErrorString(unsigned int error);
+
+    static bool QueryExtension(Display *dpy, const char *extList);
 };

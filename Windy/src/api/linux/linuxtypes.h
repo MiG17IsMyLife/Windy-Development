@@ -45,6 +45,30 @@ struct linux_dirent
     char d_name[256];
 };
 
+// stat structure (32-bit, for __xstat)
+// Layout for i386
+struct linux_stat
+{
+    unsigned long  st_dev;
+    unsigned long  st_ino;
+    unsigned short st_mode;
+    unsigned short st_nlink;
+    unsigned short st_uid;
+    unsigned short st_gid;
+    unsigned long  st_rdev;
+    unsigned long  st_size;
+    unsigned long  st_blksize;
+    unsigned long  st_blocks;
+    unsigned long  st_atime;
+    unsigned long  st_atime_nsec;
+    unsigned long  st_mtime;
+    unsigned long  st_mtime_nsec;
+    unsigned long  st_ctime;
+    unsigned long  st_ctime_nsec;
+    unsigned long  __unused4;
+    unsigned long  __unused5;
+};
+
 // stat64 structure (for stat64/fstat64/lstat64)
 // Layout must match Linux i386 glibc 'struct stat64'
 struct linux_stat64

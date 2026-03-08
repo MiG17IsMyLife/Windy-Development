@@ -17,6 +17,9 @@ public:
     // Initialization (constructors etc)
     virtual void RunInit() = 0;
 
+    // Symbol Resolution (GOT/PLT)
+    virtual void ResolveSymbols() = 0;
+
     // Debugging
     virtual void DebugPrintSymbols() const {}
 };

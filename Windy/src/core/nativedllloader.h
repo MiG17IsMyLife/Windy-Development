@@ -42,13 +42,45 @@ public:
         return dependencies;
     }
 
+    void ResolveSymbols() override {
+        // Windows handles symbol resolution for native DLLs on LoadLibrary.
+        log_debug("NativeDllLoader: ResolveSymbols no-op for %s", winName.c_str());
+    }
+
     void RunInit() override {
         // Native DLLs run DllMain on LoadLibrary, so nothing explicit to do here.
         log_debug("NativeDllLoader: RunInit no-op for %s", winName.c_str());
     }
 
     void DebugPrintSymbols() const override {
-        // Cannot list symbols from a DLL easily without DbgHelp
-        log_info("NativeDllLoader: Symbols for %s are managed by Windows.", winName.c_str());
+        if (!hModule) return;
+
+        PIMAGE_DOS_HEADER pDosHeader = (PIMAGE_DOS_HEADER)hModule;
+        if (pDosHeader->e_magic != IMAGE_DOS_SIGNATURE) return;
+
+        PIMAGE_NT_HEADERS pNtHeaders = (PIMAGE_NT_HEADERS)((BYTE*)hModule + pDosHeader->e_lfanew);
+        if (pNtHeaders->Signature != IMAGE_NT_SIGNATURE) return;
+
+        DWORD exportDirRVA = pNtHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress;
+        if (exportDirRVA == 0) {
+            log_info("NativeDllLoader: No export table found for %s", winName.c_str());
+            return;
+        }
+
+        PIMAGE_EXPORT_DIRECTORY pExportDir = (PIMAGE_EXPORT_DIRECTORY)((BYTE*)hModule + exportDirRVA);
+        
+        DWORD* pNames = (DWORD*)((BYTE*)hModule + pExportDir->AddressOfNames);
+        DWORD* pFuncs = (DWORD*)((BYTE*)hModule + pExportDir->AddressOfFunctions);
+        WORD* pOrdinals = (WORD*)((BYTE*)hModule + pExportDir->AddressOfNameOrdinals);
+
+        log_info("Exported Symbols for %s (Native):", winName.c_str());
+        for (DWORD i = 0; i < pExportDir->NumberOfNames; i++) {
+            const char* name = (const char*)((BYTE*)hModule + pNames[i]);
+            WORD ordinal = pOrdinals[i];
+            DWORD funcRVA = pFuncs[ordinal];
+             
+            // Check for forwarded exports if needed, but basic printing is enough
+            log_info("  [NATIVE] %s -> 0x%p", name, (BYTE*)hModule + funcRVA);
+        }
     }
 };

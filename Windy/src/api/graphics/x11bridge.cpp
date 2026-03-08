@@ -1,103 +1,19 @@
 #define _CRT_SECURE_NO_WARNINGS
 
-#include "SDL3/SDL_stdinc.h"
 #include "sdlcalls.h"
-
 #include "x11bridge.h"
+#include "../../core/config.h"
 #include "../../core/log.h"
 #include <SDL3/SDL.h>
 #include <deque>
 #include <map>
 #include <mutex>
-#include <cstdint>
 #include <cstring>
 #include <cstdlib>
-#include <string>
 
 // Windows API
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
-
-#pragma pack(push, 1)
-struct FakeScreen
-{
-    uint8_t pad_00[0x08];        // 0x00 - 0x07
-    uint32_t root;               // 0x08
-    uint32_t width;              // 0x0C
-    uint32_t height;             // 0x10
-    uint32_t width_mm;           // 0x14
-    uint32_t height_mm;          // 0x18
-    uint8_t pad_1c[0x30 - 0x1c]; // 0x1C - 0x2F
-    uint32_t colormap;           // 0x30
-    uint8_t pad_34[0x50 - 0x34]; // 0x34 - 0x4F
-}; // Total: 0x50 bytes
-
-struct FakeDisplayData
-{
-    uint8_t pad_00[0x08];        // 0x00 - 0x07
-    uint32_t connection;         // 0x08
-    uint8_t pad_0c[0x84 - 0x0c]; // 0x0C - 0x83
-    uint32_t screen;             // 0x84 (default screen number)
-    uint8_t pad_88[0x8c - 0x88]; // 0x88 - 0x8B
-    uint32_t screens_ptr;        // 0x8c (pointer to FakeScreen array)
-};
-#pragma pack(pop)
-
-static FakeScreen g_fakeScreen;
-static FakeDisplayData g_fakeDisplay;
-static bool g_fakeDisplayInitialized = false;
-
-static Display *InitFakeDisplay()
-{
-    if (g_fakeDisplayInitialized)
-        return reinterpret_cast<Display *>(&g_fakeDisplay);
-
-    memset(&g_fakeDisplay, 0, sizeof(g_fakeDisplay));
-    memset(&g_fakeScreen, 0, sizeof(g_fakeScreen));
-
-    // Get screen dimensions from SDL
-    int screenW = 640, screenH = 480;
-    SDL_Window *sdlWin = SDLCalls::GetWindow();
-    if (sdlWin)
-    {
-        SDL_GetWindowSize(sdlWin, &screenW, &screenH);
-    }
-    else
-    {
-        int numDisplays = 0;
-        SDL_DisplayID *displays = SDL_GetDisplays(&numDisplays);
-        if (displays && numDisplays > 0)
-        {
-            const SDL_DisplayMode *mode = SDL_GetCurrentDisplayMode(displays[0]);
-            if (mode)
-            {
-                screenW = mode->w;
-                screenH = mode->h;
-            }
-            SDL_free(displays);
-        }
-    }
-
-    // Populate FakeScreen (offset 0x50 per entry)
-    g_fakeScreen.root = 1; // fake root window ID
-    g_fakeScreen.width = static_cast<uint32_t>(screenW);
-    g_fakeScreen.height = static_cast<uint32_t>(screenH);
-    g_fakeScreen.width_mm = screenW * 254 / 960; // ~96 DPI approximation
-    g_fakeScreen.height_mm = screenH * 254 / 960;
-    g_fakeScreen.colormap = 1; // fake default colormap
-
-    // Populate FakeDisplay
-    g_fakeDisplay.connection = 1; // fake connection fd
-    g_fakeDisplay.screen = 0;     // default screen number = 0
-    g_fakeDisplay.screens_ptr = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(&g_fakeScreen));
-
-    g_fakeDisplayInitialized = true;
-
-    log_info("FakeDisplay initialized: screen=%dx%d (%dmm x %dmm), root=%u", screenW, screenH, g_fakeScreen.width_mm,
-             g_fakeScreen.height_mm, g_fakeScreen.root);
-
-    return reinterpret_cast<Display *>(&g_fakeDisplay);
-}
 
 // --------------------------------------------------------------------------
 // Internal X Server State Manager
@@ -127,37 +43,28 @@ class XServerState
         }
     }
 
-    Display *GetDisplay() const
+    Window CreateVirtualWindow(int width, int height)
     {
-        return reinterpret_cast<Display *>(const_cast<FakeDisplayData *>(&g_fakeDisplay));
-    }
-
-    Window CreateVirtualWindow(int x, int y, int width, int height)
-    {
-        SDL_Window *sdlWin = SDLCalls::GetWindow();
-        if (!sdlWin)
+        if (SDLCalls::GetWindow())
         {
-            SDLCalls::Start(0, 0);
-            sdlWin = SDLCalls::GetWindow();
+            SDL_SetWindowSize(SDLCalls::GetWindow(), width, height);
+            RegisterWindow(SDLCalls::GetWindow());
+            return mainWindowID;
         }
-        if (!sdlWin)
-            return 0;
 
-        SDL_SetWindowSize(sdlWin, width, height);
-        SDL_SetWindowPosition(sdlWin, x, y);
-        return RegisterWindow(sdlWin);
+        SDLCalls::Start(0, 0);
+        RegisterWindow(SDLCalls::GetWindow());
+        return mainWindowID;
     }
 
-    Window RegisterWindow(SDL_Window *sdlWin)
+    void RegisterWindow(SDL_Window *sdlWin)
     {
-        auto existing = reverseWindowMap.find(sdlWin);
-        if (existing != reverseWindowMap.end())
-            return existing->second;
-
-        Window xid = ++mainWindowID;
-        windowMap[xid] = sdlWin;
-        reverseWindowMap[sdlWin] = xid;
-        return xid;
+        if (reverseWindowMap.find(sdlWin) == reverseWindowMap.end())
+        {
+            mainWindowID = 1;
+            windowMap[mainWindowID] = sdlWin;
+            reverseWindowMap[sdlWin] = mainWindowID;
+        }
     }
 
     SDL_Window *GetSDLWindow(Window win)
@@ -178,257 +85,173 @@ class XServerState
         return 1;
     }
 
-    Atom InternAtom(const char *name, int only_if_exists)
-    {
-        if (!name)
-            return 0;
+//     void PushEvent(const XEvent &ev)
+//     {
+//         std::lock_guard<std::mutex> lock(eventQueueMutex);
+//         eventQueue.push_back(ev);
+//     }
 
-        auto it = atomNameToId.find(name);
-        if (it != atomNameToId.end())
-            return it->second;
+//     bool PopEvent(XEvent *outEv)
+//     {
+//         std::lock_guard<std::mutex> lock(eventQueueMutex);
+//         if (eventQueue.empty())
+//             return false;
+//         *outEv = eventQueue.front();
+//         eventQueue.pop_front();
+//         return true;
+//     }
 
-        if (only_if_exists)
-            return 0;
+//     bool HasEvents()
+//     {
+//         std::lock_guard<std::mutex> lock(eventQueueMutex);
+//         return !eventQueue.empty();
+//     }
 
-        Atom atom = nextAtomId++;
-        atomNameToId[name] = atom;
-        return atom;
-    }
+//     void PumpEvents()
+//     {
+//         SDL_Event e;
+//         while (SDL_PollEvent(&e))
+//         {
+//             TranslateAndPushEvent(e);
+//         }
+//     }
 
-    Colormap CreateColormap(Window win)
-    {
-        SDL_Window *sdlWin = GetSDLWindow(win);
-        if (!sdlWin)
-            return nextColormapId++;
+//   private:
+//     void TranslateAndPushEvent(const SDL_Event &e)
+//     {
+//         XEvent xev = {0};
+//         Window winID = GetXID(SDL_GetWindowFromID(e.window.windowID));
 
-        auto existing = windowColormapMap.find(sdlWin);
-        if (existing != windowColormapMap.end())
-            return existing->second;
-
-        Colormap cmap = nextColormapId++;
-        windowColormapMap[sdlWin] = cmap;
-        return cmap;
-    }
-
-    void PushEvent(const XEvent &ev)
-    {
-        std::lock_guard<std::mutex> lock(eventQueueMutex);
-        eventQueue.push_back(ev);
-    }
-
-    bool PopEvent(XEvent *outEv)
-    {
-        std::lock_guard<std::mutex> lock(eventQueueMutex);
-        if (eventQueue.empty())
-            return false;
-        *outEv = eventQueue.front();
-        eventQueue.pop_front();
-        return true;
-    }
-
-    bool HasEvents()
-    {
-        std::lock_guard<std::mutex> lock(eventQueueMutex);
-        return !eventQueue.empty();
-    }
-
-    void PumpEvents()
-    {
-        SDL_Event e;
-        while (SDL_PollEvent(&e))
-        {
-            TranslateAndPushEvent(e);
-        }
-    }
-
-  private:
-    void TranslateAndPushEvent(const SDL_Event &e)
-    {
-        XEvent xev = {0};
-        Window winID = GetXID(SDL_GetWindowFromID(e.window.windowID));
-
-        switch (e.type)
-        {
-            case SDL_EVENT_QUIT:
-                log_info("X11Bridge: SDL_EVENT_QUIT");
-                exit(0);
-                break;
-            case SDL_EVENT_KEY_DOWN:
-            case SDL_EVENT_KEY_UP:
-                xev.xkey.type = (e.type == SDL_EVENT_KEY_DOWN) ? KeyPress : KeyRelease;
-                xev.xkey.window = winID;
-                xev.xkey.keycode = e.key.scancode;
-                xev.xkey.time = (Time)e.key.timestamp;
-                xev.xkey.display = XServerState::Instance().GetDisplay();
-                PushEvent(xev);
-                break;
-            case SDL_EVENT_MOUSE_MOTION:
-                xev.xmotion.type = MotionNotify;
-                xev.xmotion.window = winID;
-                xev.xmotion.x = (int)e.motion.x;
-                xev.xmotion.y = (int)e.motion.y;
-                xev.xmotion.time = (Time)e.motion.timestamp;
-                xev.xmotion.display = XServerState::Instance().GetDisplay();
-                PushEvent(xev);
-                break;
-            case SDL_EVENT_MOUSE_BUTTON_DOWN:
-            case SDL_EVENT_MOUSE_BUTTON_UP:
-                xev.xbutton.type = (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN) ? ButtonPress : ButtonRelease;
-                xev.xbutton.window = winID;
-                xev.xbutton.button = e.button.button;
-                xev.xbutton.x = (int)e.button.x;
-                xev.xbutton.y = (int)e.button.y;
-                xev.xbutton.time = (Time)e.button.timestamp;
-                xev.xbutton.display = XServerState::Instance().GetDisplay();
-                PushEvent(xev);
-                break;
-        }
-    }
+//         switch (e.type)
+//         {
+//             case SDL_EVENT_QUIT:
+//                 log_info("X11Bridge: SDL_EVENT_QUIT");
+//                 exit(0);
+//                 break;
+//             case SDL_EVENT_KEY_DOWN:
+//             case SDL_EVENT_KEY_UP:
+//                 xev.xkey.type = (e.type == SDL_EVENT_KEY_DOWN) ? KeyPress : KeyRelease;
+//                 xev.xkey.window = winID;
+//                 xev.xkey.keycode = e.key.scancode;
+//                 xev.xkey.time = (Time)e.key.timestamp;
+//                 xev.xkey.display = (Display *)0x1111;
+//                 PushEvent(xev);
+//                 break;
+//             case SDL_EVENT_MOUSE_MOTION:
+//                 xev.xmotion.type = MotionNotify;
+//                 xev.xmotion.window = winID;
+//                 xev.xmotion.x = (int)e.motion.x;
+//                 xev.xmotion.y = (int)e.motion.y;
+//                 xev.xmotion.time = (Time)e.motion.timestamp;
+//                 xev.xmotion.display = (Display *)0x1111;
+//                 PushEvent(xev);
+//                 break;
+//             case SDL_EVENT_MOUSE_BUTTON_DOWN:
+//             case SDL_EVENT_MOUSE_BUTTON_UP:
+//                 xev.xbutton.type = (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN) ? ButtonPress : ButtonRelease;
+//                 xev.xbutton.window = winID;
+//                 xev.xbutton.button = e.button.button;
+//                 xev.xbutton.x = (int)e.button.x;
+//                 xev.xbutton.y = (int)e.button.y;
+//                 xev.xbutton.time = (Time)e.button.timestamp;
+//                 xev.xbutton.display = (Display *)0x1111;
+//                 PushEvent(xev);
+//                 break;
+//         }
+//     }
 
     bool sdlInitialized = false;
     Window mainWindowID = 1;
-    Atom nextAtomId = 1;
-    Colormap nextColormapId = 1;
     std::map<Window, SDL_Window *> windowMap;
     std::map<SDL_Window *, Window> reverseWindowMap;
-    std::map<std::string, Atom> atomNameToId;
-    std::map<SDL_Window *, Colormap> windowColormapMap;
     std::deque<XEvent> eventQueue;
     std::mutex eventQueueMutex;
 };
-
-namespace
-{
-bool ParseHexColor(const char *spec, XColor *color)
-{
-    if (!spec || spec[0] != '#' || !color)
-        return false;
-
-    size_t len = SDL_strlen(spec + 1);
-    const char *hex = spec + 1;
-    auto hexValue = [](char c) -> int {
-        if (c >= '0' && c <= '9')
-            return c - '0';
-        if (c >= 'a' && c <= 'f')
-            return 10 + (c - 'a');
-        if (c >= 'A' && c <= 'F')
-            return 10 + (c - 'A');
-        return -1;
-    };
-
-    auto parseComponent = [&](int digits, unsigned short &out) -> bool {
-        int value = 0;
-        for (int i = 0; i < digits; ++i)
-        {
-            int v = hexValue(hex[i]);
-            if (v < 0)
-                return false;
-            value = (value << 4) | v;
-        }
-        if (digits == 1)
-            out = static_cast<unsigned short>(value * 0x1111);
-        else if (digits == 2)
-            out = static_cast<unsigned short>(value * 0x0101);
-        else
-            out = static_cast<unsigned short>(value);
-        hex += digits;
-        return true;
-    };
-
-    if (len == 3)
-    {
-        if (!parseComponent(1, color->red) || !parseComponent(1, color->green) || !parseComponent(1, color->blue))
-            return false;
-    }
-    else if (len == 6)
-    {
-        if (!parseComponent(2, color->red) || !parseComponent(2, color->green) || !parseComponent(2, color->blue))
-            return false;
-    }
-    else if (len == 12)
-    {
-        if (!parseComponent(4, color->red) || !parseComponent(4, color->green) || !parseComponent(4, color->blue))
-            return false;
-    }
-    else
-    {
-        return false;
-    }
-
-    color->flags = 0x07;
-    return true;
-}
-
-bool ParseNamedColor(const char *spec, XColor *color)
-{
-    if (!spec || !color)
-        return false;
-
-    if (SDL_strcasecmp(spec, "black") == 0)
-    {
-        color->red = 0;
-        color->green = 0;
-        color->blue = 0;
-    }
-    else if (SDL_strcasecmp(spec, "white") == 0)
-    {
-        color->red = 0xFFFF;
-        color->green = 0xFFFF;
-        color->blue = 0xFFFF;
-    }
-    else if (SDL_strcasecmp(spec, "red") == 0)
-    {
-        color->red = 0xFFFF;
-        color->green = 0;
-        color->blue = 0;
-    }
-    else if (SDL_strcasecmp(spec, "green") == 0)
-    {
-        color->red = 0;
-        color->green = 0xFFFF;
-        color->blue = 0;
-    }
-    else if (SDL_strcasecmp(spec, "blue") == 0)
-    {
-        color->red = 0;
-        color->green = 0;
-        color->blue = 0xFFFF;
-    }
-    else
-    {
-        return false;
-    }
-
-    color->flags = 0x07;
-    return true;
-}
-} // namespace
 
 // --------------------------------------------------------------------------
 // X11Bridge Implementation
 // --------------------------------------------------------------------------
 
-int X11Bridge::InitThreads()
+int X11Bridge::XInitThreads()
 {
     return 1;
 }
 
-Display *X11Bridge::OpenDisplay(const char *name)
+
+static char s_dummyDisplay[4096] = {0};
+static char s_commandBuffer[8192] = {0};
+static char s_dummyScreens[4096] = {0};
+
+Display *X11Bridge::XOpenDisplay(const char *name)
 {
+    printf("XOpenDisplay(\"%s\")\n", name ? name : "NULL");
     XServerState::Instance().Initialize();
-
-    if (!SDLCalls::GetWindow())
-        SDLCalls::Start(nullptr, nullptr);
-
-    Display *iVar1 = InitFakeDisplay();
-
-    log_info("XOpenDisplay(\"%s\") = %p", name ? name : "", (void *)iVar1);
-    return iVar1;
+    *(int*)(s_dummyDisplay + 0x84) = 0; // Offset 0x84: Default Screen (int)
+    *(void**)(s_dummyDisplay + 0x8C) = s_dummyScreens;  // Offset 0x8C: Screens pointer
+    *(Window*)(s_dummyScreens + 0x08) = 0; // Offset 0x08 : window ID 
+    *(int*)(s_dummyScreens + 0x0C) = getConfig()->width;  // Offset 0x0C: Width  
+    *(int*)(s_dummyScreens + 0x10) = getConfig()->height; // Offset 0x10: Height
+    *(char**)(s_dummyDisplay + 0x6C) = s_commandBuffer; // Offset 0x6C: Current buffer pointer??
+    *(char**)(s_dummyDisplay + 0x70) = s_commandBuffer + sizeof(s_commandBuffer); // Offset 0x70: bufmax??
+    return (Display *)&s_dummyDisplay;
 }
 
-int X11Bridge::CloseDisplay(Display *dpy)
+
+// Display *X11Bridge::XOpenDisplay(const char *name)
+// {
+//     log_info("XOpenDisplay(\"%s\")", name ? name : "NULL");
+
+//     // Initialize SDL and Create Hidden Window + Context
+//     SDLCalls::Init();
+//     SDLCalls::CreateSDLWindow(true);
+
+//     // Allocate Display structure
+//     Display *dpy = new Display();
+//     memset(dpy, 0, sizeof(Display));
+
+//     // Allocate Screen structure (usually one screen)
+//     dpy->nscreens = 1;
+//     dpy->default_screen = 0;
+//     dpy->screens = new Screen[1];
+//     memset(dpy->screens, 0, sizeof(Screen));
+
+//     // Setup Screen 0 with valid Config dimensions
+//     Screen *scr = &dpy->screens[0];
+//     scr->display = dpy;
+//     scr->root = 0; // Root window ID (can be 0 or 1)
+//     scr->width = getConfig()->width;
+//     scr->height = getConfig()->height;
+//     scr->mwidth = (scr->width * 25.4) / 96.0;
+//     scr->mheight = (scr->height * 25.4) / 96.0;
+//     scr->root_depth = 24;
+//     scr->white_pixel = 0xFFFFFFFF;
+//     scr->black_pixel = 0x00000000;
+
+//     // Fill common Display fields
+//     dpy->fd = -1; // No real socket
+//     dpy->proto_major_version = 11;
+//     dpy->proto_minor_version = 0;
+//     dpy->vendor = (char *)"Windy X11 Bridge";
+//     dpy->byte_order = 1; // LSBFirst (Windows is Little Endian)
+//     dpy->bitmap_unit = 32;
+//     dpy->bitmap_pad = 32;
+//     dpy->bitmap_bit_order = 1; // LSBFirst
+//     dpy->nformats = 0;
+
+//     // Return valid pointer
+//     return dpy;
+// }
+
+int X11Bridge::XCloseDisplay(Display *dpy)
 {
-    (void)dpy;
+    if (dpy)
+    {
+        if (dpy->screens)
+        {
+            delete[] dpy->screens;
+        }
+        delete dpy;
+    }
     return 0;
 }
 
@@ -436,34 +259,56 @@ Window X11Bridge::XCreateWindow(Display *dpy, Window parent, int x, int y, unsig
                                 unsigned int border_width, int depth, unsigned int class_type, void *visual, unsigned long valuemask,
                                 XSetWindowAttributes *attributes)
 {
-    log_info("XCreateWindow: %ux%u", width, height);
-    return XServerState::Instance().CreateVirtualWindow(x, y, width, height);
+    printf("XCreateWindow: %ux%u\n", width, height);
+
+    // Window already created in XOpenDisplay (hidden).
+    // We can update its size or position here if suitable, or just return the existing handle.
+    // For now, assume the Config size is what we want and just show it later in MapWindow.
+    if (SDLCalls::GetWindow())
+    {
+        SDL_SetWindowSize(SDLCalls::GetWindow(), width, height);
+    }
+
+    return XServerState::Instance().CreateVirtualWindow(width, height);
 }
 
-int X11Bridge::DestroyWindow(Display *dpy, Window win)
+int X11Bridge::XDestroyWindow(Display *dpy, Window win)
 {
-    SDL_Window *sdlWin = XServerState::Instance().GetSDLWindow(win);
-    if (sdlWin)
-        SDL_HideWindow(sdlWin);
     return 1;
 }
 
-void X11Bridge::MapWindow(Display *dpy, Window win)
+void X11Bridge::XMapWindow(Display *dpy, Window win)
 {
+    printf("XMapWindow Called\n");
     SDL_Window *sdlWin = XServerState::Instance().GetSDLWindow(win);
     if (sdlWin)
         SDL_ShowWindow(sdlWin);
+    return; 
 }
 
-int X11Bridge::MoveWindow(Display *dpy, Window win, int x, int y)
+int X11Bridge::_XReply(Display *dpy, int *rep, int extra, int discard)
 {
-    SDL_Window *sdlWin = XServerState::Instance().GetSDLWindow(win);
-    if (sdlWin)
-        SDL_SetWindowPosition(sdlWin, x, y);
+    if (rep) {
+        memset(rep, 0, 32);
+        ((char*)rep)[0] = 1; // type = X_Reply
+        
+        unsigned short* p = (unsigned short*)((char*)rep + 4); //offset 4 and 6 for version??
+        p[0] = 2; // Major
+        p[1] = 2; // Minor
+    }
     return 1;
 }
 
-int X11Bridge::ResizeWindow(Display *dpy, Window win, unsigned int width, unsigned int height)
+int X11Bridge::XMoveWindow(Display *dpy, Window win, int x, int y)
+{
+    if (SDLCalls::GetWindow())
+    {
+        SDL_SetWindowPosition(SDLCalls::GetWindow(), x, y);
+    }
+    return 1;
+}
+
+int X11Bridge::XResizeWindow(Display *dpy, Window win, unsigned int width, unsigned int height)
 {
     SDL_Window *sdlWin = XServerState::Instance().GetSDLWindow(win);
     if (sdlWin)
@@ -471,75 +316,130 @@ int X11Bridge::ResizeWindow(Display *dpy, Window win, unsigned int width, unsign
     return 1;
 }
 
-int X11Bridge::Sync(Display *dpy, int discard)
+int X11Bridge::XSync(Display *dpy, int discard)
 {
     return 1;
 }
-int X11Bridge::Flush(Display *dpy)
+int X11Bridge::XFlush(Display *dpy)
 {
     return 1;
 }
 
-void X11Bridge::LockDisplay(Display *dpy)
+void X11Bridge::XLockDisplay(Display *dpy)
 {
 }
-void X11Bridge::UnlockDisplay(Display *dpy)
+void X11Bridge::XUnlockDisplay(Display *dpy)
 {
 }
-void X11Bridge::SetErrorHandler(void *handler)
+void X11Bridge::XSetErrorHandler(void *handler)
 {
 }
-int X11Bridge::GetErrorText(Display *dpy, int code, char *buffer, int length)
+int X11Bridge::XGetErrorText(Display *dpy, int code, char *buffer, int length)
 {
     if (buffer && length > 0)
         buffer[0] = '\0';
     return 0;
 }
 
+int X11Bridge::XDisplayWidth(void *dpy, int screen_number)
+{
+    // Return the width from our config (or current window size)
+    return getConfig()->width;
+}
+
+int X11Bridge::XDisplayHeight(void *dpy, int screen_number)
+{
+    // Return the height from our config
+    return getConfig()->height;
+}
+
+int X11Bridge::XDisplayWidthMM(void *dpy, int screen_number)
+{
+    // Approximation: 96 DPI
+    // Width (mm) = (Pixels * 25.4) / DPI
+    return (int)((getConfig()->width * 25.4f) / 96.0f);
+}
+
+int X11Bridge::XDisplayHeightMM(void *dpy, int screen_number)
+{
+    // Approximation: 96 DPI
+    return (int)((getConfig()->height * 25.4f) / 96.0f);
+}
+
+Atom X11Bridge::XInternAtom(Display *dpy, const char *atom_name, bool create_if_not_exist)
+{
+    return 1;
+}
+
+static int s_dummyExtCodes[2] = { 0, 128 };
+static void* s_dummyExtData[4] = { (void*)1, (void*)1, (void*)s_dummyExtCodes, (void*)1 };
+void *X11Bridge::XextFindDisplay(Display *dpy)
+{
+    printf("XextFindDisplay\n");
+    return s_dummyExtData;  // offset 0x8 must be non-zero
+}
+
 // --- Event Handling ---
 
-int X11Bridge::Pending(Display *dpy)
+int X11Bridge::XPending(Display *dpy)
 {
-    XServerState::Instance().PumpEvents();
-    return XServerState::Instance().HasEvents() ? 1 : 0;
+    // XServerState::Instance().PumpEvents();
+    // return XServerState::Instance().HasEvents() ? 1 : 0;
+    return 0;
 }
 
-void X11Bridge::NextEvent(Display *dpy, XEvent *event_return)
+void X11Bridge::XNextEvent(Display *dpy, XEvent *event_return)
 {
-    while (true)
-    {
-        XServerState::Instance().PumpEvents();
-        if (XServerState::Instance().PopEvent(event_return))
-            return;
-        SDL_Delay(1);
-    }
+    // while (true)
+    // {
+    //     XServerState::Instance().PumpEvents();
+    //     if (XServerState::Instance().PopEvent(event_return))
+    //         return;
+    //     SDL_Delay(1);
+    // }
+    return;
 }
 
-int X11Bridge::CheckTypedEvent(Display *dpy, int type, XEvent *event_return)
+void X11Bridge::XSendEvent(Display *dpy, Window w, bool propagate, long event_mask, XEvent *event_send)
 {
-    XServerState::Instance().PumpEvents();
+    return;
+}
+
+int X11Bridge::XCheckTypedEvent(Display *dpy, int type, XEvent *event_return)
+{
+    // XServerState::Instance().PumpEvents();
     return 0; // Simplified
 }
 
-int X11Bridge::SelectInput(Display *dpy, Window win, long event_mask)
+int X11Bridge::XSelectInput(Display *dpy, Window win, long event_mask)
 {
     return 0;
 }
-int X11Bridge::SetCloseDownMode(Display *dpy, int close_mode)
+int X11Bridge::XSetCloseDownMode(Display *dpy, int close_mode)
 {
     return 1;
 }
 
-int X11Bridge::SetInputFocus(Display *dpy, Window win, int revert_to, Time time)
+int X11Bridge::XSetInputFocus(Display *dpy, Window win, int revert_to, Time time)
 {
-    SDL_Window *sdlWin = XServerState::Instance().GetSDLWindow(win);
-    if (sdlWin)
-        SDL_RaiseWindow(sdlWin);
+    // SDL_Window *sdlWin = XServerState::Instance().GetSDLWindow(win);
+    // if (sdlWin)
+    //     SDL_RaiseWindow(sdlWin);
     return 1;
 }
 
-int X11Bridge::TranslateCoordinates(Display *dpy, Window src_w, Window dest_w, int src_x, int src_y, int *dest_x_return, int *dest_y_return,
-                                    Window *child_return)
+int X11Bridge::XAutoRepeatOff(Display *dpy)
+{
+    return 1;
+}
+
+int X11Bridge::XKeysymToKeycode(Display *dpy, int keysym)
+{
+    return 0;
+}
+
+int X11Bridge::XTranslateCoordinates(Display *dpy, Window src_w, Window dest_w, int src_x, int src_y, int *dest_x_return, int *dest_y_return,
+                                     Window *child_return)
 {
     SDL_Window *srcWin = XServerState::Instance().GetSDLWindow(src_w);
     SDL_Window *destWin = XServerState::Instance().GetSDLWindow(dest_w);
@@ -568,223 +468,215 @@ int X11Bridge::TranslateCoordinates(Display *dpy, Window src_w, Window dest_w, i
 
 // --- Input (Mouse/Keyboard) ---
 
-int X11Bridge::QueryPointer(Display *dpy, Window win, Window *root_return, Window *child_return, int *root_x_return, int *root_y_return,
-                            int *win_x_return, int *win_y_return, unsigned int *mask_return)
+int X11Bridge::XQueryPointer(Display *dpy, Window win, Window *root_return, Window *child_return, int *root_x_return, int *root_y_return,
+                             int *win_x_return, int *win_y_return, unsigned int *mask_return)
 {
-    float mx, my;
-    uint32_t mask = SDL_GetGlobalMouseState(&mx, &my);
+    // float mx, my;
+    // uint32_t mask = SDL_GetGlobalMouseState(&mx, &my);
 
-    if (root_x_return)
-        *root_x_return = (int)mx;
-    if (root_y_return)
-        *root_y_return = (int)my;
+    // if (root_x_return)
+    //     *root_x_return = (int)mx;
+    // if (root_y_return)
+    //     *root_y_return = (int)my;
 
-    SDL_Window *sdlWin = XServerState::Instance().GetSDLWindow(win);
-    if (sdlWin)
-    {
-        int wx, wy;
-        SDL_GetWindowPosition(sdlWin, &wx, &wy);
-        if (win_x_return)
-            *win_x_return = (int)mx - wx;
-        if (win_y_return)
-            *win_y_return = (int)my - wy;
-    }
+    // SDL_Window *sdlWin = XServerState::Instance().GetSDLWindow(win);
+    // if (sdlWin)
+    // {
+    //     int wx, wy;
+    //     SDL_GetWindowPosition(sdlWin, &wx, &wy);
+    //     if (win_x_return)
+    //         *win_x_return = (int)mx - wx;
+    //     if (win_y_return)
+    //         *win_y_return = (int)my - wy;
+    // }
 
-    if (root_return)
-        *root_return = g_fakeScreen.root;
-    if (child_return)
-        *child_return = 0;
-    if (mask_return)
-        *mask_return = mask;
-    return 1;
-}
-
-void X11Bridge::WarpPointer(Display *dpy, Window src_w, Window dest_w, int src_x, int src_y, unsigned int src_width,
-                            unsigned int src_height, int dest_x, int dest_y)
-{
-    SDL_Window *sdlWin = XServerState::Instance().GetSDLWindow(dest_w);
-    if (!sdlWin)
-        sdlWin = SDLCalls::GetWindow();
-    if (sdlWin)
-        SDL_WarpMouseInWindow(sdlWin, (float)dest_x, (float)dest_y);
-}
-
-void X11Bridge::GrabPointer(Display *dpy, Window win, int owner_events, unsigned int event_mask, int pointer_mode, int keyboard_mode,
-                            Window confine_to, Cursor cursor, Time time)
-{
-    SDL_Window *sdlWin = XServerState::Instance().GetSDLWindow(win);
-    if (sdlWin)
-        SDL_SetWindowMouseGrab(sdlWin, true);
-}
-
-void X11Bridge::UngrabPointer(Display *dpy, Time time)
-{
-    if (SDLCalls::GetWindow())
-        SDL_SetWindowMouseGrab(SDLCalls::GetWindow(), false);
-}
-
-int X11Bridge::LookupString(XKeyEvent *event_struct, char *buffer_return, int bytes_buffer, KeySym *keysym_return,
-                            XComposeStatus *status_in_out)
-{
-    if (!event_struct)
-        return 0;
-
-    SDL_Keycode keycode = SDL_GetKeyFromScancode(static_cast<SDL_Scancode>(event_struct->keycode), SDL_KMOD_NONE, false);
-    if (keysym_return)
-        *keysym_return = static_cast<KeySym>(keycode);
-
-    if (!buffer_return || bytes_buffer <= 0)
-        return 0;
-
-    if (keycode >= 0x20 && keycode <= 0x7E)
-    {
-        buffer_return[0] = static_cast<char>(keycode);
-        return 1;
-    }
-
-    if (bytes_buffer > 0)
-        buffer_return[0] = '\0';
+    // if (mask_return)
+    //     *mask_return = mask;
     return 0;
 }
 
-int X11Bridge::GrabKeyboard(Display *dpy, Window win, int owner_events, int pointer_mode, int keyboard_mode, Time time)
+void X11Bridge::XWarpPointer(Display *dpy, Window src_w, Window dest_w, int src_x, int src_y, unsigned int src_width,
+                             unsigned int src_height, int dest_x, int dest_y)
 {
-    SDL_Window *sdlWin = XServerState::Instance().GetSDLWindow(win);
-    if (sdlWin)
-    {
-        SDL_SetWindowKeyboardGrab(sdlWin, true);
-        return 0; // Success
-    }
-    return 1;
+//     SDL_Window *sdlWin = XServerState::Instance().GetSDLWindow(dest_w);
+//     if (sdlWin)
+//         SDL_WarpMouseInWindow(sdlWin, (float)dest_x, (float)dest_y);
 }
 
-int X11Bridge::UngrabKeyboard(Display *dpy, Time time)
+void X11Bridge::XGrabPointer(Display *dpy, Window win, int owner_events, unsigned int event_mask, int pointer_mode, int keyboard_mode,
+                             Window confine_to, Cursor cursor, Time time)
 {
-    if (SDLCalls::GetWindow())
-        SDL_SetWindowKeyboardGrab(SDLCalls::GetWindow(), false);
+    // SDL_Window *sdlWin = XServerState::Instance().GetSDLWindow(win);
+    // if (sdlWin)
+    //     SDL_SetWindowMouseGrab(sdlWin, true);
+}
+
+void X11Bridge::XUngrabPointer(Display *dpy, Time time)
+{
+    // if (SDLCalls::GetWindow())
+    //     SDL_SetWindowMouseGrab(SDLCalls::GetWindow(), false);
+}
+
+int X11Bridge::XGrabKeyboard(Display *dpy, Window win, int owner_events, int pointer_mode, int keyboard_mode, Time time)
+{
+    // SDL_Window *sdlWin = XServerState::Instance().GetSDLWindow(win);
+    // if (sdlWin)
+    // {
+    //     SDL_SetWindowKeyboardGrab(sdlWin, true);
+    //     return 0; // Success
+    // }
     return 0;
 }
 
-int X11Bridge::AutoRepeatOn(Display *dpy)
+int X11Bridge::XUngrabKeyboard(Display *dpy, Time time)
+{
+    // if (SDLCalls::GetWindow())
+    //     SDL_SetWindowKeyboardGrab(SDLCalls::GetWindow(), false);
+    return 0;
+}
+
+int X11Bridge::XAutoRepeatOn(Display *dpy)
 {
     return 1;
 }
 
 // --- Attributes & Properties ---
 
-int X11Bridge::GetWindowAttributes(Display *dpy, Window win, XWindowAttributes *attr)
+int X11Bridge::XGetWindowAttributes(Display *dpy, Window win, XWindowAttributes *attr)
 {
+    printf("XGetWindowAttributes Called\n");
     if (!attr)
         return 0;
     memset(attr, 0, sizeof(XWindowAttributes));
+    attr->x = 0;
+    attr->y = 0;
+    attr->width = getConfig()->width;
+    attr->height = getConfig()->height;
+    attr->depth = 24;
+    attr->visual = (void *)1;
+    attr->map_state = 2; // IsViewable
+    return 1;
+}
+
+int X11Bridge::XGetGeometry(Display *dpy, Drawable d, Window *root_return, int *x_return, int *y_return, unsigned int *width_return,
+                            unsigned int *height_return, unsigned int *border_width_return, unsigned int *depth_return)
+{
+    printf("XGetGeometry Called\n");
+    if (root_return)
+        *root_return = 0;
+    if (x_return)
+        *x_return = 0;
+    if (y_return)
+        *y_return = 0;
+    if (width_return)
+        *width_return = getConfig()->width;
+    if (height_return)
+        *height_return = getConfig()->height;
+    if (depth_return)
+        *depth_return = 24;
+    if (border_width_return)
+        *border_width_return = 0;
+    return 1;
+}
+
+int X11Bridge::XSetStandardProperties(Display *dpy, Window win, const char *window_name, const char *icon_name, Pixmap icon_pixmap,
+                                      char **argv, int argc, XSetWindowAttributes *attributes)
+{
+    printf("XSetStandardProperties Called\n");
     SDL_Window *sdlWin = XServerState::Instance().GetSDLWindow(win);
-    if (sdlWin)
+    if (sdlWin && window_name)
     {
-        int w, h, x, y;
-        SDL_GetWindowSize(sdlWin, &w, &h);
-        SDL_GetWindowPosition(sdlWin, &x, &y);
-        attr->x = x;
-        attr->y = y;
-        attr->width = w;
-        attr->height = h;
-        attr->depth = 24;
-        attr->visual = (void *)1;
-        attr->root = g_fakeScreen.root;
-        attr->map_state = 2; // IsViewable
+        SDL_SetWindowTitle(sdlWin, "SEGA Lindbergh Emulator");
     }
     return 1;
 }
 
-int X11Bridge::GetGeometry(Display *dpy, Drawable d, Window *root_return, int *x_return, int *y_return, unsigned int *width_return,
-                           unsigned int *height_return, unsigned int *border_width_return, unsigned int *depth_return)
+int X11Bridge::XChangeProperty(Display *dpy, Window win, Atom property, Atom type, int format, int mode, const unsigned char *data,
+                               int nelements)
 {
-    SDL_Window *sdlWin = XServerState::Instance().GetSDLWindow((Window)d);
-    if (sdlWin)
-    {
-        int w, h, x, y;
-        SDL_GetWindowSize(sdlWin, &w, &h);
-        SDL_GetWindowPosition(sdlWin, &x, &y);
-        if (x_return)
-            *x_return = x;
-        if (y_return)
-            *y_return = y;
-        if (width_return)
-            *width_return = w;
-        if (height_return)
-            *height_return = h;
-        if (depth_return)
-            *depth_return = 24;
-        if (border_width_return)
-            *border_width_return = 0;
-        if (root_return)
-            *root_return = g_fakeScreen.root;
-    }
     return 1;
 }
 
-Atom X11Bridge::InternAtom(Display *dpy, const char *name, int only_if_exists)
+int X11Bridge::XParseColor(Display *dpy, Colormap colormap, const char *spec, int *color_return)
 {
-    return XServerState::Instance().InternAtom(name, only_if_exists);
+    return 1;
+} 
+
+void X11Bridge::XMapRaised(Display *dpy, Window w)
+{
+    SDL_Window *sdlWin = XServerState::Instance().GetSDLWindow(w);
+    if (sdlWin)
+        SDL_RaiseWindow(sdlWin);
 }
 
-int X11Bridge::StoreName(Display *dpy, Window win, const char *name)
+static char s_dummyScreenResources[1024] = {0};
+static char s_dummyCrtcs[1024] = {0};
+
+void *X11Bridge::XRRGetScreenResources(Display *dpy, Window window)
 {
+    printf("XRRGetScreenResources Called\n");
+    // Offset 0x0C: pointer to an array of CRTCs. Dereferencing this pointer
+    // twice yields the first CRTC ID.
+    *(void **)(s_dummyScreenResources + 0x0C) = s_dummyCrtcs;
+    return s_dummyScreenResources;
+}
+
+static char s_dummyCrtcInfo[1024] = {0};
+
+void *X11Bridge::XRRGetCrtcInfo(Display *dpy, int crtc)
+{
+    printf("XRRGetCrtcInfo Called\n");
+    // Offset 0x0C: Width
+    *(unsigned int *)(s_dummyCrtcInfo + 0x0C) = getConfig()->width;
+    // Offset 0x10: Height
+    *(unsigned int *)(s_dummyCrtcInfo + 0x10) = getConfig()->height;
+    return s_dummyCrtcInfo;
+}
+
+int X11Bridge::XLookupString(XKeyEvent *key_event, char *buffer_return, int buffer_size, int *keysym_return, int *status_return)
+{
+    return 0;
+}
+
+int X11Bridge::XStoreName(Display *dpy, Window win, const char *name)
+{
+    printf("XStoreName Called\n");
     SDL_Window *sdlWin = XServerState::Instance().GetSDLWindow(win);
     if (sdlWin && name)
         SDL_SetWindowTitle(sdlWin, name);
     return 0;
 }
 
-Colormap X11Bridge::CreateColormap(Display *dpy, Window w, void *visual, int alloc)
-{
-    return XServerState::Instance().CreateColormap(w);
-}
-
-int X11Bridge::ParseColor(Display *dpy, Colormap colormap, const char *spec, XColor *color_return)
-{
-    if (!color_return || !spec)
-        return 0;
-
-    color_return->pixel = 0;
-    color_return->red = 0;
-    color_return->green = 0;
-    color_return->blue = 0;
-    color_return->flags = 0;
-    color_return->pad = 0;
-
-    if (ParseHexColor(spec, color_return))
-        return 1;
-    if (ParseNamedColor(spec, color_return))
-        return 1;
-
-    return 0;
-}
-
-int X11Bridge::ChangeProperty(Display *dpy, Window win, Atom property, Atom type, int format, int mode, const unsigned char *data,
-                              int nelements)
+int X11Bridge::XSetWMProtocols(Display *dpy, Window win, Atom *protocols, int count)
 {
     return 1;
 }
 
-int X11Bridge::SetWMProtocols(Display *dpy, Window win, Atom *protocols, int count)
+int X11Bridge::XSetWMProperties(Display *dpy, Window win, XTextProperty *window_name, XTextProperty *icon_name, char **argv, int argc,
+                                XSizeHints *normal_hints, XWMHints *wm_hints, XClassHint *class_hints)
 {
     return 1;
 }
 
-int X11Bridge::SetWMProperties(Display *dpy, Window win, XTextProperty *window_name, XTextProperty *icon_name, char **argv, int argc,
-                               XSizeHints *normal_hints, XWMHints *wm_hints, XClassHint *class_hints)
+void X11Bridge::XSetWMNormalHints(Display *dpy, Window w, XSizeHints *hints)
 {
-    return 1;
+    printf("XSetWMNormalHints Called\n");
 }
 
-int X11Bridge::StringListToTextProperty(char **list, int count, XTextProperty *text_prop_return)
+void X11Bridge::XSetTransientForHint(Display *dpy, Window w, Window transient_for)
+{
+    printf("XSetTransientForHint Called\n");
+}
+
+int X11Bridge::XStringListToTextProperty(char **list, int count, XTextProperty *text_prop_return)
 {
     if (text_prop_return && count > 0 && list && list[0])
     {
-        size_t len = SDL_strlen(list[0]);
-        text_prop_return->value = (unsigned char *)SDL_malloc(len + 1);
+        size_t len = strlen(list[0]);
+        // Note: In a real X11 impl, XFree should free this. We use _aligned_malloc in original, here just malloc.
+        text_prop_return->value = (unsigned char *)malloc(len + 1);
         if (text_prop_return->value)
-            SDL_strlcpy((char *)text_prop_return->value, list[0], len + 1);
+            strcpy((char *)text_prop_return->value, list[0]);
         text_prop_return->encoding = 31;
         text_prop_return->format = 8;
         text_prop_return->nitems = len;
@@ -793,41 +685,53 @@ int X11Bridge::StringListToTextProperty(char **list, int count, XTextProperty *t
     return 0;
 }
 
-void X11Bridge::Free(void *data)
+void X11Bridge::XFree(void *data)
 {
     if (data)
-        SDL_free(data);
+        free(data);
 }
 
 // --- Pixmaps & Cursors ---
 
-Pixmap X11Bridge::CreatePixmapFromBitmapData(Display *dpy, Drawable drawable, char *data, unsigned int width, unsigned int height,
-                                             unsigned long fg, unsigned long bg, unsigned int depth)
+Pixmap X11Bridge::XCreatePixmapFromBitmapData(Display *dpy, Drawable drawable, char *data, unsigned int width, unsigned int height,
+                                              unsigned long fg, unsigned long bg, unsigned int depth)
 {
     return 2001;
 }
 
-Cursor X11Bridge::CreatePixmapCursor(Display *dpy, Pixmap source, Pixmap mask, void *foreground_color, void *background_color,
-                                     unsigned int x, unsigned int y)
+Cursor X11Bridge::XCreatePixmapCursor(Display *dpy, Pixmap source, Pixmap mask, void *foreground_color, void *background_color,
+                                      unsigned int x, unsigned int y)
 {
     return 1001;
 }
 
-int X11Bridge::FreePixmap(Display *dpy, Pixmap pixmap)
+int X11Bridge::XFreePixmap(Display *dpy, Pixmap pixmap)
 {
     return 1;
 }
-int X11Bridge::FreeCursor(Display *dpy, Cursor cursor)
+
+int X11Bridge::XFreeCursor(Display *dpy, Cursor cursor)
 {
     return 1;
 }
-void X11Bridge::DefineCursor(Display *dpy, Window w, Cursor c)
+void X11Bridge::XDefineCursor(Display *dpy, Window w, Cursor c)
 {
 }
+
+Cursor X11Bridge::XCreateFontCursor(Display *dpy, int shape)
+{
+    return 1001;
+}
+
+Pixmap X11Bridge::XCreateBitmapFromData(Display *dpy, Drawable drawable, char *data, unsigned int width, unsigned int height)
+{
+    return 2002;
+}
+
 
 // --- XF86VidMode Extension (Stubs) ---
 
-int X11Bridge::VidModeQueryExtension(Display *dpy, int *event_base_return, int *error_base_return)
+int X11Bridge::XF86VidModeQueryExtension(Display *dpy, int *event_base_return, int *error_base_return)
 {
     if (event_base_return)
         *event_base_return = 0;
@@ -836,34 +740,48 @@ int X11Bridge::VidModeQueryExtension(Display *dpy, int *event_base_return, int *
     return 1;
 }
 
-int X11Bridge::VidModeGetAllModeLines(Display *dpy, int screen, int *modecount_return, void ***modesinfo_return)
+int X11Bridge::XF86VidModeGetAllModeLines(Display *dpy, int screen, int *modecount_return, XF86VidModeModeInfo ***modesinfo_return)
 {
     if (modecount_return)
-        *modecount_return = 0;
+        *modecount_return = 1;
+
     if (modesinfo_return)
-        *modesinfo_return = nullptr;
+    {
+        XF86VidModeModeInfo **modes = *modesinfo_return;//(XF86VidModeModeInfo **)malloc(sizeof(XF86VidModeModeInfo *) * 1);
+
+        modes[0] = (XF86VidModeModeInfo *)malloc(sizeof(XF86VidModeModeInfo));
+        memset(modes[0], 0, sizeof(XF86VidModeModeInfo));
+
+        modes[0]->hdisplay = (unsigned short)getConfig()->width;
+        modes[0]->vdisplay = (unsigned short)getConfig()->height;
+        modes[0]->dotclock = 60000; // Fake 60Hz dotclock
+        modes[0]->htotal = modes[0]->hdisplay + 20;
+        modes[0]->vtotal = modes[0]->vdisplay + 10;
+
+        // *modesinfo_return = (void **)modes;
+    }
     return 1;
 }
 
-int X11Bridge::VidModeGetModeLine(Display *dpy, int screen, int *dotclock_return, void *modeline)
+int X11Bridge::XF86VidModeGetModeLine(Display *dpy, int screen, int *dotclock_return, void *modeline)
 {
     if (dotclock_return)
         *dotclock_return = 0;
     return 1;
 }
 
-int X11Bridge::VidModeSwitchToMode(Display *dpy, int screen, void *modeline)
+int X11Bridge::XF86VidModeSwitchToMode(Display *dpy, int screen, void *modeline)
 {
-    log_info("VidModeSwitchToMode (Stub)");
+    log_info("XF86VidModeSwitchToMode (Stub)");
     return 1;
 }
 
-int X11Bridge::VidModeSetViewPort(Display *dpy, int screen, int x, int y)
+int X11Bridge::XF86VidModeSetViewPort(Display *dpy, int screen, int x, int y)
 {
     return 1;
 }
 
-int X11Bridge::VidModeGetViewPort(Display *dpy, int screen, int *x_return, int *y_return)
+int X11Bridge::XF86VidModeGetViewPort(Display *dpy, int screen, int *x_return, int *y_return)
 {
     if (x_return)
         *x_return = 0;
@@ -872,8 +790,24 @@ int X11Bridge::VidModeGetViewPort(Display *dpy, int screen, int *x_return, int *
     return 1;
 }
 
-int X11Bridge::VidModeLockModeSwitch(Display *dpy, int screen, int lock)
+int X11Bridge::XF86VidModeLockModeSwitch(Display *dpy, int screen, int lock)
 {
+    return 1;
+}
+
+int X11Bridge::XF86VidModeQueryVersion(Display *dpy, int *major_return, int *minor_return)
+{
+    if (major_return)
+        *major_return = 0;
+    if (minor_return)
+        *minor_return = 0;
+    return 1;
+}
+
+// Stub for XCreateColormap
+Atom X11Bridge::XCreateColormap(Display *dpy, Window w, Visual *visual, int alloc)
+{
+    printf("XCreateColormap Called\n");
     return 1;
 }
 

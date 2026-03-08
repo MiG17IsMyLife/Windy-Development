@@ -2,7 +2,7 @@
 #include "../../core/config.h"
 #include "../../core/log.h"
 #include "../../hardware/jvsboard.h"
-#include "../../hardware/lindberghdevice.h"
+#include "../../hardware/input.h"
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_opengl.h>
 #include <SDL3_ttf/SDL_ttf.h>
@@ -12,11 +12,8 @@
 TTF_Font *SDLCalls::m_font = nullptr;
 SDL_Window *SDLCalls::m_window = nullptr;
 SDL_GLContext SDLCalls::m_context = nullptr;
-
-#ifdef __linux__
 Display *SDLCalls::m_x11Display = nullptr;
 Window SDLCalls::m_x11Window = 0;
-#endif
 
 void SDLCalls::Init()
 {
@@ -84,23 +81,11 @@ void SDLCalls::PollEvents()
                 break;
             case SDL_EVENT_KEY_DOWN:
             case SDL_EVENT_KEY_UP:
+            case SDL_EVENT_MOUSE_BUTTON_DOWN:
+            case SDL_EVENT_MOUSE_BUTTON_UP:
+            case SDL_EVENT_MOUSE_MOTION:
             {
-                if (event.key.scancode == SDL_SCANCODE_T)
-                {
-                    LindberghDevice::Instance().SetSwitch(SYSTEM, JVSInput::BUTTON_TEST, event.type == SDL_EVENT_KEY_DOWN);
-                }
-                if (event.key.scancode == SDL_SCANCODE_S)
-                {
-                    LindberghDevice::Instance().SetSwitch(PLAYER_1, JVSInput::BUTTON_SERVICE, event.type == SDL_EVENT_KEY_DOWN);
-                }
-                if (event.key.scancode == SDL_SCANCODE_5)
-                {
-                    LindberghDevice::Instance().SetSwitch(PLAYER_1, JVSInput::COIN, event.type == SDL_EVENT_KEY_DOWN);
-                }
-                if (event.key.scancode == SDL_SCANCODE_1)
-                {
-                    LindberghDevice::Instance().SetSwitch(PLAYER_1, JVSInput::BUTTON_START, event.type == SDL_EVENT_KEY_DOWN);
-                }
+                Input::sendShootingGameInput(&event);
                 break;
             }
             default:
@@ -117,6 +102,15 @@ void SDLCalls::SwapBuffers()
 
 void SDLCalls::Start(int *argcp, char **argv)
 {
+    // Moved argument parsing out or ignored for now
+    CreateSDLWindow();
+}
+
+void SDLCalls::CreateSDLWindow(bool hidden)
+{
+    if (m_window)
+        return; // Already created
+
     int numDisplays;
     SDL_DisplayID *sdlDisplayId = SDL_GetDisplays(&numDisplays);
     if (numDisplays > 1)
@@ -141,10 +135,14 @@ void SDLCalls::Start(int *argcp, char **argv)
     SDL_GL_SetAttribute(SDL_GL_BUFFER_SIZE, 32);
     SDL_GL_SetAttribute(SDL_GL_ACCELERATED_VISUAL, 1);
 
-    uint32_t windowFlags = SDL_WINDOW_OPENGL | SDL_WINDOW_HIDDEN;
+    uint32_t windowFlags = SDL_WINDOW_OPENGL;
+    if (hidden)
+        windowFlags |= SDL_WINDOW_HIDDEN;
 
     int width = getConfig()->width;
     int height = getConfig()->height;
+
+    printf("Creating window with width %d and height %d\n", width, height);
 
     m_window = SDL_CreateWindow(getConfig()->gameTitle, width, height, windowFlags);
 
@@ -155,15 +153,6 @@ void SDLCalls::Start(int *argcp, char **argv)
         exit(EXIT_FAILURE);
     }
 
-#ifdef __linux__
-    m_x11Display = (Display *)SDL_GetPointerProperty(SDL_GetWindowProperties(m_window), SDL_PROP_WINDOW_X11_DISPLAY_POINTER, NULL);
-    m_x11Window = (Window)SDL_GetNumberProperty(SDL_GetWindowProperties(m_window), SDL_PROP_WINDOW_X11_WINDOW_NUMBER, 0);
-    if (!m_x11Display || !m_x11Window)
-    {
-        log_error("This program is not running on X11 or failed to get window/display.\n");
-    }
-#endif
-
     m_context = SDL_GL_CreateContext(m_window);
     if (!m_context)
     {
@@ -173,7 +162,11 @@ void SDLCalls::Start(int *argcp, char **argv)
         exit(EXIT_FAILURE);
     }
 
-    SDL_SetWindowMinimumSize(m_window, width, height);
+    SDL_GL_MakeCurrent(m_window, m_context);
+
+    if (SDL_GL_SetSwapInterval(1) == false)
+        log_warn("Warning: Unable to set VSync! SDL Error: %s\n", SDL_GetError());
+    // SDL_SetWindowMinimumSize(m_window, width, height);
 
     SDL_ShowWindow(m_window);
 
@@ -205,13 +198,8 @@ TTF_Font *SDLCalls::GetFont()
     return m_font;
 }
 
-#ifdef __linux__
-Display *SDLCalls::GetX11Display()
+int SDLCalls::MakeCurrent(SDL_Window *window, SDL_GLContext context)
 {
-    return m_x11Display;
+    return SDL_GL_MakeCurrent(window, context);
 }
-Window SDLCalls::GetX11Window()
-{
-    return m_x11Window;
-}
-#endif
+

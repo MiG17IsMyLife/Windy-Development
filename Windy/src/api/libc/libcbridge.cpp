@@ -5,6 +5,7 @@
 #include <ws2tcpip.h>
 #include <crtdbg.h>
 #include "libcbridge.h"
+#include "pthread_emu.h"
 #include "../../core/log.h"
 #include "../../core/config.h"
 #include "../../hardware/lindberghdevice.h"
@@ -64,12 +65,28 @@ static void InvalidParameterHandler(const wchar_t *expression, const wchar_t *fu
     // log_warn("CRT Invalid Parameter detected");
 }
 
+uint32_t LibcBridge::bridgeWctypeL(const char *property, void *locale)
+{
+    return (uint32_t)wctype(property);
+}
+
+int LibcBridge::bridgeIswctypeL(int wc, uint32_t desc, void *locale)
+{
+    return iswctype(wc, (wctype_t)desc);
+}
+
 // ========================================================================
 // --- File Input/Output (stdio.h / io.h) ---
 // ========================================================================
 
 FILE *LibcBridge::fopen_wrapper(const char *filename, const char *mode)
 {
+    // This forces LGJ games and ID games to not use the pre-compiled shaders.
+    if ((strstr(filename, "asm_lbg") != NULL) || (strstr(filename, "asm_gl") != NULL))
+    {
+        return 0;
+    }
+
     int linux_flags = 0;
     if (strchr(mode, 'r'))
         linux_flags = 0; // O_RDONLY
@@ -90,13 +107,7 @@ FILE *LibcBridge::fopen_wrapper(const char *filename, const char *mode)
     // Fallback to Windows filesystem
     char winPath[MAX_PATH];
     ConvertPath(winPath, filename, MAX_PATH);
-
-    // Fix for Outrun high scores
-    // char *newPathname;
-    // if ((newPathname = strstr(winPath, "/home/disk1")) != NULL && (g_grp == GROUP_OUTRUN || g_grp == GROUP_OUTRUN_TEST))
-    // {
-    //     winPath = newPathname + 12;
-    // }
+    // printf("fopen_wrapper: %s\n", winPath);
 
     if (getConfig()->gameGroup == GROUP_OUTRUN || getConfig()->gameGroup == GROUP_OUTRUN_TEST)
     {
@@ -121,7 +132,6 @@ FILE *LibcBridge::fopen_wrapper(const char *filename, const char *mode)
         strncpy(winPath, ".\\LucidaConsole_12.abc", MAX_PATH);
     }
 
-
     if (strcmp(winPath, "\\usr\\lib\\boot\\logo.tga") == 0)
     {
         printf("LibcBridge: fopen mapped to Windows path: %s\n", winPath);
@@ -131,7 +141,7 @@ FILE *LibcBridge::fopen_wrapper(const char *filename, const char *mode)
     FILE *f = fopen(winPath, mode);
     if (!f)
     {
-        log_trace("fopen failed: %s (as %s) with mode %s", filename, winPath, mode);
+        log_error("fopen failed: %s (as %s) with mode %s", filename, winPath, mode);
     }
     return f;
 }
@@ -224,10 +234,10 @@ size_t LibcBridge::fwrite_wrapper(const void *ptr, size_t size, size_t nmemb, FI
 
 int LibcBridge::fseek_wrapper(FILE *stream, long offset, int whence)
 {
-    if (IsVirtual(stream))
-    {
-        return LindberghDevice::Instance().Seek(ToVfd(stream), offset, whence);
-    }
+    // if (IsVirtual(stream))
+    // {
+    //     return LindberghDevice::Instance().Seek(ToVfd(stream), offset, whence);
+    // }
     return fseek(stream, offset, whence);
 }
 
@@ -382,6 +392,11 @@ int LibcBridge::puts_wrapper(const char *s)
     return puts(s);
 }
 
+int LibcBridge::fgetpos_wrapper(FILE *stream, fpos_t *pos)
+{
+    return fgetpos(stream, pos);
+}
+
 int LibcBridge::ungetc_wrapper(int c, FILE *stream)
 {
     if (IsVirtual(stream))
@@ -446,12 +461,18 @@ int LibcBridge::remove_wrapper(const char *pathname)
 {
     char winPath[MAX_PATH];
     ConvertPath(winPath, pathname, MAX_PATH);
-    if (strcmp(winPath, "\\home\\disk1\\rankingdata\\%s") == 0 && (getConfig()->gameGroup == GROUP_OUTRUN || getConfig()->gameGroup == GROUP_OUTRUN_TEST))
+    if (strcmp(winPath, "\\home\\disk1\\rankingdata\\%s") == 0 &&
+        (getConfig()->gameGroup == GROUP_OUTRUN || getConfig()->gameGroup == GROUP_OUTRUN_TEST))
     {
         return remove(".\\rankingdata\\%s");
     }
     return remove(winPath);
 }
+
+// int LibcBridge::isatty_wrapper(int fd)
+//{
+//     return _isatty(fd);
+// }
 
 // ========================================================================
 // --- Formatted I/O ---
@@ -528,7 +549,7 @@ int LibcBridge::fprintf_wrapper(FILE *stream, const char *format, ...)
 #ifdef _MSC_VER
                 __try
                 {
-                    ret = vfprintf(stream, format, args);
+                    ret = fwrite(buffer, 1, size, stream);
                     success = true;
                 }
                 __except (EXCEPTION_EXECUTE_HANDLER)
@@ -536,7 +557,7 @@ int LibcBridge::fprintf_wrapper(FILE *stream, const char *format, ...)
                     success = false;
                 }
 #else
-                ret = vfprintf(stream, format, args);
+                ret = fwrite(buffer, 1, size, stream);
                 success = true;
 #endif
                 _set_invalid_parameter_handler(oldHandler);
@@ -559,6 +580,9 @@ int LibcBridge::fprintf_wrapper(FILE *stream, const char *format, ...)
 
 int LibcBridge::vfprintf_wrapper(FILE *stream, const char *format, va_list ap)
 {
+    if (stream == nullptr)
+        printf("vfprintf_wrapper: stream is nullptr\n");
+
     if (IsVirtual(stream))
         return 0;
 
@@ -582,7 +606,7 @@ int LibcBridge::vfprintf_wrapper(FILE *stream, const char *format, va_list ap)
 #ifdef _MSC_VER
                 __try
                 {
-                    ret = vfprintf(stream, format, ap);
+                    ret = fwrite(buffer, 1, size, stream);
                     success = true;
                 }
                 __except (EXCEPTION_EXECUTE_HANDLER)
@@ -590,7 +614,7 @@ int LibcBridge::vfprintf_wrapper(FILE *stream, const char *format, va_list ap)
                     success = false;
                 }
 #else
-                ret = vfprintf(stream, format, ap);
+                ret = fwrite(buffer, 1, size, stream);
                 success = true;
 #endif
                 _set_invalid_parameter_handler(oldHandler);
@@ -650,6 +674,8 @@ int LibcBridge::snprintf_wrapper(char *str, size_t size, const char *format, ...
 {
     va_list args;
     va_start(args, format);
+    if (format == NULL)
+        return 0;
     int ret = _vsnprintf(str, size, format, args);
     va_end(args);
     return ret;
@@ -709,6 +735,11 @@ char *LibcBridge::strncpy_wrapper(char *dest, const char *src, size_t n)
 char *LibcBridge::strerror_wrapper(int errnum)
 {
     return strerror(errnum);
+}
+
+double LibcBridge::strtod_l_wrapper(const char *nptr, char **endptr, void *loc)
+{
+    return strtod(nptr, endptr);
 }
 
 char *LibcBridge::strdup_wrapper(const char *s)
@@ -814,6 +845,40 @@ char *LibcBridge::realpath_wrapper(const char *path, char *resolved_path)
 // --- Time & Clock Functions ---
 // ========================================================================
 
+LibcBridge::tm32 *LibcBridge::localtime_wrapper(const int32_t *timep)
+{
+    static tm32 t32;
+    time_t t = (time_t)*timep;
+    struct tm *tm_ptr = localtime(&t);
+
+    if (tm_ptr)
+    {
+        t32.tm_sec = tm_ptr->tm_sec;
+        t32.tm_min = tm_ptr->tm_min;
+        t32.tm_hour = tm_ptr->tm_hour;
+        t32.tm_mday = tm_ptr->tm_mday;
+        t32.tm_mon = tm_ptr->tm_mon;
+        t32.tm_year = tm_ptr->tm_year;
+        t32.tm_wday = tm_ptr->tm_wday;
+        t32.tm_yday = tm_ptr->tm_yday;
+        t32.tm_isdst = tm_ptr->tm_isdst;
+        t32.tm_gmtoff = 0; // tm_ptr->tm_gmtoff;
+        t32.tm_zone = 0;   // tm_ptr->tm_zone;
+        return &t32;
+    }
+    return nullptr;
+}
+
+int32_t LibcBridge::time_wrapper(int32_t *tloc)
+{
+    time_t t = time(NULL);
+    if (tloc)
+    {
+        *tloc = (int32_t)t;
+    }
+    return (int32_t)t;
+}
+
 int LibcBridge::utime_wrapper(const char *filename, const void *times)
 {
     char winPath[MAX_PATH];
@@ -825,10 +890,7 @@ size_t LibcBridge::strftime_wrapper(char *s, size_t max, const char *format, con
 {
     return strftime(s, max, format, tm);
 }
-struct tm *LibcBridge::localtime_wrapper(const time_t *timep)
-{
-    return localtime(timep);
-}
+
 time_t LibcBridge::mktime_wrapper(struct tm *tm)
 {
     return mktime(tm);
@@ -878,6 +940,7 @@ int LibcBridge::usleep_wrapper(unsigned int usec)
     Sleep(usec / 1000);
     return 0;
 }
+
 unsigned int LibcBridge::sleep_wrapper(unsigned int seconds)
 {
     Sleep(seconds * 1000);
@@ -929,8 +992,43 @@ void LibcBridge::srand_wrapper(unsigned int seed)
 }
 char *LibcBridge::getenv_wrapper(const char *name)
 {
-    return getenv(name);
+    // Static buffers to avoid returning string literals as char*
+    static char empty_str[] = "";
+    static char dotdot_str[] = "..";
+    static char dot_str[] = ".";
+
+    if (strcmp(name, "TEA_DIR") == 0)
+    {
+        int grp = getConfig()->gameGroup;
+        int gid = getConfig()->gameId;
+        char currentDir[MAX_PATH];
+        if (GetCurrentDirectoryA(MAX_PATH, currentDir) == 0)
+            return empty_str;
+        if (grp == GROUP_VT3 || grp == GROUP_VT3_TEST || grp == GROUP_RAMBO || gid == TOO_SPICY)
+        {
+            // char *ptr = strrchr(currentDir, '\\');
+            // if (ptr == NULL)
+            //     return "";
+            // *ptr = '\0';
+            // log_debug("TEA_DIR: %s", currentDir);
+            // // return currentDir;
+            return dotdot_str;
+        }
+        else
+        {
+            log_debug("TEA_DIR: %s", currentDir);
+            // return currentDir;
+            return dot_str;
+        }
+    }
+    return empty_str;
 }
+
+// int LibcBridge::fgetpos_wrapper(FILE *stream, fpos_t *pos)
+//{
+//     return fgetpos(stream, pos);
+// }
+
 int LibcBridge::system_wrapper(const char *command)
 {
     log_debug("system(\"%s\")", command);
@@ -1121,6 +1219,16 @@ size_t LibcBridge::wcsftime_wrapper(wchar_t *wcs, size_t maxsize, const wchar_t 
 {
     return wcsftime(wcs, maxsize, format, tm);
 }
+// wchar_t *LibcBridge::wcpncpy_wrapper(wchar_t *dest, const wchar_t *src, size_t n)
+//{
+//     size_t i;
+//     for (i = 0; i < n && src[i] != L'\0'; i++)
+//         dest[i] = src[i];
+//     wchar_t *end = &dest[i];
+//     for (; i < n; i++)
+//         dest[i] = L'\0';
+//     return end;
+// }
 int LibcBridge::tolower_wrapper(int c)
 {
     return tolower(c);
@@ -1163,6 +1271,12 @@ wctype_t LibcBridge::wctype_wrapper(const char *property)
     if (strcmp(property, "xdigit") == 0)
         return _HEX;
     return 0;
+}
+
+wctype_t LibcBridge::wctype_l_wrapper(const char *property, void *locale)
+{
+    (void)locale;
+    return wctype_wrapper(property);
 }
 
 int LibcBridge::iswctype_wrapper(wint_t wc, wctype_t desc)
@@ -1278,3 +1392,89 @@ int LibcBridge::__xmknod_wrapper(int ver, const char *path, unsigned int mode, v
 
     return 0;
 }
+
+// ========================================================================
+// --- Signal Handling ---
+// ========================================================================
+void (*LibcBridge::signal_wrapper(int signum, void (*handler)(int)))(int)
+{
+    // log_info("signal called: signum=%d, handler=%p", signum, handler);
+
+    // Map Linux signals to Windows signals where possible
+    int win_sig = -1;
+    switch (signum)
+    {
+        case 2: // SIGINT
+            win_sig = SIGINT;
+            break;
+        case 15: // SIGTERM
+            win_sig = SIGTERM;
+            break;
+        case 6: // SIGABRT
+            win_sig = SIGABRT;
+            break;
+        case 8: // SIGFPE
+            win_sig = SIGFPE;
+            break;
+        case 4: // SIGILL
+            win_sig = SIGILL;
+            break;
+        case 11: // SIGSEGV
+            win_sig = SIGSEGV;
+            break;
+        default:
+            // log_warn("signal: unsupported signal %d", signum);
+            return (void (*)(int))-1; // SIG_ERR
+    }
+
+    return signal(win_sig, handler);
+}
+
+// ============================================================================
+// Missing Libc / System Functions
+// ============================================================================
+
+extern "C" int my_posix_memalign(void **memptr, size_t alignment, size_t size)
+{
+    if (!memptr || alignment == 0 || (alignment & (alignment - 1)) != 0)
+        return 22; // EINVAL
+    void *ptr = _aligned_malloc(size, alignment);
+    if (!ptr)
+        return 12; // ENOMEM
+    *memptr = ptr;
+    return 0;
+}
+
+extern "C" uint32_t my_arc4random()
+{
+    return ((uint32_t)rand() << 16) | (uint32_t)rand();
+}
+
+// --- Terminal ---
+
+extern "C" void my_cfmakeraw(void *termios_p)
+{
+    (void)termios_p;
+    log_debug("cfmakeraw called - stubbed");
+}
+
+// --- Intlo / Gettext Stubs ---
+// extern "C" char *my_bindtextdomain(const char *domainname, const char *dirname)
+//{
+//    // log_debug("bindtextdomain(%s, %s)", domainname, dirname);
+//    return (char *)dirname; // Return dirname on success? Or domain? Man page says: returns the directory currently bound.
+//}
+
+// extern "C" char *my_textdomain(const char *domainname)
+//{
+//     // log_debug("textdomain(%s)", domainname);
+//     return (char *)"messages"; // Return current domain.
+// }
+
+// extern "C" char *my_gettext(const char *msgid)
+//{
+//     return (char *)msgid; // Passthrough
+// }
+
+// extern "C" void *my_sem_open(const char *name, int oflag, int mode, unsigned int value) { return emu_sem_open(name, oflag, mode, value);
+// } extern "C" int my_sem_close(void *sem) { return emu_sem_close(sem); }

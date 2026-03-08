@@ -42,6 +42,14 @@ private:
     size_t loadedSize;
     std::vector<std::string> dependencies;
 
+#ifndef STT_GNU_IFUNC
+#define STT_GNU_IFUNC 10
+#endif
+
+#ifndef R_386_IRELATIVE
+#define R_386_IRELATIVE 42
+#endif
+
 public:
     ElfLoader(const char* path);
     ~ElfLoader();
@@ -54,6 +62,9 @@ public:
     
     // Run Initialization (DT_INIT / DT_INIT_ARRAY)
     void RunInit() override;
+
+    // Resolve Symbols (GOT/PLT)
+    void ResolveSymbols() override;
     
     // Debug helper
     void DebugPrintSymbols() const override;
@@ -63,6 +74,10 @@ public:
     uintptr_t GetSymTab() const { return symTab; }
     uintptr_t GetStrTab() const { return strTab; }
     uint32_t GetPltRelSize() const { return pltRelSize; }
+
+    uintptr_t GetRelTab() const { return rel; }
+    uint32_t GetRelSize() const { return relSz; }
+    uint32_t GetRelEnt() const { return relEnt; }
 
     // Generic Symbol Lookup (Exported)
     uintptr_t GetSymbolAddress(const char* name) const override;

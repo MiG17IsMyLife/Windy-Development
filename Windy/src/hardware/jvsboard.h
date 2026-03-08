@@ -88,6 +88,8 @@ enum JVSInput {
     ANALOGUE_2 = 1,
     ANALOGUE_3 = 2,
     ANALOGUE_4 = 3,
+    ANALOGUE_5 = 4,
+    ANALOGUE_6 = 5,
     COIN = 98,
 };
 
