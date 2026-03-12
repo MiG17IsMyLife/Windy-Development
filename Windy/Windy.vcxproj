@@ -54,6 +54,7 @@
     <ClCompile Include="src\core\sharedobjectmanager.cpp" />
     <ClCompile Include="src\core\symbolresolver.cpp" />
     <ClCompile Include="src\hardware\baseboard.cpp" />
+    <ClCompile Include="src\hardware\cardreader.cpp" />
     <ClCompile Include="src\hardware\defaultbindings.cpp" />
     <ClCompile Include="src\hardware\eepromboard.cpp" />
     <ClCompile Include="src\hardware\input.cpp" />
@@ -102,6 +103,7 @@
     <ClInclude Include="src\core\sharedobjectmanager.h" />
     <ClInclude Include="src\core\symbolresolver.h" />
     <ClInclude Include="src\hardware\baseboard.h" />
+    <ClInclude Include="src\hardware\cardreader.h" />
     <ClInclude Include="src\hardware\eepromboard.h" />
     <ClInclude Include="src\hardware\input.h" />
     <ClInclude Include="src\hardware\jvsboard.h" />

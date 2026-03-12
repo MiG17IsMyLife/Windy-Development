@@ -5,6 +5,7 @@
 #include "log.h"
 #include "MinHook.h"
 #include "../hardware/securityboard.h"
+#include "../hardware/cardreader.h"
 #include "../api/graphics/shaderpatches.h"
 #include <cstdio>
 #include <SDL3/SDL.h>
@@ -417,6 +418,10 @@ void Patches::Apply(uint8_t gameId)
             replaceCallAtAddress(0x0876cc4c, (void *)_cgGetProgramString);
             replaceCallAtAddress(0x0876e2dc, (void *)_cgGetProgramString);
             replaceCallAtAddress(0x087706aa, (void *)_cgGetProgramString);
+
+            // Card Reader (File-based emulation)
+            ApplyCardReaderPatches();
+
             break;
         }
         default:
