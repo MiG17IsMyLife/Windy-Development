@@ -20,7 +20,7 @@ void SDLCalls::Init()
     static bool initialized = false;
     if (!initialized)
     {
-        if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS))
+        if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_GAMEPAD))
         {
             log_error("SDL_Init failed: %s", SDL_GetError());
         }
@@ -37,6 +37,10 @@ void SDLCalls::Init()
         SDL_IOStream *rw = SDL_IOFromConstMem(LiberationMonoRegular_ttf, sizeof(LiberationMonoRegular_ttf));
         float fontSize = 16.0;
         m_font = TTF_OpenFontIO(rw, 1, fontSize);
+
+        // Initialize input system now that SDL is fully up
+        Input::Init("controls.ini");
+
         initialized = true;
     }
 }
@@ -79,19 +83,14 @@ void SDLCalls::PollEvents()
             case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
                 Quit();
                 break;
-            case SDL_EVENT_KEY_DOWN:
-            case SDL_EVENT_KEY_UP:
-            case SDL_EVENT_MOUSE_BUTTON_DOWN:
-            case SDL_EVENT_MOUSE_BUTTON_UP:
-            case SDL_EVENT_MOUSE_MOTION:
-            {
-                Input::sendShootingGameInput(&event);
-                break;
-            }
             default:
+                // Forward all events to the input system
+                Input::ProcessEvent(&event);
                 break;
         }
     }
+    // Flush changed actions to JVS once per frame
+    Input::UpdatePerFrame();
 }
 
 void SDLCalls::SwapBuffers()

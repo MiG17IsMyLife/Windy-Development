@@ -54,10 +54,12 @@
     <ClCompile Include="src\core\sharedobjectmanager.cpp" />
     <ClCompile Include="src\core\symbolresolver.cpp" />
     <ClCompile Include="src\hardware\baseboard.cpp" />
+    <ClCompile Include="src\hardware\defaultbindings.cpp" />
     <ClCompile Include="src\hardware\eepromboard.cpp" />
     <ClCompile Include="src\hardware\input.cpp" />
     <ClCompile Include="src\hardware\jvsboard.cpp" />
     <ClCompile Include="src\hardware\lindberghdevice.cpp" />
+    <ClCompile Include="src\hardware\sdlinput.cpp" />
     <ClCompile Include="src\hardware\securityboard.cpp" />
     <ClCompile Include="src\hardware\serialboard.cpp" />
     <ClCompile Include="src\main.cpp" />
@@ -105,6 +107,7 @@
     <ClInclude Include="src\hardware\jvsboard.h" />
     <ClInclude Include="src\hardware\lindberghdevice.h" />
     <ClInclude Include="src\hardware\pciData.h" />
+    <ClInclude Include="src\hardware\sdlinput.h" />
     <ClInclude Include="src\hardware\securityboard.h" />
     <ClInclude Include="src\hardware\serialboard.h" />
     <ClInclude Include="src\minhook\src\buffer.h" />

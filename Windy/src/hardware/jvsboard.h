@@ -83,6 +83,10 @@ enum JVSInput {
     BUTTON_4 = 1 << 6,
     BUTTON_5 = 1 << 5,
     BUTTON_6 = 1 << 4,
+    BUTTON_7 = 1 << 3,
+    BUTTON_8 = 1 << 2,
+    BUTTON_9 = 1 << 1,
+    BUTTON_10 = 1 << 0,
     // Analogue Channels
     ANALOGUE_1 = 0,
     ANALOGUE_2 = 1,
@@ -90,13 +94,21 @@ enum JVSInput {
     ANALOGUE_4 = 3,
     ANALOGUE_5 = 4,
     ANALOGUE_6 = 5,
+    ANALOGUE_7 = 6,
+    ANALOGUE_8 = 7,
+    ANALOGUE_9 = 8,
+    ANALOGUE_10 = 9,
+    // Special
     COIN = 98,
+    NONE = 99,
 };
 
 enum JVSPlayer {
     SYSTEM = 0,
     PLAYER_1 = 1,
-    PLAYER_2 = 2
+    PLAYER_2 = 2,
+    PLAYER_3 = 3,
+    PLAYER_4 = 4
 };
 
 struct JVSState {

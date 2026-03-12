@@ -24,6 +24,7 @@
 
 // Hardware
 #include "hardware/lindberghdevice.h"
+#include "hardware/input.h"
 
 // External functions from HardwareBridge
 extern void InitHardwareBridge();

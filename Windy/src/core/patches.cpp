@@ -221,7 +221,6 @@ char tmpShader[150000];
 
 char *_cgGetProgramString(char *program, int e)
 {
-    printf("_cgGetProgramString Called\n");
     char *prgstr = foricGGetProgramStringAddress(program, e);
 
     if ((prgstr == NULL) || (*prgstr == '\0'))
