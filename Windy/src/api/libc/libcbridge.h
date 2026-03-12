@@ -84,7 +84,7 @@ class LibcBridge
     static void perror_wrapper(const char *s);
     static int setvbuf_wrapper(FILE *stream, char *buf, int mode, size_t size);
     static int remove_wrapper(const char *pathname);
-    //    static int isatty_wrapper(int fd);
+//    static int isatty_wrapper(int fd);
 
     // ========================================================================
     // --- Formatted I/O (printf / scanf family) ---
@@ -195,7 +195,7 @@ class LibcBridge
     static int wcscoll_wrapper(const wchar_t *s1, const wchar_t *s2);
     static size_t wcsxfrm_wrapper(wchar_t *dest, const wchar_t *src, size_t n);
     static size_t wcsftime_wrapper(wchar_t *wcs, size_t maxsize, const wchar_t *format, const struct tm *tm);
-    //    static wchar_t *wcpncpy_wrapper(wchar_t *dest, const wchar_t *src, size_t n);
+//    static wchar_t *wcpncpy_wrapper(wchar_t *dest, const wchar_t *src, size_t n);
 
     // --- Character Case & Type ---
     static int tolower_wrapper(int c);
@@ -257,8 +257,8 @@ extern "C"
     // ========================================================================
     int my_posix_memalign(void **memptr, size_t alignment, size_t size);
     uint32_t my_arc4random();
-    //    void my_cfmakeraw(void *termios_p);
-    //    char *my_bindtextdomain(const char *domainname, const char *dirname);
-    //    char *my_textdomain(const char *domainname);
-    //    char *my_gettext(const char *msgid);
+//    void my_cfmakeraw(void *termios_p);
+//    char *my_bindtextdomain(const char *domainname, const char *dirname);
+//    char *my_textdomain(const char *domainname);
+//    char *my_gettext(const char *msgid);
 }

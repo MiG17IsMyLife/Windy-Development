@@ -992,18 +992,13 @@ void LibcBridge::srand_wrapper(unsigned int seed)
 }
 char *LibcBridge::getenv_wrapper(const char *name)
 {
-    // Static buffers to avoid returning string literals as char*
-    static char empty_str[] = "";
-    static char dotdot_str[] = "..";
-    static char dot_str[] = ".";
-
     if (strcmp(name, "TEA_DIR") == 0)
     {
         int grp = getConfig()->gameGroup;
         int gid = getConfig()->gameId;
         char currentDir[MAX_PATH];
         if (GetCurrentDirectoryA(MAX_PATH, currentDir) == 0)
-            return empty_str;
+            return (char*)"";
         if (grp == GROUP_VT3 || grp == GROUP_VT3_TEST || grp == GROUP_RAMBO || gid == TOO_SPICY)
         {
             // char *ptr = strrchr(currentDir, '\\');
@@ -1012,16 +1007,16 @@ char *LibcBridge::getenv_wrapper(const char *name)
             // *ptr = '\0';
             // log_debug("TEA_DIR: %s", currentDir);
             // // return currentDir;
-            return dotdot_str;
+            return (char*)"..";
         }
         else
         {
             log_debug("TEA_DIR: %s", currentDir);
             // return currentDir;
-            return dot_str;
+            return (char*)".";
         }
     }
-    return empty_str;
+    return (char*)"";
 }
 
 // int LibcBridge::fgetpos_wrapper(FILE *stream, fpos_t *pos)

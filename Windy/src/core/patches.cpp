@@ -238,6 +238,11 @@ char *_cgGetProgramString(char *program, int e)
     return prgstr;
 }
 
+uint32_t bridgeGettid(void)
+{
+    return _getpid();
+}
+
 void Patches::Apply(uint8_t gameId)
 {
     MH_STATUS status = MH_Initialize();
@@ -300,12 +305,12 @@ void Patches::Apply(uint8_t gameId)
             uintptr_t origCgGetProgramString = *(uintptr_t *)0x08957328;
             printf("Hooking _cgGetProgramString at 0x%p\n", (void *)origCgGetProgramString);
             foricGGetProgramStringAddress = (tTargetFunc2)origCgGetProgramString;
-            replaceCallAtAddress(0x0854180c, (void*)_cgGetProgramString);
-            replaceCallAtAddress(0x0854f99e, (void*)_cgGetProgramString);
-            replaceCallAtAddress(0x0854fe3c, (void*)_cgGetProgramString);
-            replaceCallAtAddress(0x0855211c, (void*)_cgGetProgramString);
-            replaceCallAtAddress(0x085537ac, (void*)_cgGetProgramString);
-            replaceCallAtAddress(0x08555b7a, (void*)_cgGetProgramString);
+            replaceCallAtAddress(0x0854180c, (void *)_cgGetProgramString);
+            replaceCallAtAddress(0x0854f99e, (void *)_cgGetProgramString);
+            replaceCallAtAddress(0x0854fe3c, (void *)_cgGetProgramString);
+            replaceCallAtAddress(0x0855211c, (void *)_cgGetProgramString);
+            replaceCallAtAddress(0x085537ac, (void *)_cgGetProgramString);
+            replaceCallAtAddress(0x08555b7a, (void *)_cgGetProgramString);
             break;
         }
         case INITIALD_5_JAP_SBQZ_SERVERBOX:
@@ -363,7 +368,6 @@ void Patches::Apply(uint8_t gameId)
             // detourFunction(0x0804d158, ShaderPatches::glEnable);     // Patches glEnable
             // detourFunction(0x0804c888, ShaderPatches::glDisable);     // Patches glDisable
 
-
             break;
         }
         case INITIALD_5_JAP_REVA: // Initial D Arcade Stage 5 Japan Rev.A (DVP-0070A)
@@ -401,16 +405,19 @@ void Patches::Apply(uint8_t gameId)
             detourFunction(0x08322092, stubRetZero);
             // patchMemoryFromString(0x0832226d, "9090909090");
 
+            // INT 0x80 patch
+            replaceCallAtAddress(0x0897c94a, bridgeGettid);
+            replaceCallAtAddress(0x0897c9ad, bridgeGettid);
 
             uintptr_t origCgGetProgramString = *(uintptr_t *)0x08c179e4;
             printf("Hooking _cgGetProgramString at 0x%p\n", (void *)origCgGetProgramString);
             foricGGetProgramStringAddress = (tTargetFunc2)origCgGetProgramString;
-            replaceCallAtAddress(0x0875cbac, (void*)_cgGetProgramString);
-            replaceCallAtAddress(0x0876a4ce, (void*)_cgGetProgramString);
-            replaceCallAtAddress(0x0876a96c, (void*)_cgGetProgramString);
-            replaceCallAtAddress(0x0876cc4c, (void*)_cgGetProgramString);
-            replaceCallAtAddress(0x0876e2dc, (void*)_cgGetProgramString);
-            replaceCallAtAddress(0x087706aa, (void*)_cgGetProgramString);
+            replaceCallAtAddress(0x0875cbac, (void *)_cgGetProgramString);
+            replaceCallAtAddress(0x0876a4ce, (void *)_cgGetProgramString);
+            replaceCallAtAddress(0x0876a96c, (void *)_cgGetProgramString);
+            replaceCallAtAddress(0x0876cc4c, (void *)_cgGetProgramString);
+            replaceCallAtAddress(0x0876e2dc, (void *)_cgGetProgramString);
+            replaceCallAtAddress(0x087706aa, (void *)_cgGetProgramString);
             break;
         }
         default:

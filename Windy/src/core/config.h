@@ -2,7 +2,6 @@
 
 #include <stdint.h>
 #include <string>
-#include <cstring>
 
 // ============================================================
 // Avoid Windows macro conflicts
@@ -26,8 +25,7 @@
 // Game Identification Enums
 // ============================================================
 
-enum GameID
-{
+enum GameID {
     GAME_UNKNOWN = 0,
 
     // After Burner Climax
@@ -153,30 +151,26 @@ enum GameID
     GAME_ID_COUNT
 };
 
-enum GameStatus
-{
+enum GameStatus {
     NOT_WORKING = 0,
     WORKING = 1
 };
 
 // JVS I/O Types - Use unique names to avoid conflicts with jvsboard.h
-enum JVSIOType
-{
-    SEGA_TYPE_1 = 0, // After Burner Climax: 13 switches, 8-bit analog
-    SEGA_TYPE_3 = 1  // Standard Lindbergh: 14 switches, 10-bit analog
+enum JVSIOType {
+    SEGA_TYPE_1 = 0,  // After Burner Climax: 13 switches, 8-bit analog
+    SEGA_TYPE_3 = 1   // Standard Lindbergh: 14 switches, 10-bit analog
 };
 
-enum GameType
-{
+enum GameType {
     SHOOTING = 0,
     DRIVING = 1,
     DIGITAL = 2,
     MAHJONG = 3,
-    GAME_TYPE_ABC = 4 // After Burner Climax specific (renamed from ABC to avoid Windows conflict)
+    GAME_TYPE_ABC = 4  // After Burner Climax specific (renamed from ABC to avoid Windows conflict)
 };
 
-enum GameGroup
-{
+enum GameGroup {
     GROUP_NONE = -1,
     GROUP_ABC = 0,
     GROUP_HOD4,
@@ -197,15 +191,13 @@ enum GameGroup
     GROUP_RAMBO
 };
 
-enum Colour
-{
+enum Colour {
     RED = 0,
     YELLOW = 1,
-    REDEX = 2 // Red Extended
+    REDEX = 2  // Red Extended
 };
 
-enum Region
-{
+enum Region {
     REGION_JAPAN = 0,
     REGION_US = 1,
     REGION_EXPORT = 2,
@@ -216,8 +208,7 @@ enum Region
 // Input Mapping Structure
 // ============================================================
 
-struct InputMapping
-{
+struct InputMapping {
     // Player controls
     int player1Start;
     int player1Service;
@@ -261,8 +252,7 @@ struct InputMapping
 // Configuration Structure
 // ============================================================
 
-struct WindyConfig
-{
+struct WindyConfig {
     // --- General Settings ---
     char gamePath[CONFIG_PATH_MAX];
     char eepromPath[CONFIG_PATH_MAX];
@@ -286,7 +276,7 @@ struct WindyConfig
     bool emulateTouchscreen;
 
     JVSIOType jvsIOType;
-    char jvsPath[CONFIG_PATH_MAX]; // For serial passthrough
+    char jvsPath[CONFIG_PATH_MAX];  // For serial passthrough
 
     // --- Region & Game Settings ---
     Region region;
@@ -331,12 +321,11 @@ struct WindyConfig
 // Config Manager Class
 // ============================================================
 
-class IniParser; // Forward declaration
+class IniParser;  // Forward declaration
 
-class ConfigManager
-{
-  public:
-    static ConfigManager &Instance();
+class ConfigManager {
+public:
+    static ConfigManager& Instance();
 
     /**
      * @brief Initialize configuration with default values
@@ -348,14 +337,14 @@ class ConfigManager
      * @param filename Path to INI file (default: "windy.ini")
      * @return true if successful
      */
-    bool Load(const char *filename = "windy.ini");
+    bool Load(const char* filename = "windy.ini");
 
     /**
      * @brief Save configuration to INI file
      * @param filename Path to INI file (uses loaded path if nullptr)
      * @return true if successful
      */
-    bool Save(const char *filename = nullptr);
+    bool Save(const char* filename = nullptr);
 
     /**
      * @brief Detect game from ELF CRC32
@@ -367,35 +356,21 @@ class ConfigManager
     /**
      * @brief Get the current configuration (read-only)
      */
-    const WindyConfig &GetConfig() const
-    {
-        return m_config;
-    }
+    const WindyConfig& GetConfig() const { return m_config; }
 
     /**
      * @brief Get the current configuration (modifiable)
      */
-    WindyConfig &GetConfig()
-    {
-        return m_config;
-    }
+    WindyConfig& GetConfig() { return m_config; }
 
     /**
      * @brief Get configuration pointer
      */
-    WindyConfig *GetConfigPtr()
-    {
-        return &m_config;
-    }
+    WindyConfig* GetConfigPtr() { return &m_config; }
 
     void SetElfPath(const char *path)
     {
-#ifdef _MSC_VER
-        strncpy_s(m_config.elfPath, sizeof(m_config.elfPath), path, CONFIG_PATH_MAX - 1);
-#else
-        strncpy(m_config.elfPath, path, CONFIG_PATH_MAX - 1);
-        m_config.elfPath[CONFIG_PATH_MAX - 1] = '\0';
-#endif
+        strncpy_s(m_config.elfPath, path, CONFIG_PATH_MAX - 1);
     }
     const char *GetElfPath() const
     {
@@ -407,10 +382,10 @@ class ConfigManager
     ~ConfigManager();
 
     // Prevent copying
-    ConfigManager(const ConfigManager &) = delete;
-    ConfigManager &operator=(const ConfigManager &) = delete;
+    ConfigManager(const ConfigManager&) = delete;
+    ConfigManager& operator=(const ConfigManager&) = delete;
 
-    void ParseSection(IniParser &parser, const char *section);
+    void ParseSection(IniParser& parser, const char* section);
     void ApplyGameDefaults();
 
     WindyConfig m_config;
@@ -425,7 +400,6 @@ class ConfigManager
  * @brief Get the global configuration
  * @return Pointer to the configuration structure
  */
-inline WindyConfig *getConfig()
-{
+inline WindyConfig* getConfig() {
     return ConfigManager::Instance().GetConfigPtr();
 }

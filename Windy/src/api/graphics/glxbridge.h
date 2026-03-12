@@ -84,6 +84,7 @@ class GLXBridge
     static int GetVideoSyncSGI(unsigned int *count);
     static int GetRefreshRateSGI(unsigned int *rate);
     static int SwapIntervalSGI(int interval);
+  
 
     // PBuffer Stubs
     static GLXPbuffer CreatePbuffer(Display *dpy, GLXFBConfig config, const int *attrib_list);

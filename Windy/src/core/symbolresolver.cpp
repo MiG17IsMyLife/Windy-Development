@@ -4,12 +4,12 @@
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 
 #include <windows.h>
-#ifdef _MSC_VER
-#include <intrin.h>
-#endif
 #include <winsock2.h>
 #include <objbase.h>
 #include <excpt.h>
+#ifdef _MSC_VER
+#include <intrin.h>
+#endif
 #include <iostream>
 #include <string.h>
 #include <stdint.h>
@@ -155,6 +155,7 @@ void UnimplementedStub()
     void *ret_addr = __builtin_return_address(0);
 #endif
     log_error("Unimplemented Function Called at %p", ret_addr);
+    __debugbreak();
     MessageBoxA(NULL, "Unimplemented Function Called", "Error", MB_OK);
     TerminateProcess(GetCurrentProcess(), 1);
 }
@@ -314,6 +315,7 @@ extern "C" long my_lseek(int fd, long offset, int origin)
 {
     return _lseek(fd, offset, origin);
 }
+
 
 extern "C" void my_syslog(int priority, const char *format, ...)
 {
@@ -775,7 +777,7 @@ extern "C" void __cdecl LogSymbolCall(const char *name, uintptr_t caller)
         fprintf(f, "[SYMCALL] %s called from 0x%08X\n", name, (unsigned int)caller);
         fclose(f);
     }
-    printf("[SYMCALL] %s called from 0x%08X\n", name, (unsigned int)caller);
+    // printf("[SYMCALL] %s called from 0x%08X\n", name, (unsigned int)caller);
 }
 
 uintptr_t CreateThunk(const char *name, uintptr_t target)
@@ -832,7 +834,7 @@ uintptr_t CreateThunk(const char *name, uintptr_t target)
 // ============================================================
 
 // __gnu_cxx::__exchange_and_add(volatile int*, int)
-static int my_exchange_and_add(volatile int *mem, int val)
+static int my_exchange_and_add(volatile int* mem, int val)
 {
 #if defined(_MSC_VER) || defined(__MINGW32__)
     return InterlockedExchangeAdd((LONG volatile *)mem, val);
@@ -861,137 +863,102 @@ static void my_SGI_Alloc_Deallocate(void *p, unsigned int n)
 struct GCC_Rb_tree_node_base
 {
     int _M_color; // 0 = red, 1 = black
-    GCC_Rb_tree_node_base *_M_parent;
-    GCC_Rb_tree_node_base *_M_left;
-    GCC_Rb_tree_node_base *_M_right;
+    GCC_Rb_tree_node_base* _M_parent;
+    GCC_Rb_tree_node_base* _M_left;
+    GCC_Rb_tree_node_base* _M_right;
 };
 
 // void std::_Rb_tree_insert_and_rebalance(bool insert_left, _Rb_tree_node_base* x, _Rb_tree_node_base* p, _Rb_tree_node_base& header)
-static void my_Rb_tree_insert_and_rebalance(bool insert_left, void *x_ptr, void *p_ptr, void *header_ptr)
+static void my_Rb_tree_insert_and_rebalance(bool insert_left, void* x_ptr, void* p_ptr, void* header_ptr)
 {
-    GCC_Rb_tree_node_base *x = (GCC_Rb_tree_node_base *)x_ptr;
-    GCC_Rb_tree_node_base *p = (GCC_Rb_tree_node_base *)p_ptr;
-    GCC_Rb_tree_node_base *header = (GCC_Rb_tree_node_base *)header_ptr;
+    GCC_Rb_tree_node_base* x = (GCC_Rb_tree_node_base*)x_ptr;
+    GCC_Rb_tree_node_base* p = (GCC_Rb_tree_node_base*)p_ptr;
+    GCC_Rb_tree_node_base* header = (GCC_Rb_tree_node_base*)header_ptr;
 
     x->_M_parent = p;
     x->_M_left = 0;
     x->_M_right = 0;
     x->_M_color = 0; // red
 
-    if (insert_left)
-    {
+    if (insert_left) {
         p->_M_left = x; // also makes leftmost = x when p == header
-        if (p == header)
-        {
+        if (p == header) {
             header->_M_parent = x;
             header->_M_right = x;
-        }
-        else if (p == header->_M_left)
-        {
+        } else if (p == header->_M_left) {
             header->_M_left = x; // maintain leftmost pointing to min node
         }
-    }
-    else
-    {
+    } else {
         p->_M_right = x;
-        if (p == header->_M_right)
-        {
+        if (p == header->_M_right) {
             header->_M_right = x; // maintain rightmost pointing to max node
         }
     }
 
     // rebalance
-    while (x != header->_M_parent && x->_M_parent->_M_color == 0)
-    {
-        GCC_Rb_tree_node_base *xpp = x->_M_parent->_M_parent;
-        if (x->_M_parent == xpp->_M_left)
-        {
-            GCC_Rb_tree_node_base *y = xpp->_M_right;
-            if (y && y->_M_color == 0)
-            {
+    while (x != header->_M_parent && x->_M_parent->_M_color == 0) {
+        GCC_Rb_tree_node_base* xpp = x->_M_parent->_M_parent;
+        if (x->_M_parent == xpp->_M_left) {
+            GCC_Rb_tree_node_base* y = xpp->_M_right;
+            if (y && y->_M_color == 0) {
                 x->_M_parent->_M_color = 1;
                 y->_M_color = 1;
                 xpp->_M_color = 0;
                 x = xpp;
-            }
-            else
-            {
-                if (x == x->_M_parent->_M_right)
-                {
+            } else {
+                if (x == x->_M_parent->_M_right) {
                     x = x->_M_parent;
-                    GCC_Rb_tree_node_base *y_left = x->_M_right;
+                    GCC_Rb_tree_node_base* y_left = x->_M_right;
                     x->_M_right = y_left->_M_left;
-                    if (y_left->_M_left != 0)
-                        y_left->_M_left->_M_parent = x;
+                    if (y_left->_M_left != 0) y_left->_M_left->_M_parent = x;
                     y_left->_M_parent = x->_M_parent;
-                    if (x == header->_M_parent)
-                        header->_M_parent = y_left;
-                    else if (x == x->_M_parent->_M_left)
-                        x->_M_parent->_M_left = y_left;
-                    else
-                        x->_M_parent->_M_right = y_left;
+                    if (x == header->_M_parent) header->_M_parent = y_left;
+                    else if (x == x->_M_parent->_M_left) x->_M_parent->_M_left = y_left;
+                    else x->_M_parent->_M_right = y_left;
                     y_left->_M_left = x;
                     x->_M_parent = y_left;
                 }
                 x->_M_parent->_M_color = 1;
                 xpp->_M_color = 0;
-                GCC_Rb_tree_node_base *y_left = xpp->_M_left;
+                GCC_Rb_tree_node_base* y_left = xpp->_M_left;
                 xpp->_M_left = y_left->_M_right;
-                if (y_left->_M_right != 0)
-                    y_left->_M_right->_M_parent = xpp;
+                if (y_left->_M_right != 0) y_left->_M_right->_M_parent = xpp;
                 y_left->_M_parent = xpp->_M_parent;
-                if (xpp == header->_M_parent)
-                    header->_M_parent = y_left;
-                else if (xpp == xpp->_M_parent->_M_right)
-                    xpp->_M_parent->_M_right = y_left;
-                else
-                    xpp->_M_parent->_M_left = y_left;
+                if (xpp == header->_M_parent) header->_M_parent = y_left;
+                else if (xpp == xpp->_M_parent->_M_right) xpp->_M_parent->_M_right = y_left;
+                else xpp->_M_parent->_M_left = y_left;
                 y_left->_M_right = xpp;
                 xpp->_M_parent = y_left;
             }
-        }
-        else
-        {
-            GCC_Rb_tree_node_base *y = xpp->_M_left;
-            if (y && y->_M_color == 0)
-            {
+        } else {
+            GCC_Rb_tree_node_base* y = xpp->_M_left;
+            if (y && y->_M_color == 0) {
                 x->_M_parent->_M_color = 1;
                 y->_M_color = 1;
                 xpp->_M_color = 0;
                 x = xpp;
-            }
-            else
-            {
-                if (x == x->_M_parent->_M_left)
-                {
+            } else {
+                if (x == x->_M_parent->_M_left) {
                     x = x->_M_parent;
-                    GCC_Rb_tree_node_base *y_left = x->_M_left;
+                    GCC_Rb_tree_node_base* y_left = x->_M_left;
                     x->_M_left = y_left->_M_right;
-                    if (y_left->_M_right != 0)
-                        y_left->_M_right->_M_parent = x;
+                    if (y_left->_M_right != 0) y_left->_M_right->_M_parent = x;
                     y_left->_M_parent = x->_M_parent;
-                    if (x == header->_M_parent)
-                        header->_M_parent = y_left;
-                    else if (x == x->_M_parent->_M_right)
-                        x->_M_parent->_M_right = y_left;
-                    else
-                        x->_M_parent->_M_left = y_left;
+                    if (x == header->_M_parent) header->_M_parent = y_left;
+                    else if (x == x->_M_parent->_M_right) x->_M_parent->_M_right = y_left;
+                    else x->_M_parent->_M_left = y_left;
                     y_left->_M_right = x;
                     x->_M_parent = y_left;
                 }
                 x->_M_parent->_M_color = 1;
                 xpp->_M_color = 0;
-                GCC_Rb_tree_node_base *y_left = xpp->_M_right;
+                GCC_Rb_tree_node_base* y_left = xpp->_M_right;
                 xpp->_M_right = y_left->_M_left;
-                if (y_left->_M_left != 0)
-                    y_left->_M_left->_M_parent = xpp;
+                if (y_left->_M_left != 0) y_left->_M_left->_M_parent = xpp;
                 y_left->_M_parent = xpp->_M_parent;
-                if (xpp == header->_M_parent)
-                    header->_M_parent = y_left;
-                else if (xpp == xpp->_M_parent->_M_left)
-                    xpp->_M_parent->_M_left = y_left;
-                else
-                    xpp->_M_parent->_M_right = y_left;
+                if (xpp == header->_M_parent) header->_M_parent = y_left;
+                else if (xpp == xpp->_M_parent->_M_left) xpp->_M_parent->_M_left = y_left;
+                else xpp->_M_parent->_M_right = y_left;
                 y_left->_M_left = xpp;
                 xpp->_M_parent = y_left;
             }
@@ -1001,238 +968,169 @@ static void my_Rb_tree_insert_and_rebalance(bool insert_left, void *x_ptr, void 
 }
 
 // _Rb_tree_node_base* std::_Rb_tree_rebalance_for_erase(_Rb_tree_node_base* z, _Rb_tree_node_base& header)
-static void *my_Rb_tree_rebalance_for_erase(void *z_ptr, void *header_ptr)
+static void* my_Rb_tree_rebalance_for_erase(void* z_ptr, void* header_ptr)
 {
-    GCC_Rb_tree_node_base *z = (GCC_Rb_tree_node_base *)z_ptr;
-    GCC_Rb_tree_node_base *header = (GCC_Rb_tree_node_base *)header_ptr;
-    GCC_Rb_tree_node_base *y = z;
-    GCC_Rb_tree_node_base *x = 0;
-    GCC_Rb_tree_node_base *x_parent = 0;
+    GCC_Rb_tree_node_base* z = (GCC_Rb_tree_node_base*)z_ptr;
+    GCC_Rb_tree_node_base* header = (GCC_Rb_tree_node_base*)header_ptr;
+    GCC_Rb_tree_node_base* y = z;
+    GCC_Rb_tree_node_base* x = 0;
+    GCC_Rb_tree_node_base* x_parent = 0;
 
-    if (y->_M_left == 0)
-    {
+    if (y->_M_left == 0) {
         x = y->_M_right;
-    }
-    else if (y->_M_right == 0)
-    {
+    } else if (y->_M_right == 0) {
         x = y->_M_left;
-    }
-    else
-    {
+    } else {
         y = y->_M_right;
-        while (y->_M_left != 0)
-            y = y->_M_left;
+        while (y->_M_left != 0) y = y->_M_left;
         x = y->_M_right;
     }
 
-    if (y != z)
-    {
+    if (y != z) {
         z->_M_left->_M_parent = y;
         y->_M_left = z->_M_left;
-        if (y != z->_M_right)
-        {
+        if (y != z->_M_right) {
             x_parent = y->_M_parent;
-            if (x)
-                x->_M_parent = y->_M_parent;
+            if (x) x->_M_parent = y->_M_parent;
             y->_M_parent->_M_left = x;
             y->_M_right = z->_M_right;
             z->_M_right->_M_parent = y;
-        }
-        else
-        {
+        } else {
             x_parent = y;
         }
-        if (header->_M_parent == z)
-            header->_M_parent = y;
-        else if (z->_M_parent->_M_left == z)
-            z->_M_parent->_M_left = y;
-        else
-            z->_M_parent->_M_right = y;
+        if (header->_M_parent == z) header->_M_parent = y;
+        else if (z->_M_parent->_M_left == z) z->_M_parent->_M_left = y;
+        else z->_M_parent->_M_right = y;
         y->_M_parent = z->_M_parent;
         int tmp_color = y->_M_color;
         y->_M_color = z->_M_color;
         z->_M_color = tmp_color;
         y = z;
-    }
-    else
-    {
+    } else {
         x_parent = y->_M_parent;
-        if (x)
-            x->_M_parent = y->_M_parent;
-        if (header->_M_parent == z)
-            header->_M_parent = x;
-        else if (z->_M_parent->_M_left == z)
-            z->_M_parent->_M_left = x;
-        else
-            z->_M_parent->_M_right = x;
-        if (header->_M_left == z)
-        {
-            if (z->_M_right == 0)
-                header->_M_left = z->_M_parent;
-            else
-                header->_M_left = x; // min(x)
+        if (x) x->_M_parent = y->_M_parent;
+        if (header->_M_parent == z) header->_M_parent = x;
+        else if (z->_M_parent->_M_left == z) z->_M_parent->_M_left = x;
+        else z->_M_parent->_M_right = x;
+        if (header->_M_left == z) {
+            if (z->_M_right == 0) header->_M_left = z->_M_parent;
+            else header->_M_left = x; // min(x)
         }
-        if (header->_M_right == z)
-        {
-            if (z->_M_left == 0)
-                header->_M_right = z->_M_parent;
-            else
-            {
-                GCC_Rb_tree_node_base *t = x;
-                while (t->_M_right)
-                    t = t->_M_right;
+        if (header->_M_right == z) {
+            if (z->_M_left == 0) header->_M_right = z->_M_parent;
+            else {
+                GCC_Rb_tree_node_base* t = x;
+                while (t->_M_right) t = t->_M_right;
                 header->_M_right = t;
             }
         }
     }
 
-    if (y->_M_color != 0)
-    {
-        while (x != header->_M_parent && (x == 0 || x->_M_color == 1))
-        {
-            if (x == x_parent->_M_left)
-            {
-                GCC_Rb_tree_node_base *w = x_parent->_M_right;
-                if (w->_M_color == 0)
-                {
+    if (y->_M_color != 0) {
+        while (x != header->_M_parent && (x == 0 || x->_M_color == 1)) {
+            if (x == x_parent->_M_left) {
+                GCC_Rb_tree_node_base* w = x_parent->_M_right;
+                if (w->_M_color == 0) {
                     w->_M_color = 1;
                     x_parent->_M_color = 0;
-                    GCC_Rb_tree_node_base *t = x_parent->_M_right;
+                    GCC_Rb_tree_node_base* t = x_parent->_M_right;
                     x_parent->_M_right = t->_M_left;
-                    if (t->_M_left)
-                        t->_M_left->_M_parent = x_parent;
+                    if (t->_M_left) t->_M_left->_M_parent = x_parent;
                     t->_M_parent = x_parent->_M_parent;
-                    if (x_parent == header->_M_parent)
-                        header->_M_parent = t;
-                    else if (x_parent == x_parent->_M_parent->_M_left)
-                        x_parent->_M_parent->_M_left = t;
-                    else
-                        x_parent->_M_parent->_M_right = t;
+                    if (x_parent == header->_M_parent) header->_M_parent = t;
+                    else if (x_parent == x_parent->_M_parent->_M_left) x_parent->_M_parent->_M_left = t;
+                    else x_parent->_M_parent->_M_right = t;
                     t->_M_left = x_parent;
                     x_parent->_M_parent = t;
                     w = x_parent->_M_right;
                 }
-                if ((w->_M_left == 0 || w->_M_left->_M_color == 1) && (w->_M_right == 0 || w->_M_right->_M_color == 1))
-                {
+                if ((w->_M_left == 0 || w->_M_left->_M_color == 1) &&
+                    (w->_M_right == 0 || w->_M_right->_M_color == 1)) {
                     w->_M_color = 0;
                     x = x_parent;
                     x_parent = x_parent->_M_parent;
-                }
-                else
-                {
-                    if (w->_M_right == 0 || w->_M_right->_M_color == 1)
-                    {
-                        if (w->_M_left)
-                            w->_M_left->_M_color = 1;
+                } else {
+                    if (w->_M_right == 0 || w->_M_right->_M_color == 1) {
+                        if (w->_M_left) w->_M_left->_M_color = 1;
                         w->_M_color = 0;
-                        GCC_Rb_tree_node_base *t = w->_M_left;
+                        GCC_Rb_tree_node_base* t = w->_M_left;
                         w->_M_left = t->_M_right;
-                        if (t->_M_right)
-                            t->_M_right->_M_parent = w;
+                        if (t->_M_right) t->_M_right->_M_parent = w;
                         t->_M_parent = w->_M_parent;
-                        if (w == header->_M_parent)
-                            header->_M_parent = t;
-                        else if (w == w->_M_parent->_M_right)
-                            w->_M_parent->_M_right = t;
-                        else
-                            w->_M_parent->_M_left = t;
+                        if (w == header->_M_parent) header->_M_parent = t;
+                        else if (w == w->_M_parent->_M_right) w->_M_parent->_M_right = t;
+                        else w->_M_parent->_M_left = t;
                         t->_M_right = w;
                         w->_M_parent = t;
                         w = x_parent->_M_right;
                     }
                     w->_M_color = x_parent->_M_color;
                     x_parent->_M_color = 1;
-                    if (w->_M_right)
-                        w->_M_right->_M_color = 1;
-                    GCC_Rb_tree_node_base *t = x_parent->_M_right;
+                    if (w->_M_right) w->_M_right->_M_color = 1;
+                    GCC_Rb_tree_node_base* t = x_parent->_M_right;
                     x_parent->_M_right = t->_M_left;
-                    if (t->_M_left)
-                        t->_M_left->_M_parent = x_parent;
+                    if (t->_M_left) t->_M_left->_M_parent = x_parent;
                     t->_M_parent = x_parent->_M_parent;
-                    if (x_parent == header->_M_parent)
-                        header->_M_parent = t;
-                    else if (x_parent == x_parent->_M_parent->_M_left)
-                        x_parent->_M_parent->_M_left = t;
-                    else
-                        x_parent->_M_parent->_M_right = t;
+                    if (x_parent == header->_M_parent) header->_M_parent = t;
+                    else if (x_parent == x_parent->_M_parent->_M_left) x_parent->_M_parent->_M_left = t;
+                    else x_parent->_M_parent->_M_right = t;
                     t->_M_left = x_parent;
                     x_parent->_M_parent = t;
                     break;
                 }
-            }
-            else
-            {
-                GCC_Rb_tree_node_base *w = x_parent->_M_left;
-                if (w->_M_color == 0)
-                {
+            } else {
+                GCC_Rb_tree_node_base* w = x_parent->_M_left;
+                if (w->_M_color == 0) {
                     w->_M_color = 1;
                     x_parent->_M_color = 0;
-                    GCC_Rb_tree_node_base *t = x_parent->_M_left;
+                    GCC_Rb_tree_node_base* t = x_parent->_M_left;
                     x_parent->_M_left = t->_M_right;
-                    if (t->_M_right)
-                        t->_M_right->_M_parent = x_parent;
+                    if (t->_M_right) t->_M_right->_M_parent = x_parent;
                     t->_M_parent = x_parent->_M_parent;
-                    if (x_parent == header->_M_parent)
-                        header->_M_parent = t;
-                    else if (x_parent == x_parent->_M_parent->_M_right)
-                        x_parent->_M_parent->_M_right = t;
-                    else
-                        x_parent->_M_parent->_M_left = t;
+                    if (x_parent == header->_M_parent) header->_M_parent = t;
+                    else if (x_parent == x_parent->_M_parent->_M_right) x_parent->_M_parent->_M_right = t;
+                    else x_parent->_M_parent->_M_left = t;
                     t->_M_right = x_parent;
                     x_parent->_M_parent = t;
                     w = x_parent->_M_left;
                 }
-                if ((w->_M_right == 0 || w->_M_right->_M_color == 1) && (w->_M_left == 0 || w->_M_left->_M_color == 1))
-                {
+                if ((w->_M_right == 0 || w->_M_right->_M_color == 1) &&
+                    (w->_M_left == 0 || w->_M_left->_M_color == 1)) {
                     w->_M_color = 0;
                     x = x_parent;
                     x_parent = x_parent->_M_parent;
-                }
-                else
-                {
-                    if (w->_M_left == 0 || w->_M_left->_M_color == 1)
-                    {
-                        if (w->_M_right)
-                            w->_M_right->_M_color = 1;
+                } else {
+                    if (w->_M_left == 0 || w->_M_left->_M_color == 1) {
+                        if (w->_M_right) w->_M_right->_M_color = 1;
                         w->_M_color = 0;
-                        GCC_Rb_tree_node_base *t = w->_M_right;
+                        GCC_Rb_tree_node_base* t = w->_M_right;
                         w->_M_right = t->_M_left;
-                        if (t->_M_left)
-                            t->_M_left->_M_parent = w;
+                        if (t->_M_left) t->_M_left->_M_parent = w;
                         t->_M_parent = w->_M_parent;
-                        if (w == header->_M_parent)
-                            header->_M_parent = t;
-                        else if (w == w->_M_parent->_M_left)
-                            w->_M_parent->_M_left = t;
-                        else
-                            w->_M_parent->_M_right = t;
+                        if (w == header->_M_parent) header->_M_parent = t;
+                        else if (w == w->_M_parent->_M_left) w->_M_parent->_M_left = t;
+                        else w->_M_parent->_M_right = t;
                         t->_M_left = w;
                         w->_M_parent = t;
                         w = x_parent->_M_left;
                     }
                     w->_M_color = x_parent->_M_color;
                     x_parent->_M_color = 1;
-                    if (w->_M_left)
-                        w->_M_left->_M_color = 1;
-                    GCC_Rb_tree_node_base *t = x_parent->_M_left;
+                    if (w->_M_left) w->_M_left->_M_color = 1;
+                    GCC_Rb_tree_node_base* t = x_parent->_M_left;
                     x_parent->_M_left = t->_M_right;
-                    if (t->_M_right)
-                        t->_M_right->_M_parent = x_parent;
+                    if (t->_M_right) t->_M_right->_M_parent = x_parent;
                     t->_M_parent = x_parent->_M_parent;
-                    if (x_parent == header->_M_parent)
-                        header->_M_parent = t;
-                    else if (x_parent == x_parent->_M_parent->_M_right)
-                        x_parent->_M_parent->_M_right = t;
-                    else
-                        x_parent->_M_parent->_M_left = t;
+                    if (x_parent == header->_M_parent) header->_M_parent = t;
+                    else if (x_parent == x_parent->_M_parent->_M_right) x_parent->_M_parent->_M_right = t;
+                    else x_parent->_M_parent->_M_left = t;
                     t->_M_right = x_parent;
                     x_parent->_M_parent = t;
                     break;
                 }
             }
         }
-        if (x)
-            x->_M_color = 1;
+        if (x) x->_M_color = 1;
     }
     return y;
 }
@@ -1249,11 +1147,8 @@ static void my_IosBaseInit_Dtor(void *thisptr)
     ((std::ios_base::Init *)thisptr)->~Init();
 }
 
-struct MyFakeIosBase : public std::ios_base
-{
-    MyFakeIosBase() : std::ios_base()
-    {
-    }
+struct MyFakeIosBase : public std::ios_base {
+    MyFakeIosBase() : std::ios_base() {}
 };
 
 // std::ios_base::ios_base()
@@ -1316,18 +1211,14 @@ static void my_StdString_ConstChar_Ctor(void *this_ptr, const char *str, void *a
 // std::string::~string()
 static void my_StdString_Dtor(void *this_ptr)
 {
-    if (!this_ptr)
-        return;
+    if (!this_ptr) return;
     GCC_String *this_str = (GCC_String *)this_ptr;
     char *data = this_str->_M_dataplus;
-    if (data)
-    {
+    if (data) {
         GCC_String_Rep *rep = (GCC_String_Rep *)(data - sizeof(GCC_String_Rep));
-        if (rep->capacity > 0)
-        {
+        if (rep->capacity > 0) {
             rep->_ref--;
-            if (rep->_ref < 0)
-            {
+            if (rep->_ref < 0) {
                 free(rep);
             }
         }
@@ -1340,7 +1231,7 @@ static void my_StdString_DefaultCtor(void *this_ptr, void *alloc)
     (void)alloc;
     if (!this_ptr)
         return;
-
+        
     size_t len = 0;
     size_t total_size = sizeof(GCC_String_Rep) + len + 1;
     void *memory = malloc(total_size);
@@ -1350,10 +1241,10 @@ static void my_StdString_DefaultCtor(void *this_ptr, void *alloc)
         rep->length = len;
         rep->capacity = len;
         rep->_ref = 0;
-
+        
         char *data_ptr = (char *)(rep + 1);
         data_ptr[0] = '\0';
-
+        
         GCC_String *gcc_str = (GCC_String *)this_ptr;
         gcc_str->_M_dataplus = data_ptr;
     }
@@ -1412,32 +1303,26 @@ static void my_StringRep_Destroy(void *rep_ptr, void *alloc)
 // std::string::_M_mutate(unsigned int, unsigned int, unsigned int)
 static void my_StdString_Mutate(void *this_ptr, unsigned int pos, unsigned int len1, unsigned int len2)
 {
-    if (!this_ptr)
-        return;
+    if (!this_ptr) return;
 
     GCC_String *this_str = (GCC_String *)this_ptr;
     char *old_data = this_str->_M_dataplus;
-    if (!old_data)
-        return;
+    if (!old_data) return;
 
     GCC_String_Rep *old_rep = (GCC_String_Rep *)(old_data - sizeof(GCC_String_Rep));
-
+    
     size_t old_length = old_rep->length;
-    if (pos > old_length)
-        pos = old_length;
-    if (pos + len1 > old_length)
-        len1 = old_length - pos;
-
+    if (pos > old_length) pos = old_length;
+    if (pos + len1 > old_length) len1 = old_length - pos;
+    
     size_t new_length = old_length - len1 + len2;
-
+    
     if (old_rep->_ref > 0 || new_length > old_rep->capacity)
     {
         size_t new_capacity = new_length;
-        if (new_capacity < 2 * old_rep->capacity)
-            new_capacity = 2 * old_rep->capacity;
-        if (new_capacity < 15)
-            new_capacity = 15;
-
+        if (new_capacity < 2 * old_rep->capacity) new_capacity = 2 * old_rep->capacity;
+        if (new_capacity < 15) new_capacity = 15;
+        
         size_t total_size = sizeof(GCC_String_Rep) + new_capacity + 1;
         void *memory = malloc(total_size);
         if (memory)
@@ -1446,27 +1331,25 @@ static void my_StdString_Mutate(void *this_ptr, unsigned int pos, unsigned int l
             new_rep->length = new_length;
             new_rep->capacity = new_capacity;
             new_rep->_ref = 0;
-
+            
             char *new_data = (char *)(new_rep + 1);
-
+            
             if (pos > 0)
                 memcpy(new_data, old_data, pos);
-
+                
             size_t how_much = old_length - pos - len1;
             if (how_much > 0)
                 memcpy(new_data + pos + len2, old_data + pos + len1, how_much);
-
+                
             new_data[new_length] = '\0';
-
-            if (old_rep->capacity > 0)
-            {
+            
+            if (old_rep->capacity > 0) {
                 old_rep->_ref--;
-                if (old_rep->_ref < 0)
-                {
+                if (old_rep->_ref < 0) {
                     free(old_rep);
                 }
             }
-
+            
             this_str->_M_dataplus = new_data;
         }
     }
@@ -1485,9 +1368,8 @@ static void my_StdString_Mutate(void *this_ptr, unsigned int pos, unsigned int l
 // std::string::append(char const*, unsigned int)
 static void *my_StdString_Append(void *this_ptr, const char *s, unsigned int n)
 {
-    if (!this_ptr)
-        return this_ptr;
-
+    if (!this_ptr) return this_ptr;
+    
     GCC_String *this_str = (GCC_String *)this_ptr;
     char *data = this_str->_M_dataplus;
     size_t old_length = 0;
@@ -1496,33 +1378,32 @@ static void *my_StdString_Append(void *this_ptr, const char *s, unsigned int n)
         GCC_String_Rep *rep = (GCC_String_Rep *)(data - sizeof(GCC_String_Rep));
         old_length = rep->length;
     }
-
+    
     my_StdString_Mutate(this_ptr, old_length, 0, n);
-
+    
     data = this_str->_M_dataplus;
     if (data && s && n > 0)
     {
         memcpy(data + old_length, s, n);
     }
-
+    
     return this_ptr;
 }
 
 // std::string::replace(unsigned int, unsigned int, char const*, unsigned int)
 static void *my_StdString_Replace(void *this_ptr, unsigned int pos, unsigned int n1, const char *s, unsigned int n2)
 {
-    if (!this_ptr)
-        return this_ptr;
-
+    if (!this_ptr) return this_ptr;
+    
     my_StdString_Mutate(this_ptr, pos, n1, n2);
-
+    
     GCC_String *this_str = (GCC_String *)this_ptr;
     char *data = this_str->_M_dataplus;
     if (data && s && n2 > 0)
     {
         memcpy(data + pos, s, n2);
     }
-
+    
     return this_ptr;
 }
 
@@ -1542,7 +1423,7 @@ static void *my_StdString_AssignCopy(void *this_ptr, void *other_ptr)
     if (other_data)
     {
         GCC_String_Rep *other_rep = (GCC_String_Rep *)(other_data - sizeof(GCC_String_Rep));
-
+        
         size_t len = other_rep->length;
         size_t total_size = sizeof(GCC_String_Rep) + len + 1;
         void *memory = malloc(total_size);
@@ -1562,11 +1443,9 @@ static void *my_StdString_AssignCopy(void *this_ptr, void *other_ptr)
             {
                 GCC_String_Rep *old_rep = (GCC_String_Rep *)(old_data - sizeof(GCC_String_Rep));
                 // Only attempt to free if it's not the empty rep (capacity > 0)
-                if (old_rep->capacity > 0)
-                {
+                if (old_rep->capacity > 0) {
                     old_rep->_ref--;
-                    if (old_rep->_ref < 0)
-                    {
+                    if (old_rep->_ref < 0) {
                         free(old_rep);
                     }
                 }
@@ -1582,19 +1461,17 @@ static void *my_StdString_AssignCopy(void *this_ptr, void *other_ptr)
 // std::string::assign(char const*, unsigned int)
 static void *my_StdString_AssignCharConst(void *this_ptr, const char *s, unsigned int n)
 {
-    if (!this_ptr)
-        return this_ptr;
-
+    if (!this_ptr) return this_ptr;
+    
     GCC_String *this_str = (GCC_String *)this_ptr;
     char *old_data = this_str->_M_dataplus;
     size_t old_length = 0;
-
-    if (old_data)
-    {
+    
+    if (old_data) {
         GCC_String_Rep *old_rep = (GCC_String_Rep *)(old_data - sizeof(GCC_String_Rep));
         old_length = old_rep->length;
     }
-
+    
     // Use replace: replace the entire old string with the new string
     my_StdString_Replace(this_ptr, 0, old_length, s, n);
     return this_ptr;
@@ -1602,17 +1479,15 @@ static void *my_StdString_AssignCharConst(void *this_ptr, const char *s, unsigne
 
 // std::operator<<(std::ostream&, std::string const&)
 // _ZStlsIcSt11char_traitsIcESaIcEERSt13basic_ostreamIT_T0_ES7_RSbIS4_S5_T1_E
-static void *my_StdString_Ostream_LShift(void *os, void *str_ptr)
+static void* my_StdString_Ostream_LShift(void* os, void* str_ptr)
 {
-    if (!os || !str_ptr)
-        return os;
-
-    GCC_String *str = (GCC_String *)str_ptr;
-    char *data = str->_M_dataplus;
-
-    if (data)
-    {
-        GCC_String_Rep *rep = (GCC_String_Rep *)(data - sizeof(GCC_String_Rep));
+    if (!os || !str_ptr) return os;
+    
+    GCC_String* str = (GCC_String*)str_ptr;
+    char* data = str->_M_dataplus;
+    
+    if (data) {
+        GCC_String_Rep* rep = (GCC_String_Rep*)(data - sizeof(GCC_String_Rep));
         log_info("STUB: std::ostream << std::string(\"%.*s\")", (int)rep->length, data);
     }
     return os;
@@ -1620,7 +1495,7 @@ static void *my_StdString_Ostream_LShift(void *os, void *str_ptr)
 
 // std::operator>>(std::istream&, std::string&)
 // _ZStrsIcSt11char_traitsIcESaIcEERSt13basic_istreamIT_T0_ES7_RSbIS4_S5_T1_E
-static void *my_StdString_Istream_RShift(void *is, void *str_ptr)
+static void* my_StdString_Istream_RShift(void* is, void* str_ptr)
 {
     (void)str_ptr;
     log_warn("STUB: std::istream >> std::string");
@@ -1630,26 +1505,21 @@ static void *my_StdString_Istream_RShift(void *is, void *str_ptr)
 // std::string::compare(char const*) const
 static int my_StdString_CompareConstChar(void *this_ptr, const char *s)
 {
-    if (!this_ptr || !s)
-        return 0;
-
+    if (!this_ptr || !s) return 0;
+    
     GCC_String *this_str = (GCC_String *)this_ptr;
     char *data = this_str->_M_dataplus;
-    if (!data)
-        return strcmp("", s);
-
+    if (!data) return strcmp("", s);
+    
     GCC_String_Rep *rep = (GCC_String_Rep *)(data - sizeof(GCC_String_Rep));
     size_t lhs_len = rep->length;
     size_t rhs_len = strlen(s);
-
+    
     size_t len = lhs_len < rhs_len ? lhs_len : rhs_len;
     int cmp = memcmp(data, s, len);
-    if (cmp != 0)
-        return cmp;
-    if (lhs_len < rhs_len)
-        return -1;
-    if (lhs_len > rhs_len)
-        return 1;
+    if (cmp != 0) return cmp;
+    if (lhs_len < rhs_len) return -1;
+    if (lhs_len > rhs_len) return 1;
     return 0;
 }
 
@@ -1980,7 +1850,7 @@ uintptr_t SymbolResolver::GetExternalAddr(const char *name)
     // MAP("_ZNSs6appendEPKcj", my_std_string_append);
     MAP("_ZNSsD1Ev", my_StdString_Dtor);
     MAP("_ZNSsD2Ev", my_StdString_Dtor);
-
+    
     MAP("_ZStlsIcSt11char_traitsIcESaIcEERSt13basic_ostreamIT_T0_ES7_RSbIS4_S5_T1_E", my_StdString_Ostream_LShift);
     MAP("_ZStrsIcSt11char_traitsIcESaIcEERSt13basic_istreamIT_T0_ES7_RSbIS4_S5_T1_E", my_StdString_Istream_RShift);
     // MAP("_ZNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEED1Ev", my_std_string_dtor);
@@ -2137,7 +2007,7 @@ uintptr_t SymbolResolver::GetExternalAddr(const char *name)
     MAP("strcmp", strcmp);
     MAP("strncmp", strncmp);
     MAP("strcat", strcat);
-    MAP_OL("strpbrk", (const char *(*)(const char *, const char *))strpbrk);
+    MAP_OL("strpbrk", (char*(*)(char*, const char*))strpbrk);
     MAP("strcspn", strcspn);
     MAP("strspn", strspn);
     MAP("strtok", strtok);
@@ -2187,7 +2057,7 @@ uintptr_t SymbolResolver::GetExternalAddr(const char *name)
     MAP("_exit", LibcBridge::_exit_wrapper);
 
     // Time
-    MAP("time", LibcBridge::time_wrapper);
+    MAP("time", LibcBridge::time_wrapper);  
     MAP("utime", LibcBridge::utime_wrapper);
     MAP("gettimeofday", LibcBridge::gettimeofday_wrapper);
     MAP("usleep", LibcBridge::usleep_wrapper);
@@ -2328,7 +2198,7 @@ uintptr_t SymbolResolver::GetExternalAddr(const char *name)
     MAP("XDisplayWidthMM", X11Bridge::XDisplayWidthMM);
     MAP("XDisplayHeightMM", X11Bridge::XDisplayHeightMM);
     MAP("XSetWMNormalHints", X11Bridge::XSetWMNormalHints);
-    MAP_OL("XInternAtom", (Atom(*)(Display *, const char *, bool))X11Bridge::XInternAtom);
+    MAP_OL("XInternAtom", (Atom (*)(Display *, const char *, bool))X11Bridge::XInternAtom);
     MAP("XSetStandardProperties", X11Bridge::XSetStandardProperties);
     MAP("XRRGetScreenResources", X11Bridge::XRRGetScreenResources);
     MAP("XRRGetCrtcInfo", X11Bridge::XRRGetCrtcInfo);
@@ -2789,10 +2659,10 @@ void SymbolResolver::ResolveAll(uintptr_t jmpRel, uintptr_t relTab, uintptr_t sy
                 resolved++;
             }
 
-             if (strncmp(name, "pthread", 7) != 0 && strncmp(name, "gl", 2) != 0)
-             {
-                 addr = CreateThunk(name, addr);
-             }
+            // if (strncmp(name, "pthread", 7) != 0 && strncmp(name, "gl", 2) != 0)
+            // {
+            //     addr = CreateThunk(name, addr);
+            // }
 
             if (rel->r_offset == 0)
             {

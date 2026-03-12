@@ -110,14 +110,20 @@ GLXContext GLXBridge::CreateContext(Display *dpy, XVisualInfo *vis, GLXContext s
     {
         XSetWindowAttributes attr = {};
         X11Bridge::XCreateWindow(dpy, 0, 0, 0, 1280, 768, 0, 24, 0, nullptr, 0, &attr);
+
+
     }
 
     if (!SDLCalls::GetWindow())
 
+
         return nullptr;
+
 
     // If SDLCalls already manages the context, we return it.
     if (!SDLCalls::GetContext())
+
+
 
     {
         // If context doesn't exist, we might be in trouble if we expect SDLCalls to handle it.
@@ -131,7 +137,7 @@ GLXContext GLXBridge::CreateContext(Display *dpy, XVisualInfo *vis, GLXContext s
 
     log_info("Created OpenGL Context: %p", SDLCalls::GetContext());
     return (GLXContext)SDLCalls::GetContext();
-}
+} 
 
 void GLXBridge::DestroyContext(Display * /*dpy*/, GLXContext ctx)
 {

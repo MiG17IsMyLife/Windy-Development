@@ -1,3 +1,7 @@
+// Re-implementation of GLHooks using standard C++ wrappers.
+// These wrappers automatically handle the ABI transition from the Linux Host (CDECL)
+// to the Windows OpenGL Driver (STDCALL).
+
 #define WIN32_LEAN_AND_MEAN
 // Ensure we get prototypes for GL extensions (glActiveTexture, etc)
 #define GL_GLEXT_PROTOTYPES
@@ -5,19 +9,14 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_opengl.h> // Provides declarations for GL > 1.1
 #include <GL/glu.h>
+#ifdef _MSC_VER
+#include <intrin.h>
+#endif
 
 #include "glhooks.h"
 // #include "shaderpatches.h"
 #include "../../core/log.h"
 #include <string.h>
-
-// Cross-platform return address support
-#ifdef _MSC_VER
-#include <intrin.h>
-#define GET_RETURN_ADDRESS() _ReturnAddress()
-#else
-#define GET_RETURN_ADDRESS() __builtin_return_address(0)
-#endif
 // #include <vector>
 
 // Macros for efficient wrapper generation
@@ -421,8 +420,7 @@ WRAP_VOID(glBufferSubDataARB, (GLenum target, GLintptrARB offset, GLsizeiptrARB 
 
 // ARB Shader Objects (GLSL 1.x style)
 WRAP(glCreateShaderObjectARB, GLhandleARB, (GLenum shaderType), (shaderType))
-WRAP_VOID(glShaderSourceARB, (GLhandleARB shader, GLsizei count, const GLcharARB **string, const GLint *length),
-          (shader, count, string, length))
+WRAP_VOID(glShaderSourceARB, (GLhandleARB shader, GLsizei count, const GLcharARB **string, const GLint *length), (shader, count, string, length))
 WRAP_VOID(glCompileShaderARB, (GLhandleARB shader), (shader))
 WRAP_VOID(glUseProgramObjectARB, (GLhandleARB program), (program))
 WRAP_VOID(glLinkProgramARB, (GLhandleARB program), (program))
@@ -438,8 +436,7 @@ WRAP_VOID(glEndQueryARB, (GLenum target), (target))
 WRAP_VOID(glGetQueryObjectuivARB, (GLuint id, GLenum pname, GLuint *params), (id, pname, params))
 
 // EXT Blend Functions
-WRAP_VOID(glBlendFuncSeparateEXT, (GLenum sfactorRGB, GLenum dfactorRGB, GLenum sfactorAlpha, GLenum dfactorAlpha),
-          (sfactorRGB, dfactorRGB, sfactorAlpha, dfactorAlpha))
+WRAP_VOID(glBlendFuncSeparateEXT, (GLenum sfactorRGB, GLenum dfactorRGB, GLenum sfactorAlpha, GLenum dfactorAlpha), (sfactorRGB, dfactorRGB, sfactorAlpha, dfactorAlpha))
 WRAP_VOID(glBlendEquationEXT, (GLenum mode), (mode))
 WRAP_VOID(glBlendColorEXT, (GLclampf red, GLclampf green, GLclampf blue, GLclampf alpha), (red, green, blue, alpha))
 WRAP_VOID(glBlendEquationSeparateEXT, (GLenum modeRGB, GLenum modeAlpha), (modeRGB, modeAlpha))
@@ -447,19 +444,13 @@ WRAP_VOID(glBlendEquationSeparateEXT, (GLenum modeRGB, GLenum modeAlpha), (modeR
 // EXT Renderbuffer
 WRAP_VOID(glGenRenderbuffersEXT, (GLsizei n, GLuint *renderbuffers), (n, renderbuffers))
 WRAP_VOID(glBindRenderbufferEXT, (GLenum target, GLuint renderbuffer), (target, renderbuffer))
-WRAP_VOID(glRenderbufferStorageEXT, (GLenum target, GLenum internalformat, GLsizei width, GLsizei height),
-          (target, internalformat, width, height))
-WRAP_VOID(glFramebufferRenderbufferEXT, (GLenum target, GLenum attachment, GLenum renderbuffertarget, GLuint renderbuffer),
-          (target, attachment, renderbuffertarget, renderbuffer))
+WRAP_VOID(glRenderbufferStorageEXT, (GLenum target, GLenum internalformat, GLsizei width, GLsizei height), (target, internalformat, width, height))
+WRAP_VOID(glFramebufferRenderbufferEXT, (GLenum target, GLenum attachment, GLenum renderbuffertarget, GLuint renderbuffer), (target, attachment, renderbuffertarget, renderbuffer))
 
 // Misc ARB
-WRAP_VOID(glCompressedTexSubImage2DARB,
-          (GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height, GLenum format, GLsizei imageSize,
-           const GLvoid *data),
-          (target, level, xoffset, yoffset, width, height, format, imageSize, data))
+WRAP_VOID(glCompressedTexSubImage2DARB, (GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height, GLenum format, GLsizei imageSize, const GLvoid *data), (target, level, xoffset, yoffset, width, height, format, imageSize, data))
 WRAP_VOID(glWindowPos2sARB, (GLshort x, GLshort y), (x, y))
-WRAP_VOID(glDrawRangeElements, (GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type, const GLvoid *indices),
-          (mode, start, end, count, type, indices))
+WRAP_VOID(glDrawRangeElements, (GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type, const GLvoid *indices), (mode, start, end, count, type, indices))
 WRAP_VOID(glCopyPixels, (GLint x, GLint y, GLsizei width, GLsizei height, GLenum type), (x, y, width, height, type))
 WRAP_VOID(glGetTexImage, (GLenum target, GLint level, GLenum format, GLenum type, GLvoid *pixels), (target, level, format, type, pixels))
 WRAP_VOID(glPrimitiveRestartIndexNV, (GLuint index), (index))
@@ -482,14 +473,12 @@ WRAP_VOID(glColor4dv, (const GLdouble *v), (v))
 WRAP_VOID(glGetUniformLocationARB, (GLint program, const GLchar *name), (program, name))
 WRAP_VOID(glUniform1fvARB, (GLint location, GLsizei count, const GLfloat *value), (location, count, value))
 WRAP_VOID(glSecondaryColor3fv, (const GLfloat *v), (v))
-WRAP_VOID(glUniformMatrix3fvARB, (GLint location, GLsizei count, GLboolean transpose, const GLfloat *value),
-          (location, count, transpose, value))
+WRAP_VOID(glUniformMatrix3fvARB, (GLint location, GLsizei count, GLboolean transpose, const GLfloat *value), (location, count, transpose, value))
 WRAP_VOID(glUniform4fvARB, (GLint location, GLsizei count, const GLfloat *value), (location, count, value))
 WRAP_VOID(glUniform1fARB, (GLint location, GLfloat value), (location, value))
 WRAP_VOID(glSecondaryColorPointer, (GLint size, GLenum type, GLsizei stride, const GLvoid *pointer), (size, type, stride, pointer))
 WRAP_VOID(glLockArraysEXT, (GLint first, GLsizei count), (first, count))
-WRAP_VOID(glMultiDrawElements, (GLenum mode, const GLsizei *count, GLenum type, const GLvoid *const *indices, GLsizei drawcount),
-          (mode, count, type, indices, drawcount))
+WRAP_VOID(glMultiDrawElements, (GLenum mode, const GLsizei *count, GLenum type, const GLvoid *const *indices, GLsizei drawcount), (mode, count, type, indices, drawcount))
 WRAP_VOID(glUnlockArraysEXT, (), ())
 WRAP_VOID(glUniform1iARB, (GLint location, GLint value), (location, value))
 WRAP_VOID(glVertexAttrib3fARB, (GLuint index, GLfloat x, GLfloat y, GLfloat z), (index, x, y, z))
@@ -497,8 +486,7 @@ WRAP_VOID(glDetachObjectARB, (GLhandleARB containerObj, GLhandleARB attachedObj)
 WRAP_VOID(glAttachObjectARB, (GLhandleARB containerObj, GLhandleARB obj), (containerObj, obj))
 WRAP_VOID(glCreateProgramObjectARB, (), ())
 WRAP_VOID(glBindAttribLocationARB, (GLhandleARB programObj, GLuint index, const GLchar *name), (programObj, index, name))
-WRAP_VOID(glUniformMatrix4fvARB, (GLint location, GLsizei count, GLboolean transpose, const GLfloat *value),
-          (location, count, transpose, value))
+WRAP_VOID(glUniformMatrix4fvARB, (GLint location, GLsizei count, GLboolean transpose, const GLfloat *value), (location, count, transpose, value))
 WRAP_VOID(glColor3fv, (const GLfloat *v), (v))
 
 WRAP_VOID(glGenProgramsNV, (GLsizei n, GLuint *programs), (n, programs))
@@ -536,19 +524,20 @@ WRAP_VOID(glGetOcclusionQueryuivNV, (GLuint id, GLenum pname, GLuint *params), (
 //     //             isOption = true;
 //     //         }
 //     //     }
-
+        
 //     //     if (!isOption) {
 //     //         printf("GLHooks: Patching invalid 'ARB_draw_buffers' in shader");
-//     //         found[0] = '#';
+//     //         found[0] = '#'; 
 //     //     }
 //     //     found = strstr(found + 1, badToken);
 //     // }
+
 
 //     if (string) {
 //         static int s_shaderCount = 0;
 //         char filename[64];
 //         snprintf(filename, sizeof(filename), "shader_%03d.arb", s_shaderCount++);
-
+        
 //         FILE* f = fopen(filename, "wb");
 //         if (f) {
 //             fwrite(shaderSource.data(), 1, len, f);
@@ -560,6 +549,7 @@ WRAP_VOID(glGetOcclusionQueryuivNV, (GLuint id, GLenum pname, GLuint *params), (
 //     real(target, format, len, shaderSource.data());
 
 // }
+
 
 // --- Manual Wrapper Macros ---
 #ifndef WRAP_MANUAL_DEFINED
@@ -575,45 +565,43 @@ typedef unsigned long long GLuint64EXT;
 #endif
 
 // Helper to cast function pointers without needing gl.h declarations
-#define WRAP_MANUAL(name, ret, args, params, arg_types)                                                                                    \
-    static ret my_##name args                                                                                                              \
-    {                                                                                                                                      \
-        typedef ret(*func_ptr) arg_types;                                                                                                  \
-        static auto real = (func_ptr)my_GetProcAddress(#name);                                                                             \
-        if (!real)                                                                                                                         \
-        {                                                                                                                                  \
-            log_error("GLHooks: Missing " #name);                                                                                          \
-            return (ret)0;                                                                                                                 \
-        }                                                                                                                                  \
-        return real params;                                                                                                                \
+#define WRAP_MANUAL(name, ret, args, params, arg_types) \
+    static ret my_##name args \
+    { \
+        typedef ret (*func_ptr) arg_types; \
+        static auto real = (func_ptr)my_GetProcAddress(#name); \
+        if (!real) \
+        { \
+            log_error("GLHooks: Missing " #name); \
+            return (ret)0; \
+        } \
+        return real params; \
     }
 
-#define WRAP_MANUAL_VOID(name, args, params, arg_types)                                                                                    \
-    static void my_##name args                                                                                                             \
-    {                                                                                                                                      \
-        typedef void(*func_ptr) arg_types;                                                                                                 \
-        static auto real = (func_ptr)my_GetProcAddress(#name);                                                                             \
-        if (!real)                                                                                                                         \
-        {                                                                                                                                  \
-            log_error("GLHooks: Missing " #name);                                                                                          \
-            return;                                                                                                                        \
-        }                                                                                                                                  \
-        real params;                                                                                                                       \
+#define WRAP_MANUAL_VOID(name, args, params, arg_types) \
+    static void my_##name args \
+    { \
+        typedef void (*func_ptr) arg_types; \
+        static auto real = (func_ptr)my_GetProcAddress(#name); \
+        if (!real) \
+        { \
+            log_error("GLHooks: Missing " #name); \
+            return; \
+        } \
+        real params; \
     }
 #endif
 
 // WRAP_MANUAL_VOID(glAccum, (GLenum op, GLfloat value), (op, value), (GLenum, GLfloat))
-// WRAP_MANUAL(glAreTexturesResident, GLboolean, (GLsizei n, const GLuint *textures, GLboolean *residences), (n, textures, residences),
-// (GLsizei, const GLuint *, GLboolean *)) WRAP_MANUAL_VOID(glArrayElement, (GLint i), (i), (GLint)) WRAP_MANUAL_VOID(glBeginQuery, (GLenum
-// target, GLuint id), (target, id), (GLenum, GLuint)) WRAP_MANUAL_VOID(glBindAttribLocation, (GLuint program, GLuint index, const GLchar
-// *name), (program, index, name), (GLuint, GLuint, const GLchar *)) WRAP_MANUAL_VOID(glBitmap, (GLsizei width, GLsizei height, GLfloat
-// xorig, GLfloat yorig, GLfloat xmove, GLfloat ymove, const GLubyte *bitmap), (width, height, xorig, yorig, xmove, ymove, bitmap),
-// (GLsizei, GLsizei, GLfloat, GLfloat, GLfloat, GLfloat, const GLubyte *)) WRAP_MANUAL_VOID(glBlitFramebuffer, (GLint srcX0, GLint srcY0,
-// GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter), (srcX0, srcY0, srcX1,
-// srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter), (GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLbitfield, GLenum))
-// WRAP_MANUAL_VOID(glBufferSubData, (GLenum target, GLintptr offset, GLsizeiptr size, const GLvoid *data), (target, offset, size, data),
-// (GLenum, GLintptr, GLsizeiptr, const GLvoid *)) WRAP_MANUAL_VOID(glClearAccum, (GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha),
-// (red, green, blue, alpha), (GLfloat, GLfloat, GLfloat, GLfloat)) WRAP_MANUAL_VOID(glClearIndex, (GLfloat c), (c), (GLfloat))
+// WRAP_MANUAL(glAreTexturesResident, GLboolean, (GLsizei n, const GLuint *textures, GLboolean *residences), (n, textures, residences), (GLsizei, const GLuint *, GLboolean *))
+// WRAP_MANUAL_VOID(glArrayElement, (GLint i), (i), (GLint))
+// WRAP_MANUAL_VOID(glBeginQuery, (GLenum target, GLuint id), (target, id), (GLenum, GLuint))
+// WRAP_MANUAL_VOID(glBindAttribLocation, (GLuint program, GLuint index, const GLchar *name), (program, index, name), (GLuint, GLuint, const GLchar *))
+// WRAP_MANUAL_VOID(glBitmap, (GLsizei width, GLsizei height, GLfloat xorig, GLfloat yorig, GLfloat xmove, GLfloat ymove, const GLubyte *bitmap), (width, height, xorig, yorig, xmove, ymove, bitmap), (GLsizei, GLsizei, GLfloat, GLfloat, GLfloat, GLfloat, const GLubyte *))
+// WRAP_MANUAL_VOID(glBlitFramebuffer, (GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter), (srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter), (GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLbitfield, GLenum))
+// WRAP_MANUAL_VOID(glBufferSubData, (GLenum target, GLintptr offset, GLsizeiptr size, const GLvoid *data), (target, offset, size, data), (GLenum, GLintptr, GLsizeiptr, const GLvoid *))
+// WRAP_MANUAL_VOID(glClearAccum, (GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha), (red, green, blue, alpha), (GLfloat, GLfloat, GLfloat, GLfloat))
+// WRAP_MANUAL_VOID(glClearIndex, (GLfloat c), (c), (GLfloat))
 // WRAP_MANUAL_VOID(glColor3b, (GLbyte r, GLbyte g, GLbyte b), (r, g, b), (GLbyte, GLbyte, GLbyte))
 // WRAP_MANUAL_VOID(glColor3bv, (const GLbyte *v), (v), (const GLbyte *))
 // WRAP_MANUAL_VOID(glColor3i, (GLint r, GLint g, GLint b), (r, g, b), (GLint, GLint, GLint))
@@ -636,32 +624,20 @@ typedef unsigned long long GLuint64EXT;
 // WRAP_MANUAL_VOID(glColor4uiv, (const GLuint *v), (v), (const GLuint *))
 // WRAP_MANUAL_VOID(glColor4us, (GLushort r, GLushort g, GLushort b, GLushort a), (r, g, b, a), (GLushort, GLushort, GLushort, GLushort))
 // WRAP_MANUAL_VOID(glColor4usv, (const GLushort *v), (v), (const GLushort *))
-// WRAP_MANUAL_VOID(glCompressedTexImage1D, (GLenum target, GLint level, GLenum internalformat, GLsizei width, GLint border, GLsizei
-// imageSize, const GLvoid *data), (target, level, internalformat, width, border, imageSize, data), (GLenum, GLint, GLenum, GLsizei, GLint,
-// GLsizei, const GLvoid *)) WRAP_MANUAL_VOID(glCompressedTexImage3D, (GLenum target, GLint level, GLenum internalformat, GLsizei width,
-// GLsizei height, GLsizei depth, GLint border, GLsizei imageSize, const GLvoid *data), (target, level, internalformat, width, height,
-// depth, border, imageSize, data), (GLenum, GLint, GLenum, GLsizei, GLsizei, GLsizei, GLint, GLsizei, const GLvoid *))
-// WRAP_MANUAL_VOID(glCompressedTexSubImage1D, (GLenum target, GLint level, GLint xoffset, GLsizei width, GLenum format, GLsizei imageSize,
-// const GLvoid *data), (target, level, xoffset, width, format, imageSize, data), (GLenum, GLint, GLint, GLsizei, GLenum, GLsizei, const
-// GLvoid *)) WRAP_MANUAL_VOID(glCompressedTexSubImage2D, (GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei
-// height, GLenum format, GLsizei imageSize, const GLvoid *data), (target, level, xoffset, yoffset, width, height, format, imageSize, data),
-// (GLenum, GLint, GLint, GLint, GLsizei, GLsizei, GLenum, GLsizei, const GLvoid *)) WRAP_MANUAL_VOID(glCompressedTexSubImage3D, (GLenum
-// target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width, GLsizei height, GLsizei depth, GLenum format, GLsizei
-// imageSize, const GLvoid *data), (target, level, xoffset, yoffset, zoffset, width, height, depth, format, imageSize, data), (GLenum,
-// GLint, GLint, GLint, GLint, GLsizei, GLsizei, GLsizei, GLenum, GLsizei, const GLvoid *)) WRAP_MANUAL_VOID(glCopyTexImage1D, (GLenum
-// target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei width, GLint border), (target, level, internalformat, x, y, width,
-// border), (GLenum, GLint, GLenum, GLint, GLint, GLsizei, GLint)) WRAP_MANUAL_VOID(glCopyTexImage2D, (GLenum target, GLint level, GLenum
-// internalformat, GLint x, GLint y, GLsizei width, GLsizei height, GLint border), (target, level, internalformat, x, y, width, height,
-// border), (GLenum, GLint, GLenum, GLint, GLint, GLsizei, GLsizei, GLint)) WRAP_MANUAL_VOID(glCopyTexSubImage1D, (GLenum target, GLint
-// level, GLint xoffset, GLint x, GLint y, GLsizei width), (target, level, xoffset, x, y, width), (GLenum, GLint, GLint, GLint, GLint,
-// GLsizei)) WRAP_MANUAL_VOID(glCopyTexSubImage3D, (GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLint x, GLint
-// y, GLsizei width, GLsizei height), (target, level, xoffset, yoffset, zoffset, x, y, width, height), (GLenum, GLint, GLint, GLint, GLint,
-// GLint, GLint, GLsizei, GLsizei)) WRAP_MANUAL_VOID(glDeleteQueries, (GLsizei n, const GLuint *ids), (n, ids), (GLsizei, const GLuint *))
-// WRAP_MANUAL_VOID(glDrawInstancedArraysNVX, (GLenum mode, GLint first, GLsizei count, GLsizei primcount), (mode, first, count, primcount),
-// (GLenum, GLint, GLsizei, GLsizei)) WRAP_MANUAL_VOID(glDrawInstancedElementsNVX, (GLenum mode, GLsizei count, GLenum type, const GLvoid
-// *indices, GLsizei primcount), (mode, count, type, indices, primcount), (GLenum, GLsizei, GLenum, const GLvoid *, GLsizei))
-// WRAP_MANUAL_VOID(glDrawPixels, (GLsizei width, GLsizei height, GLenum format, GLenum type, const GLvoid *pixels), (width, height, format,
-// type, pixels), (GLsizei, GLsizei, GLenum, GLenum, const GLvoid *)) WRAP_MANUAL_VOID(glEdgeFlag, (GLboolean flag), (flag), (GLboolean))
+// WRAP_MANUAL_VOID(glCompressedTexImage1D, (GLenum target, GLint level, GLenum internalformat, GLsizei width, GLint border, GLsizei imageSize, const GLvoid *data), (target, level, internalformat, width, border, imageSize, data), (GLenum, GLint, GLenum, GLsizei, GLint, GLsizei, const GLvoid *))
+// WRAP_MANUAL_VOID(glCompressedTexImage3D, (GLenum target, GLint level, GLenum internalformat, GLsizei width, GLsizei height, GLsizei depth, GLint border, GLsizei imageSize, const GLvoid *data), (target, level, internalformat, width, height, depth, border, imageSize, data), (GLenum, GLint, GLenum, GLsizei, GLsizei, GLsizei, GLint, GLsizei, const GLvoid *))
+// WRAP_MANUAL_VOID(glCompressedTexSubImage1D, (GLenum target, GLint level, GLint xoffset, GLsizei width, GLenum format, GLsizei imageSize, const GLvoid *data), (target, level, xoffset, width, format, imageSize, data), (GLenum, GLint, GLint, GLsizei, GLenum, GLsizei, const GLvoid *))
+// WRAP_MANUAL_VOID(glCompressedTexSubImage2D, (GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height, GLenum format, GLsizei imageSize, const GLvoid *data), (target, level, xoffset, yoffset, width, height, format, imageSize, data), (GLenum, GLint, GLint, GLint, GLsizei, GLsizei, GLenum, GLsizei, const GLvoid *))
+// WRAP_MANUAL_VOID(glCompressedTexSubImage3D, (GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width, GLsizei height, GLsizei depth, GLenum format, GLsizei imageSize, const GLvoid *data), (target, level, xoffset, yoffset, zoffset, width, height, depth, format, imageSize, data), (GLenum, GLint, GLint, GLint, GLint, GLsizei, GLsizei, GLsizei, GLenum, GLsizei, const GLvoid *))
+// WRAP_MANUAL_VOID(glCopyTexImage1D, (GLenum target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei width, GLint border), (target, level, internalformat, x, y, width, border), (GLenum, GLint, GLenum, GLint, GLint, GLsizei, GLint))
+// WRAP_MANUAL_VOID(glCopyTexImage2D, (GLenum target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei width, GLsizei height, GLint border), (target, level, internalformat, x, y, width, height, border), (GLenum, GLint, GLenum, GLint, GLint, GLsizei, GLsizei, GLint))
+// WRAP_MANUAL_VOID(glCopyTexSubImage1D, (GLenum target, GLint level, GLint xoffset, GLint x, GLint y, GLsizei width), (target, level, xoffset, x, y, width), (GLenum, GLint, GLint, GLint, GLint, GLsizei))
+// WRAP_MANUAL_VOID(glCopyTexSubImage3D, (GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLint x, GLint y, GLsizei width, GLsizei height), (target, level, xoffset, yoffset, zoffset, x, y, width, height), (GLenum, GLint, GLint, GLint, GLint, GLint, GLint, GLsizei, GLsizei))
+// WRAP_MANUAL_VOID(glDeleteQueries, (GLsizei n, const GLuint *ids), (n, ids), (GLsizei, const GLuint *))
+// WRAP_MANUAL_VOID(glDrawInstancedArraysNVX, (GLenum mode, GLint first, GLsizei count, GLsizei primcount), (mode, first, count, primcount), (GLenum, GLint, GLsizei, GLsizei))
+// WRAP_MANUAL_VOID(glDrawInstancedElementsNVX, (GLenum mode, GLsizei count, GLenum type, const GLvoid *indices, GLsizei primcount), (mode, count, type, indices, primcount), (GLenum, GLsizei, GLenum, const GLvoid *, GLsizei))
+// WRAP_MANUAL_VOID(glDrawPixels, (GLsizei width, GLsizei height, GLenum format, GLenum type, const GLvoid *pixels), (width, height, format, type, pixels), (GLsizei, GLsizei, GLenum, GLenum, const GLvoid *))
+// WRAP_MANUAL_VOID(glEdgeFlag, (GLboolean flag), (flag), (GLboolean))
 // WRAP_MANUAL_VOID(glEdgeFlagPointer, (GLsizei stride, const GLvoid *pointer), (stride, pointer), (GLsizei, const GLvoid *))
 // WRAP_MANUAL_VOID(glEdgeFlagv, (const GLboolean *flag), (flag), (const GLboolean *))
 // WRAP_MANUAL_VOID(glEndQuery, (GLenum target), (target), (GLenum))
@@ -674,32 +650,32 @@ typedef unsigned long long GLuint64EXT;
 // WRAP_MANUAL_VOID(glEvalCoord2f, (GLfloat u, GLfloat v), (u, v), (GLfloat, GLfloat))
 // WRAP_MANUAL_VOID(glEvalCoord2fv, (const GLfloat *u), (u), (const GLfloat *))
 // WRAP_MANUAL_VOID(glEvalMesh1, (GLenum mode, GLint i1, GLint i2), (mode, i1, i2), (GLenum, GLint, GLint))
-// WRAP_MANUAL_VOID(glEvalMesh2, (GLenum mode, GLint i1, GLint i2, GLint j1, GLint j2), (mode, i1, i2, j1, j2), (GLenum, GLint, GLint,
-// GLint, GLint)) WRAP_MANUAL_VOID(glEvalPoint1, (GLint i), (i), (GLint)) WRAP_MANUAL_VOID(glEvalPoint2, (GLint i, GLint j), (i, j), (GLint,
-// GLint)) WRAP_MANUAL_VOID(glFeedbackBuffer, (GLsizei size, GLenum type, GLfloat *buffer), (size, type, buffer), (GLsizei, GLenum, GLfloat
-// *)) WRAP_MANUAL_VOID(glFogiv, (GLenum pname, const GLint *params), (pname, params), (GLenum, const GLint *))
-// WRAP_MANUAL_VOID(glFramebufferTexture1D, (GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level), (target,
-// attachment, textarget, texture, level), (GLenum, GLenum, GLenum, GLuint, GLint)) WRAP_MANUAL_VOID(glFramebufferTexture3D, (GLenum target,
-// GLenum attachment, GLenum textarget, GLuint texture, GLint level, GLint zoffset), (target, attachment, textarget, texture, level,
-// zoffset), (GLenum, GLenum, GLenum, GLuint, GLint, GLint)) WRAP_MANUAL_VOID(glGenQueries, (GLsizei n, GLuint *ids), (n, ids), (GLsizei,
-// GLuint *)) WRAP_MANUAL_VOID(glGenerateMipmap, (GLenum target), (target), (GLenum)) WRAP_MANUAL_VOID(glGetActiveAttrib, (GLuint program,
-// GLuint index, GLsizei bufSize, GLsizei *length, GLint *size, GLenum *type, GLchar *name), (program, index, bufSize, length, size, type,
-// name), (GLuint, GLuint, GLsizei, GLsizei *, GLint *, GLenum *, GLchar *)) WRAP_MANUAL_VOID(glGetAttachedObjects, (GLuint program, GLsizei
-// maxCount, GLsizei *count, GLuint *obj), (program, maxCount, count, obj), (GLuint, GLsizei, GLsizei *, GLuint *))
-// WRAP_MANUAL_VOID(glGetBufferParameteriv, (GLenum target, GLenum pname, GLint *params), (target, pname, params), (GLenum, GLenum, GLint
-// *)) WRAP_MANUAL_VOID(glGetBufferPointerv, (GLenum target, GLenum pname, GLvoid **params), (target, pname, params), (GLenum, GLenum,
-// GLvoid * *)) WRAP_MANUAL_VOID(glGetBufferSubData, (GLenum target, GLintptr offset, GLsizeiptr size, GLvoid *data), (target, offset, size,
-// data), (GLenum, GLintptr, GLsizeiptr, GLvoid *)) WRAP_MANUAL_VOID(glGetClipPlane, (GLenum plane, GLdouble *equation), (plane, equation),
-// (GLenum, GLdouble *)) WRAP_MANUAL_VOID(glGetCompressedTexImage, (GLenum target, GLint level, GLvoid *img), (target, level, img), (GLenum,
-// GLint, GLvoid *)) WRAP_MANUAL_VOID(glGetFenceivNV, (GLuint fence, GLenum pname, GLint *params), (fence, pname, params), (GLuint, GLenum,
-// GLint *)) WRAP_MANUAL_VOID(glGetFramebufferAttachmentParameteriv, (GLenum target, GLenum attachment, GLenum pname, GLint *params),
-// (target, attachment, pname, params), (GLenum, GLenum, GLenum, GLint *)) WRAP_MANUAL(glGetHandle, GLuint, (GLenum pname), (pname),
-// (GLenum)) WRAP_MANUAL_VOID(glGetLightiv, (GLenum pname, GLint *params), (pname, params), (GLenum, GLint *)) WRAP_MANUAL_VOID(glGetMapdv,
-// (GLenum target, GLenum query, GLdouble *v), (target, query, v), (GLenum, GLenum, GLdouble *)) WRAP_MANUAL_VOID(glGetMapfv, (GLenum
-// target, GLenum query, GLfloat *v), (target, query, v), (GLenum, GLenum, GLfloat *)) WRAP_MANUAL_VOID(glGetMapiv, (GLenum target, GLenum
-// query, GLint *v), (target, query, v), (GLenum, GLenum, GLint *)) WRAP_MANUAL_VOID(glGetMaterialiv, (GLenum pname, GLint *params), (pname,
-// params), (GLenum, GLint *)) WRAP_MANUAL_VOID(glGetObjectParameterfv, (GLenum pname, GLfloat *params), (pname, params), (GLenum, GLfloat
-// *)) WRAP_MANUAL_VOID(glGetPixelMapfv, (GLenum map, GLfloat *values), (map, values), (GLenum, GLfloat *))
+// WRAP_MANUAL_VOID(glEvalMesh2, (GLenum mode, GLint i1, GLint i2, GLint j1, GLint j2), (mode, i1, i2, j1, j2), (GLenum, GLint, GLint, GLint, GLint))
+// WRAP_MANUAL_VOID(glEvalPoint1, (GLint i), (i), (GLint))
+// WRAP_MANUAL_VOID(glEvalPoint2, (GLint i, GLint j), (i, j), (GLint, GLint))
+// WRAP_MANUAL_VOID(glFeedbackBuffer, (GLsizei size, GLenum type, GLfloat *buffer), (size, type, buffer), (GLsizei, GLenum, GLfloat *))
+// WRAP_MANUAL_VOID(glFogiv, (GLenum pname, const GLint *params), (pname, params), (GLenum, const GLint *))
+// WRAP_MANUAL_VOID(glFramebufferTexture1D, (GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level), (target, attachment, textarget, texture, level), (GLenum, GLenum, GLenum, GLuint, GLint))
+// WRAP_MANUAL_VOID(glFramebufferTexture3D, (GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level, GLint zoffset), (target, attachment, textarget, texture, level, zoffset), (GLenum, GLenum, GLenum, GLuint, GLint, GLint))
+// WRAP_MANUAL_VOID(glGenQueries, (GLsizei n, GLuint *ids), (n, ids), (GLsizei, GLuint *))
+// WRAP_MANUAL_VOID(glGenerateMipmap, (GLenum target), (target), (GLenum))
+// WRAP_MANUAL_VOID(glGetActiveAttrib, (GLuint program, GLuint index, GLsizei bufSize, GLsizei *length, GLint *size, GLenum *type, GLchar *name), (program, index, bufSize, length, size, type, name), (GLuint, GLuint, GLsizei, GLsizei *, GLint *, GLenum *, GLchar *))
+// WRAP_MANUAL_VOID(glGetAttachedObjects, (GLuint program, GLsizei maxCount, GLsizei *count, GLuint *obj), (program, maxCount, count, obj), (GLuint, GLsizei, GLsizei *, GLuint *))
+// WRAP_MANUAL_VOID(glGetBufferParameteriv, (GLenum target, GLenum pname, GLint *params), (target, pname, params), (GLenum, GLenum, GLint *))
+// WRAP_MANUAL_VOID(glGetBufferPointerv, (GLenum target, GLenum pname, GLvoid **params), (target, pname, params), (GLenum, GLenum, GLvoid * *))
+// WRAP_MANUAL_VOID(glGetBufferSubData, (GLenum target, GLintptr offset, GLsizeiptr size, GLvoid *data), (target, offset, size, data), (GLenum, GLintptr, GLsizeiptr, GLvoid *))
+// WRAP_MANUAL_VOID(glGetClipPlane, (GLenum plane, GLdouble *equation), (plane, equation), (GLenum, GLdouble *))
+// WRAP_MANUAL_VOID(glGetCompressedTexImage, (GLenum target, GLint level, GLvoid *img), (target, level, img), (GLenum, GLint, GLvoid *))
+// WRAP_MANUAL_VOID(glGetFenceivNV, (GLuint fence, GLenum pname, GLint *params), (fence, pname, params), (GLuint, GLenum, GLint *))
+// WRAP_MANUAL_VOID(glGetFramebufferAttachmentParameteriv, (GLenum target, GLenum attachment, GLenum pname, GLint *params), (target, attachment, pname, params), (GLenum, GLenum, GLenum, GLint *))
+// WRAP_MANUAL(glGetHandle, GLuint, (GLenum pname), (pname), (GLenum))
+// WRAP_MANUAL_VOID(glGetLightiv, (GLenum pname, GLint *params), (pname, params), (GLenum, GLint *))
+// WRAP_MANUAL_VOID(glGetMapdv, (GLenum target, GLenum query, GLdouble *v), (target, query, v), (GLenum, GLenum, GLdouble *))
+// WRAP_MANUAL_VOID(glGetMapfv, (GLenum target, GLenum query, GLfloat *v), (target, query, v), (GLenum, GLenum, GLfloat *))
+// WRAP_MANUAL_VOID(glGetMapiv, (GLenum target, GLenum query, GLint *v), (target, query, v), (GLenum, GLenum, GLint *))
+// WRAP_MANUAL_VOID(glGetMaterialiv, (GLenum pname, GLint *params), (pname, params), (GLenum, GLint *))
+// WRAP_MANUAL_VOID(glGetObjectParameterfv, (GLenum pname, GLfloat *params), (pname, params), (GLenum, GLfloat *))
+// WRAP_MANUAL_VOID(glGetPixelMapfv, (GLenum map, GLfloat *values), (map, values), (GLenum, GLfloat *))
 // WRAP_MANUAL_VOID(glGetPixelMapuiv, (GLenum map, GLuint *values), (map, values), (GLenum, GLuint *))
 // WRAP_MANUAL_VOID(glGetPixelMapusv, (GLenum map, GLushort *values), (map, values), (GLenum, GLushort *))
 // WRAP_MANUAL_VOID(glGetPointerv, (GLenum pname, GLvoid **params), (pname, params), (GLenum, GLvoid * *))
@@ -709,15 +685,15 @@ typedef unsigned long long GLuint64EXT;
 // WRAP_MANUAL_VOID(glGetProgramLocalParameterdv, (GLenum pname, GLdouble *params), (pname, params), (GLenum, GLdouble *))
 // WRAP_MANUAL_VOID(glGetProgramLocalParameterfv, (GLenum pname, GLfloat *params), (pname, params), (GLenum, GLfloat *))
 // WRAP_MANUAL_VOID(glGetProgramString, (GLenum target, GLenum pname, GLvoid *string), (target, pname, string), (GLenum, GLenum, GLvoid *))
-// WRAP_MANUAL_VOID(glGetQueryObjecti64v, (GLuint id, GLenum pname, GLint64EXT *params), (id, pname, params), (GLuint, GLenum, GLint64EXT
-// *)) WRAP_MANUAL_VOID(glGetQueryObjectiv, (GLuint id, GLenum pname, GLint *params), (id, pname, params), (GLuint, GLenum, GLint *))
-// WRAP_MANUAL_VOID(glGetQueryObjectui64v, (GLuint id, GLenum pname, GLuint64EXT *params), (id, pname, params), (GLuint, GLenum, GLuint64EXT
-// *)) WRAP_MANUAL_VOID(glGetQueryObjectuiv, (GLuint id, GLenum pname, GLuint *params), (id, pname, params), (GLuint, GLenum, GLuint *))
+// WRAP_MANUAL_VOID(glGetQueryObjecti64v, (GLuint id, GLenum pname, GLint64EXT *params), (id, pname, params), (GLuint, GLenum, GLint64EXT *))
+// WRAP_MANUAL_VOID(glGetQueryObjectiv, (GLuint id, GLenum pname, GLint *params), (id, pname, params), (GLuint, GLenum, GLint *))
+// WRAP_MANUAL_VOID(glGetQueryObjectui64v, (GLuint id, GLenum pname, GLuint64EXT *params), (id, pname, params), (GLuint, GLenum, GLuint64EXT *))
+// WRAP_MANUAL_VOID(glGetQueryObjectuiv, (GLuint id, GLenum pname, GLuint *params), (id, pname, params), (GLuint, GLenum, GLuint *))
 // WRAP_MANUAL_VOID(glGetQueryiv, (GLenum target, GLenum pname, GLint *params), (target, pname, params), (GLenum, GLenum, GLint *))
-// WRAP_MANUAL_VOID(glGetRenderbufferParameteriv, (GLenum target, GLenum pname, GLint *params), (target, pname, params), (GLenum, GLenum,
-// GLint *)) WRAP_MANUAL_VOID(glGetShaderSource, (GLuint shader, GLsizei bufSize, GLsizei *length, GLchar *source), (shader, bufSize,
-// length, source), (GLuint, GLsizei, GLsizei *, GLchar *)) WRAP_MANUAL_VOID(glGetTexEnvfv, (GLenum pname, GLfloat *params), (pname,
-// params), (GLenum, GLfloat *)) WRAP_MANUAL_VOID(glGetTexEnviv, (GLenum pname, GLint *params), (pname, params), (GLenum, GLint *))
+// WRAP_MANUAL_VOID(glGetRenderbufferParameteriv, (GLenum target, GLenum pname, GLint *params), (target, pname, params), (GLenum, GLenum, GLint *))
+// WRAP_MANUAL_VOID(glGetShaderSource, (GLuint shader, GLsizei bufSize, GLsizei *length, GLchar *source), (shader, bufSize, length, source), (GLuint, GLsizei, GLsizei *, GLchar *))
+// WRAP_MANUAL_VOID(glGetTexEnvfv, (GLenum pname, GLfloat *params), (pname, params), (GLenum, GLfloat *))
+// WRAP_MANUAL_VOID(glGetTexEnviv, (GLenum pname, GLint *params), (pname, params), (GLenum, GLint *))
 // WRAP_MANUAL_VOID(glGetTexGendv, (GLenum pname, GLdouble *params), (pname, params), (GLenum, GLdouble *))
 // WRAP_MANUAL_VOID(glGetTexGenfv, (GLenum pname, GLfloat *params), (pname, params), (GLenum, GLfloat *))
 // WRAP_MANUAL_VOID(glGetTexGeniv, (GLenum pname, GLint *params), (pname, params), (GLenum, GLint *))
@@ -726,15 +702,19 @@ typedef unsigned long long GLuint64EXT;
 // WRAP_MANUAL_VOID(glGetTexParameteriv, (GLenum pname, GLint *params), (pname, params), (GLenum, GLint *))
 // WRAP_MANUAL_VOID(glGetUniformfv, (GLenum pname, GLfloat *params), (pname, params), (GLenum, GLfloat *))
 // WRAP_MANUAL_VOID(glGetUniformiv, (GLenum pname, GLint *params), (pname, params), (GLenum, GLint *))
-// WRAP_MANUAL_VOID(glGetVertexAttribPointerv, (GLuint index, GLenum pname, GLvoid **pointer), (index, pname, pointer), (GLuint, GLenum,
-// GLvoid * *)) WRAP_MANUAL_VOID(glGetVertexAttribdv, (GLuint index, GLenum pname, GLdouble *params), (index, pname, params), (GLuint,
-// GLenum, GLdouble *)) WRAP_MANUAL_VOID(glGetVertexAttribfv, (GLuint index, GLenum pname, GLfloat *params), (index, pname, params),
-// (GLuint, GLenum, GLfloat *)) WRAP_MANUAL_VOID(glGetVertexAttribiv, (GLuint index, GLenum pname, GLint *params), (index, pname, params),
-// (GLuint, GLenum, GLint *)) WRAP_MANUAL_VOID(glIndexMask, (GLuint mask), (mask), (GLuint)) WRAP_MANUAL_VOID(glIndexPointer, (GLenum type,
-// GLsizei stride, const GLvoid *pointer), (type, stride, pointer), (GLenum, GLsizei, const GLvoid *)) WRAP_MANUAL_VOID(glIndexd, (GLdouble
-// c), (c), (GLdouble)) WRAP_MANUAL_VOID(glIndexdv, (const GLdouble *c), (c), (const GLdouble *)) WRAP_MANUAL_VOID(glIndexf, (GLfloat c),
-// (c), (GLfloat)) WRAP_MANUAL_VOID(glIndexfv, (const GLfloat *c), (c), (const GLfloat *)) WRAP_MANUAL_VOID(glIndexi, (GLint c), (c),
-// (GLint)) WRAP_MANUAL_VOID(glIndexiv, (const GLint *c), (c), (const GLint *)) WRAP_MANUAL_VOID(glIndexs, (GLshort c), (c), (GLshort))
+// WRAP_MANUAL_VOID(glGetVertexAttribPointerv, (GLuint index, GLenum pname, GLvoid **pointer), (index, pname, pointer), (GLuint, GLenum, GLvoid * *))
+// WRAP_MANUAL_VOID(glGetVertexAttribdv, (GLuint index, GLenum pname, GLdouble *params), (index, pname, params), (GLuint, GLenum, GLdouble *))
+// WRAP_MANUAL_VOID(glGetVertexAttribfv, (GLuint index, GLenum pname, GLfloat *params), (index, pname, params), (GLuint, GLenum, GLfloat *))
+// WRAP_MANUAL_VOID(glGetVertexAttribiv, (GLuint index, GLenum pname, GLint *params), (index, pname, params), (GLuint, GLenum, GLint *))
+// WRAP_MANUAL_VOID(glIndexMask, (GLuint mask), (mask), (GLuint))
+// WRAP_MANUAL_VOID(glIndexPointer, (GLenum type, GLsizei stride, const GLvoid *pointer), (type, stride, pointer), (GLenum, GLsizei, const GLvoid *))
+// WRAP_MANUAL_VOID(glIndexd, (GLdouble c), (c), (GLdouble))
+// WRAP_MANUAL_VOID(glIndexdv, (const GLdouble *c), (c), (const GLdouble *))
+// WRAP_MANUAL_VOID(glIndexf, (GLfloat c), (c), (GLfloat))
+// WRAP_MANUAL_VOID(glIndexfv, (const GLfloat *c), (c), (const GLfloat *))
+// WRAP_MANUAL_VOID(glIndexi, (GLint c), (c), (GLint))
+// WRAP_MANUAL_VOID(glIndexiv, (const GLint *c), (c), (const GLint *))
+// WRAP_MANUAL_VOID(glIndexs, (GLshort c), (c), (GLshort))
 // WRAP_MANUAL_VOID(glIndexsv, (const GLshort *c), (c), (const GLshort *))
 // WRAP_MANUAL_VOID(glIndexub, (GLubyte c), (c), (GLubyte))
 // WRAP_MANUAL_VOID(glIndexubv, (const GLubyte *c), (c), (const GLubyte *))
@@ -752,46 +732,40 @@ typedef unsigned long long GLuint64EXT;
 // WRAP_MANUAL_VOID(glLoadMatrixd, (const GLdouble *m), (m), (const GLdouble *))
 // WRAP_MANUAL_VOID(glLoadName, (GLuint name), (name), (GLuint))
 // WRAP_MANUAL_VOID(glLoadTransposeMatrixd, (const GLdouble *m), (m), (const GLdouble *))
-// WRAP_MANUAL_VOID(glMap1d, (GLenum target, GLdouble u1, GLdouble u2, GLint stride, GLint order, const GLdouble *points), (target, u1, u2,
-// stride, order, points), (GLenum, GLdouble, GLdouble, GLint, GLint, const GLdouble *)) WRAP_MANUAL_VOID(glMap1f, (GLenum target, GLfloat
-// u1, GLfloat u2, GLint stride, GLint order, const GLfloat *points), (target, u1, u2, stride, order, points), (GLenum, GLfloat, GLfloat,
-// GLint, GLint, const GLfloat *)) WRAP_MANUAL_VOID(glMap2d, (GLenum target, GLdouble u1, GLdouble u2, GLint ustride, GLint uorder, GLdouble
-// v1, GLdouble v2, GLint vstride, GLint vorder, const GLdouble *points), (target, u1, u2, ustride, uorder, v1, v2, vstride, vorder,
-// points), (GLenum, GLdouble, GLdouble, GLint, GLint, GLdouble, GLdouble, GLint, GLint, const GLdouble *)) WRAP_MANUAL_VOID(glMap2f,
-// (GLenum target, GLfloat u1, GLfloat u2, GLint ustride, GLint uorder, GLfloat v1, GLfloat v2, GLint vstride, GLint vorder, const GLfloat
-// *points), (target, u1, u2, ustride, uorder, v1, v2, vstride, vorder, points), (GLenum, GLfloat, GLfloat, GLint, GLint, GLfloat, GLfloat,
-// GLint, GLint, const GLfloat *)) WRAP_MANUAL_VOID(glMapGrid1d, (GLint un, GLdouble u1, GLdouble u2), (un, u1, u2), (GLint, GLdouble,
-// GLdouble)) WRAP_MANUAL_VOID(glMapGrid1f, (GLint un, GLfloat u1, GLfloat u2), (un, u1, u2), (GLint, GLfloat, GLfloat))
-// WRAP_MANUAL_VOID(glMapGrid2d, (GLint un, GLdouble u1, GLdouble u2, GLint vn, GLdouble v1, GLdouble v2), (un, u1, u2, vn, v1, v2), (GLint,
-// GLdouble, GLdouble, GLint, GLdouble, GLdouble)) WRAP_MANUAL_VOID(glMapGrid2f, (GLint un, GLfloat u1, GLfloat u2, GLint vn, GLfloat v1,
-// GLfloat v2), (un, u1, u2, vn, v1, v2), (GLint, GLfloat, GLfloat, GLint, GLfloat, GLfloat)) WRAP_MANUAL_VOID(glMateriali, (GLenum face,
-// GLenum pname, GLint param), (face, pname, param), (GLenum, GLenum, GLint)) WRAP_MANUAL_VOID(glMaterialiv, (GLenum face, GLenum pname,
-// const GLint *params), (face, pname, params), (GLenum, GLenum, const GLint *)) WRAP_MANUAL_VOID(glMultMatrixd, (const GLdouble *m), (m),
-// (const GLdouble *)) WRAP_MANUAL_VOID(glMultTransposeMatrixd, (const GLdouble *m), (m), (const GLdouble *))
-// WRAP_MANUAL_VOID(glMultiDrawInstancedArraysNVX, (GLenum mode, const GLint *first, const GLsizei *count, const GLsizei *primcount, GLsizei
-// drawcount), (mode, first, count, primcount, drawcount), (GLenum, const GLint *, const GLsizei *, const GLsizei *, GLsizei))
-// WRAP_MANUAL_VOID(glMultiDrawInstancedElementsNVX, (GLenum mode, const GLsizei *count, GLenum type, const GLvoid *const *indices, const
-// GLsizei *primcount, GLsizei drawcount), (mode, count, type, indices, primcount, drawcount), (GLenum, const GLsizei *, GLenum, const
-// GLvoid *const *, const GLsizei *, GLsizei)) WRAP_MANUAL_VOID(glMultiTexCoord3f, (GLfloat s, GLfloat t, GLfloat r), (s, t, r), (GLfloat,
-// GLfloat, GLfloat)) WRAP_MANUAL_VOID(glNormal3b, (GLbyte x, GLbyte y, GLbyte z), (x, y, z), (GLbyte, GLbyte, GLbyte))
+// WRAP_MANUAL_VOID(glMap1d, (GLenum target, GLdouble u1, GLdouble u2, GLint stride, GLint order, const GLdouble *points), (target, u1, u2, stride, order, points), (GLenum, GLdouble, GLdouble, GLint, GLint, const GLdouble *))
+// WRAP_MANUAL_VOID(glMap1f, (GLenum target, GLfloat u1, GLfloat u2, GLint stride, GLint order, const GLfloat *points), (target, u1, u2, stride, order, points), (GLenum, GLfloat, GLfloat, GLint, GLint, const GLfloat *))
+// WRAP_MANUAL_VOID(glMap2d, (GLenum target, GLdouble u1, GLdouble u2, GLint ustride, GLint uorder, GLdouble v1, GLdouble v2, GLint vstride, GLint vorder, const GLdouble *points), (target, u1, u2, ustride, uorder, v1, v2, vstride, vorder, points), (GLenum, GLdouble, GLdouble, GLint, GLint, GLdouble, GLdouble, GLint, GLint, const GLdouble *))
+// WRAP_MANUAL_VOID(glMap2f, (GLenum target, GLfloat u1, GLfloat u2, GLint ustride, GLint uorder, GLfloat v1, GLfloat v2, GLint vstride, GLint vorder, const GLfloat *points), (target, u1, u2, ustride, uorder, v1, v2, vstride, vorder, points), (GLenum, GLfloat, GLfloat, GLint, GLint, GLfloat, GLfloat, GLint, GLint, const GLfloat *))
+// WRAP_MANUAL_VOID(glMapGrid1d, (GLint un, GLdouble u1, GLdouble u2), (un, u1, u2), (GLint, GLdouble, GLdouble))
+// WRAP_MANUAL_VOID(glMapGrid1f, (GLint un, GLfloat u1, GLfloat u2), (un, u1, u2), (GLint, GLfloat, GLfloat))
+// WRAP_MANUAL_VOID(glMapGrid2d, (GLint un, GLdouble u1, GLdouble u2, GLint vn, GLdouble v1, GLdouble v2), (un, u1, u2, vn, v1, v2), (GLint, GLdouble, GLdouble, GLint, GLdouble, GLdouble))
+// WRAP_MANUAL_VOID(glMapGrid2f, (GLint un, GLfloat u1, GLfloat u2, GLint vn, GLfloat v1, GLfloat v2), (un, u1, u2, vn, v1, v2), (GLint, GLfloat, GLfloat, GLint, GLfloat, GLfloat))
+// WRAP_MANUAL_VOID(glMateriali, (GLenum face, GLenum pname, GLint param), (face, pname, param), (GLenum, GLenum, GLint))
+// WRAP_MANUAL_VOID(glMaterialiv, (GLenum face, GLenum pname, const GLint *params), (face, pname, params), (GLenum, GLenum, const GLint *))
+// WRAP_MANUAL_VOID(glMultMatrixd, (const GLdouble *m), (m), (const GLdouble *))
+// WRAP_MANUAL_VOID(glMultTransposeMatrixd, (const GLdouble *m), (m), (const GLdouble *))
+// WRAP_MANUAL_VOID(glMultiDrawInstancedArraysNVX, (GLenum mode, const GLint *first, const GLsizei *count, const GLsizei *primcount, GLsizei drawcount), (mode, first, count, primcount, drawcount), (GLenum, const GLint *, const GLsizei *, const GLsizei *, GLsizei))
+// WRAP_MANUAL_VOID(glMultiDrawInstancedElementsNVX, (GLenum mode, const GLsizei *count, GLenum type, const GLvoid *const *indices, const GLsizei *primcount, GLsizei drawcount), (mode, count, type, indices, primcount, drawcount), (GLenum, const GLsizei *, GLenum, const GLvoid *const *, const GLsizei *, GLsizei))
+// WRAP_MANUAL_VOID(glMultiTexCoord3f, (GLfloat s, GLfloat t, GLfloat r), (s, t, r), (GLfloat, GLfloat, GLfloat))
+// WRAP_MANUAL_VOID(glNormal3b, (GLbyte x, GLbyte y, GLbyte z), (x, y, z), (GLbyte, GLbyte, GLbyte))
 // WRAP_MANUAL_VOID(glNormal3bv, (const GLbyte *v), (v), (const GLbyte *))
 // WRAP_MANUAL_VOID(glNormal3i, (GLint x, GLint y, GLint z), (x, y, z), (GLint, GLint, GLint))
 // WRAP_MANUAL_VOID(glNormal3iv, (const GLint *v), (v), (const GLint *))
 // WRAP_MANUAL_VOID(glNormal3s, (GLshort x, GLshort y, GLshort z), (x, y, z), (GLshort, GLshort, GLshort))
 // WRAP_MANUAL_VOID(glNormal3sv, (const GLshort *v), (v), (const GLshort *))
 // WRAP_MANUAL_VOID(glPassThrough, (GLfloat token), (token), (GLfloat))
-// WRAP_MANUAL_VOID(glPixelMapfv, (GLenum map, GLsizei mapsize, const GLfloat *values), (map, mapsize, values), (GLenum, GLsizei, const
-// GLfloat *)) WRAP_MANUAL_VOID(glPixelMapuiv, (GLenum map, GLsizei mapsize, const GLuint *values), (map, mapsize, values), (GLenum,
-// GLsizei, const GLuint *)) WRAP_MANUAL_VOID(glPixelZoom, (GLfloat xfactor, GLfloat yfactor), (xfactor, yfactor), (GLfloat, GLfloat))
+// WRAP_MANUAL_VOID(glPixelMapfv, (GLenum map, GLsizei mapsize, const GLfloat *values), (map, mapsize, values), (GLenum, GLsizei, const GLfloat *))
+// WRAP_MANUAL_VOID(glPixelMapuiv, (GLenum map, GLsizei mapsize, const GLuint *values), (map, mapsize, values), (GLenum, GLsizei, const GLuint *))
+// WRAP_MANUAL_VOID(glPixelZoom, (GLfloat xfactor, GLfloat yfactor), (xfactor, yfactor), (GLfloat, GLfloat))
 // WRAP_MANUAL_VOID(glPolygonStipple, (const GLubyte *mask), (mask), (const GLubyte *))
 // WRAP_MANUAL_VOID(glPopName, (), (), ())
 // WRAP_MANUAL_VOID(glPrimitiveRestartNV, (), (), ())
-// WRAP_MANUAL_VOID(glPrioritizeTextures, (GLsizei n, const GLuint *textures, const GLclampf *priorities), (n, textures, priorities),
-// (GLsizei, const GLuint *, const GLclampf *)) WRAP_MANUAL_VOID(glProgramEnvParameter4d, (GLdouble x, GLdouble y, GLdouble z, GLdouble w),
-// (x, y, z, w), (GLdouble, GLdouble, GLdouble, GLdouble)) WRAP_MANUAL_VOID(glProgramEnvParameter4dv, (const GLdouble *v), (v), (const
-// GLdouble *)) WRAP_MANUAL_VOID(glProgramEnvParameters4fv, (const GLfloat *v), (v), (const GLfloat *))
-// WRAP_MANUAL_VOID(glProgramLocalParameter4d, (GLdouble x, GLdouble y, GLdouble z, GLdouble w), (x, y, z, w), (GLdouble, GLdouble,
-// GLdouble, GLdouble)) WRAP_MANUAL_VOID(glProgramLocalParameter4dv, (const GLdouble *v), (v), (const GLdouble *))
+// WRAP_MANUAL_VOID(glPrioritizeTextures, (GLsizei n, const GLuint *textures, const GLclampf *priorities), (n, textures, priorities), (GLsizei, const GLuint *, const GLclampf *))
+// WRAP_MANUAL_VOID(glProgramEnvParameter4d, (GLdouble x, GLdouble y, GLdouble z, GLdouble w), (x, y, z, w), (GLdouble, GLdouble, GLdouble, GLdouble))
+// WRAP_MANUAL_VOID(glProgramEnvParameter4dv, (const GLdouble *v), (v), (const GLdouble *))
+// WRAP_MANUAL_VOID(glProgramEnvParameters4fv, (const GLfloat *v), (v), (const GLfloat *))
+// WRAP_MANUAL_VOID(glProgramLocalParameter4d, (GLdouble x, GLdouble y, GLdouble z, GLdouble w), (x, y, z, w), (GLdouble, GLdouble, GLdouble, GLdouble))
+// WRAP_MANUAL_VOID(glProgramLocalParameter4dv, (const GLdouble *v), (v), (const GLdouble *))
 // WRAP_MANUAL_VOID(glProgramLocalParameters4fv, (const GLfloat *v), (v), (const GLfloat *))
 // WRAP_MANUAL_VOID(glPushName, (GLuint name), (name), (GLuint))
 // WRAP_MANUAL_VOID(glRasterPos2d, (GLdouble x, GLdouble y), (x, y), (GLdouble, GLdouble))
@@ -815,20 +789,18 @@ typedef unsigned long long GLuint64EXT;
 // WRAP_MANUAL_VOID(glRasterPos4iv, (const GLint *v), (v), (const GLint *))
 // WRAP_MANUAL_VOID(glRasterPos4s, (GLshort x, GLshort y, GLshort z, GLshort w), (x, y, z, w), (GLshort, GLshort, GLshort, GLshort))
 // WRAP_MANUAL_VOID(glRasterPos4sv, (const GLshort *v), (v), (const GLshort *))
-// WRAP_MANUAL_VOID(glRectd, (GLdouble x1, GLdouble y1, GLdouble x2, GLdouble y2), (x1, y1, x2, y2), (GLdouble, GLdouble, GLdouble,
-// GLdouble)) WRAP_MANUAL_VOID(glRectdv, (const GLdouble *v1, const GLdouble *v2), (v1, v2), (const GLdouble *, const GLdouble *))
+// WRAP_MANUAL_VOID(glRectd, (GLdouble x1, GLdouble y1, GLdouble x2, GLdouble y2), (x1, y1, x2, y2), (GLdouble, GLdouble, GLdouble, GLdouble))
+// WRAP_MANUAL_VOID(glRectdv, (const GLdouble *v1, const GLdouble *v2), (v1, v2), (const GLdouble *, const GLdouble *))
 // WRAP_MANUAL_VOID(glRectfv, (const GLfloat *v1, const GLfloat *v2), (v1, v2), (const GLfloat *, const GLfloat *))
 // WRAP_MANUAL_VOID(glRectiv, (const GLint *v1, const GLint *v2), (v1, v2), (const GLint *, const GLint *))
 // WRAP_MANUAL_VOID(glRects, (GLshort x1, GLshort y1, GLshort x2, GLshort y2), (x1, y1, x2, y2), (GLshort, GLshort, GLshort, GLshort))
 // WRAP_MANUAL_VOID(glRectsv, (const GLshort *v1, const GLshort *v2), (v1, v2), (const GLshort *, const GLshort *))
 // WRAP_MANUAL(glRenderMode, GLint, (GLenum mode), (mode), (GLenum))
-// WRAP_MANUAL_VOID(glRenderbufferStorageMultisample, (GLenum target, GLsizei samples, GLenum internalformat, GLsizei width, GLsizei
-// height), (target, samples, internalformat, width, height), (GLenum, GLsizei, GLenum, GLsizei, GLsizei))
-// WRAP_MANUAL_VOID(glRenderbufferStorageMultisampleCoverageNV, (GLenum target, GLsizei coverageSamples, GLsizei colorSamples, GLenum
-// internalformat, GLsizei width, GLsizei height), (target, coverageSamples, colorSamples, internalformat, width, height), (GLenum, GLsizei,
-// GLsizei, GLenum, GLsizei, GLsizei)) WRAP_MANUAL_VOID(glRotated, (GLdouble angle, GLdouble x, GLdouble y, GLdouble z), (angle, x, y, z),
-// (GLdouble, GLdouble, GLdouble, GLdouble)) WRAP_MANUAL_VOID(glSampleCoverage, (GLclampf value, GLboolean invert), (value, invert),
-// (GLclampf, GLboolean)) WRAP_MANUAL_VOID(glScaled, (GLdouble x, GLdouble y, GLdouble z), (x, y, z), (GLdouble, GLdouble, GLdouble))
+// WRAP_MANUAL_VOID(glRenderbufferStorageMultisample, (GLenum target, GLsizei samples, GLenum internalformat, GLsizei width, GLsizei height), (target, samples, internalformat, width, height), (GLenum, GLsizei, GLenum, GLsizei, GLsizei))
+// WRAP_MANUAL_VOID(glRenderbufferStorageMultisampleCoverageNV, (GLenum target, GLsizei coverageSamples, GLsizei colorSamples, GLenum internalformat, GLsizei width, GLsizei height), (target, coverageSamples, colorSamples, internalformat, width, height), (GLenum, GLsizei, GLsizei, GLenum, GLsizei, GLsizei))
+// WRAP_MANUAL_VOID(glRotated, (GLdouble angle, GLdouble x, GLdouble y, GLdouble z), (angle, x, y, z), (GLdouble, GLdouble, GLdouble, GLdouble))
+// WRAP_MANUAL_VOID(glSampleCoverage, (GLclampf value, GLboolean invert), (value, invert), (GLclampf, GLboolean))
+// WRAP_MANUAL_VOID(glScaled, (GLdouble x, GLdouble y, GLdouble z), (x, y, z), (GLdouble, GLdouble, GLdouble))
 // WRAP_MANUAL_VOID(glSelectBuffer, (GLsizei size, GLuint *buffer), (size, buffer), (GLsizei, GLuint *))
 // WRAP_MANUAL(glTestFenceNV, GLboolean, (GLuint fence), (fence), (GLuint))
 // WRAP_MANUAL_VOID(glTexCoord1d, (GLdouble s), (s), (GLdouble))
@@ -861,29 +833,31 @@ typedef unsigned long long GLuint64EXT;
 // WRAP_MANUAL_VOID(glTexCoord4s, (GLshort s, GLshort t, GLshort r, GLshort q), (s, t, r, q), (GLshort, GLshort, GLshort, GLshort))
 // WRAP_MANUAL_VOID(glTexCoord4sv, (const GLshort *v), (v), (const GLshort *))
 // WRAP_MANUAL_VOID(glTexGend, (GLenum coord, GLenum pname, GLdouble param), (coord, pname, param), (GLenum, GLenum, GLdouble))
-// WRAP_MANUAL_VOID(glTexGendv, (GLenum coord, GLenum pname, const GLdouble *params), (coord, pname, params), (GLenum, GLenum, const
-// GLdouble *)) WRAP_MANUAL_VOID(glTexGenf, (GLenum coord, GLenum pname, GLfloat param), (coord, pname, param), (GLenum, GLenum, GLfloat))
+// WRAP_MANUAL_VOID(glTexGendv, (GLenum coord, GLenum pname, const GLdouble *params), (coord, pname, params), (GLenum, GLenum, const GLdouble *))
+// WRAP_MANUAL_VOID(glTexGenf, (GLenum coord, GLenum pname, GLfloat param), (coord, pname, param), (GLenum, GLenum, GLfloat))
 // WRAP_MANUAL_VOID(glTexGeniv, (GLenum coord, GLenum pname, const GLint *params), (coord, pname, params), (GLenum, GLenum, const GLint *))
-// WRAP_MANUAL_VOID(glTexImage1D, (GLenum target, GLint level, GLint internalformat, GLsizei width, GLint border, GLenum format, GLenum
-// type, const GLvoid *pixels), (target, level, internalformat, width, border, format, type, pixels), (GLenum, GLint, GLint, GLsizei, GLint,
-// GLenum, GLenum, const GLvoid *)) WRAP_MANUAL_VOID(glTexParameteriv, (GLenum target, GLenum pname, const GLint *params), (target, pname,
-// params), (GLenum, GLenum, const GLint *)) WRAP_MANUAL_VOID(glTexSubImage1D, (GLenum target, GLint level, GLint xoffset, GLsizei width,
-// GLenum format, GLenum type, const GLvoid *pixels), (target, level, xoffset, width, format, type, pixels), (GLenum, GLint, GLint, GLsizei,
-// GLenum, GLenum, const GLvoid *)) WRAP_MANUAL_VOID(glUniform2f, (GLint location, GLfloat v0, GLfloat v1), (location, v0, v1), (GLint,
-// GLfloat, GLfloat)) WRAP_MANUAL_VOID(glUniform2i, (GLint location, GLint v0, GLint v1), (location, v0, v1), (GLint, GLint, GLint))
-// WRAP_MANUAL_VOID(glUniform3f, (GLint location, GLfloat v0, GLfloat v1, GLfloat v2), (location, v0, v1, v2), (GLint, GLfloat, GLfloat,
-// GLfloat)) WRAP_MANUAL_VOID(glUniform3i, (GLint location, GLint v0, GLint v1, GLint v2), (location, v0, v1, v2), (GLint, GLint, GLint,
-// GLint)) WRAP_MANUAL_VOID(glUniform4f, (GLint location, GLfloat v0, GLfloat v1, GLfloat v2, GLfloat v3), (location, v0, v1, v2, v3),
-// (GLint, GLfloat, GLfloat, GLfloat, GLfloat)) WRAP_MANUAL_VOID(glUniform4i, (GLint location, GLint v0, GLint v1, GLint v2, GLint v3),
-// (location, v0, v1, v2, v3), (GLint, GLint, GLint, GLint, GLint)) WRAP_MANUAL_VOID(glValidateProgram, (GLuint program), (program),
-// (GLuint)) WRAP_MANUAL_VOID(glVertex2fv, (const GLfloat *v), (v), (const GLfloat *)) WRAP_MANUAL_VOID(glVertex2iv, (const GLint *v), (v),
-// (const GLint *)) WRAP_MANUAL_VOID(glVertex2s, (GLshort x, GLshort y), (x, y), (GLshort, GLshort)) WRAP_MANUAL_VOID(glVertex2sv, (const
-// GLshort *v), (v), (const GLshort *)) WRAP_MANUAL_VOID(glVertex3d, (GLdouble x, GLdouble y, GLdouble z), (x, y, z), (GLdouble, GLdouble,
-// GLdouble)) WRAP_MANUAL_VOID(glVertex3i, (GLint x, GLint y, GLint z), (x, y, z), (GLint, GLint, GLint)) WRAP_MANUAL_VOID(glVertex3iv,
-// (const GLint *v), (v), (const GLint *)) WRAP_MANUAL_VOID(glVertex3s, (GLshort x, GLshort y, GLshort z), (x, y, z), (GLshort, GLshort,
-// GLshort)) WRAP_MANUAL_VOID(glVertex3sv, (const GLshort *v), (v), (const GLshort *)) WRAP_MANUAL_VOID(glVertex4d, (GLdouble x, GLdouble y,
-// GLdouble z, GLdouble w), (x, y, z, w), (GLdouble, GLdouble, GLdouble, GLdouble)) WRAP_MANUAL_VOID(glVertex4fv, (const GLfloat *v), (v),
-// (const GLfloat *)) WRAP_MANUAL_VOID(glVertex4i, (GLint x, GLint y, GLint z, GLint w), (x, y, z, w), (GLint, GLint, GLint, GLint))
+// WRAP_MANUAL_VOID(glTexImage1D, (GLenum target, GLint level, GLint internalformat, GLsizei width, GLint border, GLenum format, GLenum type, const GLvoid *pixels), (target, level, internalformat, width, border, format, type, pixels), (GLenum, GLint, GLint, GLsizei, GLint, GLenum, GLenum, const GLvoid *))
+// WRAP_MANUAL_VOID(glTexParameteriv, (GLenum target, GLenum pname, const GLint *params), (target, pname, params), (GLenum, GLenum, const GLint *))
+// WRAP_MANUAL_VOID(glTexSubImage1D, (GLenum target, GLint level, GLint xoffset, GLsizei width, GLenum format, GLenum type, const GLvoid *pixels), (target, level, xoffset, width, format, type, pixels), (GLenum, GLint, GLint, GLsizei, GLenum, GLenum, const GLvoid *))
+// WRAP_MANUAL_VOID(glUniform2f, (GLint location, GLfloat v0, GLfloat v1), (location, v0, v1), (GLint, GLfloat, GLfloat))
+// WRAP_MANUAL_VOID(glUniform2i, (GLint location, GLint v0, GLint v1), (location, v0, v1), (GLint, GLint, GLint))
+// WRAP_MANUAL_VOID(glUniform3f, (GLint location, GLfloat v0, GLfloat v1, GLfloat v2), (location, v0, v1, v2), (GLint, GLfloat, GLfloat, GLfloat))
+// WRAP_MANUAL_VOID(glUniform3i, (GLint location, GLint v0, GLint v1, GLint v2), (location, v0, v1, v2), (GLint, GLint, GLint, GLint))
+// WRAP_MANUAL_VOID(glUniform4f, (GLint location, GLfloat v0, GLfloat v1, GLfloat v2, GLfloat v3), (location, v0, v1, v2, v3), (GLint, GLfloat, GLfloat, GLfloat, GLfloat))
+// WRAP_MANUAL_VOID(glUniform4i, (GLint location, GLint v0, GLint v1, GLint v2, GLint v3), (location, v0, v1, v2, v3), (GLint, GLint, GLint, GLint, GLint))
+// WRAP_MANUAL_VOID(glValidateProgram, (GLuint program), (program), (GLuint))
+// WRAP_MANUAL_VOID(glVertex2fv, (const GLfloat *v), (v), (const GLfloat *))
+// WRAP_MANUAL_VOID(glVertex2iv, (const GLint *v), (v), (const GLint *))
+// WRAP_MANUAL_VOID(glVertex2s, (GLshort x, GLshort y), (x, y), (GLshort, GLshort))
+// WRAP_MANUAL_VOID(glVertex2sv, (const GLshort *v), (v), (const GLshort *))
+// WRAP_MANUAL_VOID(glVertex3d, (GLdouble x, GLdouble y, GLdouble z), (x, y, z), (GLdouble, GLdouble, GLdouble))
+// WRAP_MANUAL_VOID(glVertex3i, (GLint x, GLint y, GLint z), (x, y, z), (GLint, GLint, GLint))
+// WRAP_MANUAL_VOID(glVertex3iv, (const GLint *v), (v), (const GLint *))
+// WRAP_MANUAL_VOID(glVertex3s, (GLshort x, GLshort y, GLshort z), (x, y, z), (GLshort, GLshort, GLshort))
+// WRAP_MANUAL_VOID(glVertex3sv, (const GLshort *v), (v), (const GLshort *))
+// WRAP_MANUAL_VOID(glVertex4d, (GLdouble x, GLdouble y, GLdouble z, GLdouble w), (x, y, z, w), (GLdouble, GLdouble, GLdouble, GLdouble))
+// WRAP_MANUAL_VOID(glVertex4fv, (const GLfloat *v), (v), (const GLfloat *))
+// WRAP_MANUAL_VOID(glVertex4i, (GLint x, GLint y, GLint z, GLint w), (x, y, z, w), (GLint, GLint, GLint, GLint))
 // WRAP_MANUAL_VOID(glVertex4iv, (const GLint *v), (v), (const GLint *))
 // WRAP_MANUAL_VOID(glVertex4s, (GLshort x, GLshort y, GLshort z, GLshort w), (x, y, z, w), (GLshort, GLshort, GLshort, GLshort))
 // WRAP_MANUAL_VOID(glVertex4sv, (const GLshort *v), (v), (const GLshort *))
@@ -902,13 +876,14 @@ typedef unsigned long long GLuint64EXT;
 // WRAP_MANUAL_VOID(glVertexAttrib2hvNV, (GLuint index, const GLhalfNV *v), (index, v), (GLuint, const GLhalfNV *))
 // WRAP_MANUAL_VOID(glVertexAttrib2s, (GLuint index, GLshort x, GLshort y), (index, x, y), (GLuint, GLshort, GLshort))
 // WRAP_MANUAL_VOID(glVertexAttrib2sv, (const GLshort *v), (v), (const GLshort *))
-// WRAP_MANUAL_VOID(glVertexAttrib3d, (GLuint index, GLdouble x, GLdouble y, GLdouble z), (index, x, y, z), (GLuint, GLdouble, GLdouble,
-// GLdouble)) WRAP_MANUAL_VOID(glVertexAttrib3dv, (const GLdouble *v), (v), (const GLdouble *)) WRAP_MANUAL_VOID(glVertexAttrib3f, (GLuint
-// index, GLfloat x, GLfloat y, GLfloat z), (index, x, y, z), (GLuint, GLfloat, GLfloat, GLfloat)) WRAP_MANUAL_VOID(glVertexAttrib3fv,
-// (const GLfloat *v), (v), (const GLfloat *)) WRAP_MANUAL_VOID(glVertexAttrib3hNV, (GLuint index, GLhalfNV x, GLhalfNV y, GLhalfNV z),
-// (index, x, y, z), (GLuint, GLhalfNV, GLhalfNV, GLhalfNV)) WRAP_MANUAL_VOID(glVertexAttrib3hvNV, (GLuint index, const GLhalfNV *v),
-// (index, v), (GLuint, const GLhalfNV *)) WRAP_MANUAL_VOID(glVertexAttrib3s, (GLuint index, GLshort x, GLshort y, GLshort z), (index, x, y,
-// z), (GLuint, GLshort, GLshort, GLshort)) WRAP_MANUAL_VOID(glVertexAttrib3sv, (const GLshort *v), (v), (const GLshort *))
+// WRAP_MANUAL_VOID(glVertexAttrib3d, (GLuint index, GLdouble x, GLdouble y, GLdouble z), (index, x, y, z), (GLuint, GLdouble, GLdouble, GLdouble))
+// WRAP_MANUAL_VOID(glVertexAttrib3dv, (const GLdouble *v), (v), (const GLdouble *))
+// WRAP_MANUAL_VOID(glVertexAttrib3f, (GLuint index, GLfloat x, GLfloat y, GLfloat z), (index, x, y, z), (GLuint, GLfloat, GLfloat, GLfloat))
+// WRAP_MANUAL_VOID(glVertexAttrib3fv, (const GLfloat *v), (v), (const GLfloat *))
+// WRAP_MANUAL_VOID(glVertexAttrib3hNV, (GLuint index, GLhalfNV x, GLhalfNV y, GLhalfNV z), (index, x, y, z), (GLuint, GLhalfNV, GLhalfNV, GLhalfNV))
+// WRAP_MANUAL_VOID(glVertexAttrib3hvNV, (GLuint index, const GLhalfNV *v), (index, v), (GLuint, const GLhalfNV *))
+// WRAP_MANUAL_VOID(glVertexAttrib3s, (GLuint index, GLshort x, GLshort y, GLshort z), (index, x, y, z), (GLuint, GLshort, GLshort, GLshort))
+// WRAP_MANUAL_VOID(glVertexAttrib3sv, (const GLshort *v), (v), (const GLshort *))
 // WRAP_MANUAL_VOID(glVertexAttrib4Nbv, (GLuint index, const GLbyte *v), (index, v), (GLuint, const GLbyte *))
 // WRAP_MANUAL_VOID(glVertexAttrib4Niv, (GLuint index, const GLint *v), (index, v), (GLuint, const GLint *))
 // WRAP_MANUAL_VOID(glVertexAttrib4Nsv, (GLuint index, const GLshort *v), (index, v), (GLuint, const GLshort *))
@@ -916,14 +891,14 @@ typedef unsigned long long GLuint64EXT;
 // WRAP_MANUAL_VOID(glVertexAttrib4Nuiv, (GLuint index, const GLuint *v), (index, v), (GLuint, const GLuint *))
 // WRAP_MANUAL_VOID(glVertexAttrib4Nusv, (GLuint index, const GLushort *v), (index, v), (GLuint, const GLushort *))
 // WRAP_MANUAL_VOID(glVertexAttrib4bv, (const GLbyte *v), (v), (const GLbyte *))
-// WRAP_MANUAL_VOID(glVertexAttrib4d, (GLuint index, GLdouble x, GLdouble y, GLdouble z, GLdouble w), (index, x, y, z, w), (GLuint,
-// GLdouble, GLdouble, GLdouble, GLdouble)) WRAP_MANUAL_VOID(glVertexAttrib4dv, (const GLdouble *v), (v), (const GLdouble *))
-// WRAP_MANUAL_VOID(glVertexAttrib4f, (GLuint index, GLfloat x, GLfloat y, GLfloat z, GLfloat w), (index, x, y, z, w), (GLuint, GLfloat,
-// GLfloat, GLfloat, GLfloat)) WRAP_MANUAL_VOID(glVertexAttrib4fv, (const GLfloat *v), (v), (const GLfloat *))
-// WRAP_MANUAL_VOID(glVertexAttrib4hNV, (GLuint index, GLhalfNV x, GLhalfNV y, GLhalfNV z, GLhalfNV w), (index, x, y, z, w), (GLuint,
-// GLhalfNV, GLhalfNV, GLhalfNV, GLhalfNV)) WRAP_MANUAL_VOID(glVertexAttrib4hvNV, (GLuint index, const GLhalfNV *v), (index, v), (GLuint,
-// const GLhalfNV *)) WRAP_MANUAL_VOID(glVertexAttrib4iv, (const GLint *v), (v), (const GLint *)) WRAP_MANUAL_VOID(glVertexAttrib4s, (GLuint
-// index, GLshort x, GLshort y, GLshort z, GLshort w), (index, x, y, z, w), (GLuint, GLshort, GLshort, GLshort, GLshort))
+// WRAP_MANUAL_VOID(glVertexAttrib4d, (GLuint index, GLdouble x, GLdouble y, GLdouble z, GLdouble w), (index, x, y, z, w), (GLuint, GLdouble, GLdouble, GLdouble, GLdouble))
+// WRAP_MANUAL_VOID(glVertexAttrib4dv, (const GLdouble *v), (v), (const GLdouble *))
+// WRAP_MANUAL_VOID(glVertexAttrib4f, (GLuint index, GLfloat x, GLfloat y, GLfloat z, GLfloat w), (index, x, y, z, w), (GLuint, GLfloat, GLfloat, GLfloat, GLfloat))
+// WRAP_MANUAL_VOID(glVertexAttrib4fv, (const GLfloat *v), (v), (const GLfloat *))
+// WRAP_MANUAL_VOID(glVertexAttrib4hNV, (GLuint index, GLhalfNV x, GLhalfNV y, GLhalfNV z, GLhalfNV w), (index, x, y, z, w), (GLuint, GLhalfNV, GLhalfNV, GLhalfNV, GLhalfNV))
+// WRAP_MANUAL_VOID(glVertexAttrib4hvNV, (GLuint index, const GLhalfNV *v), (index, v), (GLuint, const GLhalfNV *))
+// WRAP_MANUAL_VOID(glVertexAttrib4iv, (const GLint *v), (v), (const GLint *))
+// WRAP_MANUAL_VOID(glVertexAttrib4s, (GLuint index, GLshort x, GLshort y, GLshort z, GLshort w), (index, x, y, z, w), (GLuint, GLshort, GLshort, GLshort, GLshort))
 // WRAP_MANUAL_VOID(glVertexAttrib4sv, (const GLshort *v), (v), (const GLshort *))
 // WRAP_MANUAL_VOID(glVertexAttrib4ubv, (const GLubyte *v), (v), (const GLubyte *))
 // WRAP_MANUAL_VOID(glVertexAttrib4uiv, (const GLuint *v), (v), (const GLuint *))
@@ -950,12 +925,11 @@ typedef unsigned long long GLuint64EXT;
 // WRAP_MANUAL_VOID(glWindowPos3sv, (const GLshort *v), (v), (const GLshort *))
 
 // ID5
-WRAP_MANUAL_VOID(glProgramEnvParameters4fvEXT, (GLenum target, GLuint index, GLsizei count, const GLfloat *params),
-                 (target, index, count, params), (GLenum, GLuint, GLsizei, const GLfloat *))
-WRAP_MANUAL_VOID(glProgramLocalParameters4fvEXT, (GLenum target, GLuint index, GLsizei count, const GLfloat *params),
-                 (target, index, count, params), (GLenum, GLuint, GLsizei, const GLfloat *))
+WRAP_MANUAL_VOID(glProgramEnvParameters4fvEXT, (GLenum target, GLuint index, GLsizei count, const GLfloat *params), (target, index, count, params), (GLenum, GLuint, GLsizei, const GLfloat *))
+WRAP_MANUAL_VOID(glProgramLocalParameters4fvEXT, (GLenum target, GLuint index, GLsizei count, const GLfloat *params), (target, index, count, params), (GLenum, GLuint, GLsizei, const GLfloat *))
 
 // My implementations
+
 
 static void my_glViewport(GLint x, GLint y, GLsizei w, GLsizei h)
 {
@@ -965,7 +939,12 @@ static void my_glViewport(GLint x, GLint y, GLsizei w, GLsizei h)
         log_error("GLHooks: Missing glViewport");
         return;
     }
-    void *retAddr = GET_RETURN_ADDRESS();
+    void *retAddr =
+#ifdef _MSC_VER
+        _ReturnAddress();
+#else
+        __builtin_return_address(0);
+#endif
 
     if (retAddr == (void *)0x0813043e || retAddr == (void *)0x08130adf)
     {
@@ -1216,6 +1195,7 @@ void *GLHooks::GetProcAddress(const char *procName)
     MAP(glBindAttribLocationARB);
     MAP(glUniformMatrix4fvARB);
 
+
     MAP(glGenProgramsNV);
     MAP(glDeleteProgramsNV);
     MAP(glBindProgramNV);
@@ -1229,7 +1209,7 @@ void *GLHooks::GetProcAddress(const char *procName)
     MAP(glBeginOcclusionQueryNV);
     MAP(glEndOcclusionQueryNV);
     MAP(glGetOcclusionQueryuivNV);
-
+    
     // // NV Extensions
     // if (strcmp(procName, "glGenProgramsNV") == 0)
     //     return (void *)&ShaderPatches::glGenProgramsNV;
@@ -1334,6 +1314,7 @@ void *GLHooks::GetProcAddress(const char *procName)
     MAP(glColor3dv);
     MAP(glColor3d);
     MAP(glColor4dv);
+
 
     // MAP(glAccum);
     // MAP(glAreTexturesResident);
@@ -1672,4 +1653,5 @@ void *GLHooks::GetProcAddress(const char *procName)
     MAP(glProgramLocalParameters4fvEXT);
 
     return NULL;
+
 }
