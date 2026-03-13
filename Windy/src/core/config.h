@@ -284,7 +284,7 @@ struct WindyConfig {
 
     // --- Graphics Settings ---
     bool enableGPUSpoofing;
-    int fpsLimit;
+    double fpsLimit;
     bool vsync;
 
     // --- Debug Settings ---
@@ -334,10 +334,10 @@ public:
 
     /**
      * @brief Load configuration from INI file
-     * @param filename Path to INI file (default: "windy.ini")
+     * @param filename Path to INI file (default: "lindbergh.ini")
      * @return true if successful
      */
-    bool Load(const char* filename = "windy.ini");
+    bool Load(const char* filename = "lindbergh.ini");
 
     /**
      * @brief Save configuration to INI file

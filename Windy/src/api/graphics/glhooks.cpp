@@ -15,18 +15,91 @@
 
 #include "glhooks.h"
 // #include "shaderpatches.h"
+#include "sdlcalls.h"
+#include "../../core/config.h"
 #include "../../core/log.h"
 #include <string.h>
 // #include <vector>
 
-// Macros for efficient wrapper generation
-// -----------------------------------------------------------------------------
-// WRAP / WRAP_VOID Macros:
-// These macros generate static functions (e.g., my_glBegin) that act as thunks.
-// They load the real OpenGL function pointer on first use via GLXBridge::GetProcAddress.
-// Note: These functions are NOT automatically exposed. You must manually register
-// them in the GetProcAddress function below using the MAP macro.
-// -----------------------------------------------------------------------------
+struct ViewportRect
+{
+    int x;
+    int y;
+    int w;
+    int h;
+};
+
+static ViewportRect CalculateAspectViewport(int gameW, int gameH, int outputW, int outputH)
+{
+    ViewportRect r{0, 0, outputW, outputH};
+
+    if (gameW <= 0 || gameH <= 0 || outputW <= 0 || outputH <= 0)
+        return r;
+
+    double gameAspect = static_cast<double>(gameW) / static_cast<double>(gameH);
+    double outputAspect = static_cast<double>(outputW) / static_cast<double>(outputH);
+
+    if (outputAspect > gameAspect)
+    {
+        r.h = outputH;
+        r.w = static_cast<int>(outputH * gameAspect + 0.5);
+        r.x = (outputW - r.w) / 2;
+        r.y = 0;
+    }
+    else
+    {
+        r.w = outputW;
+        r.h = static_cast<int>(outputW / gameAspect + 0.5);
+        r.x = 0;
+        r.y = (outputH - r.h) / 2;
+    }
+
+    return r;
+}
+
+static void my_glScissor(GLint x, GLint y, GLsizei w, GLsizei h)
+{
+    static auto real = (decltype(glScissor) *)SDL_GL_GetProcAddress("glScissor");
+    if (!real)
+    {
+        log_error("GLHooks: Missing glScissor");
+        return;
+    }
+
+    real(x, y, w, h);
+}
+
+static bool ShouldOverrideViewport(GLint x, GLint y, GLsizei w, GLsizei h)
+{
+    if (!getConfig()->fullscreen)
+        return false;
+
+    if (x != 0 || y != 0)
+        return false;
+
+    const int cfgW = getConfig()->width;
+    const int cfgH = getConfig()->height;
+
+    if (cfgW <= 0 || cfgH <= 0 || w <= 0 || h <= 0)
+        return false;
+
+    if (w == cfgW && h == cfgH)
+        return true;
+
+    auto closeEnough = [](int a, int b) { return abs(a - b) <= 8; };
+
+    if (closeEnough((int)w, cfgW) && closeEnough((int)h, cfgH))
+        return true;
+
+    double cfgAspect = (double)cfgW / (double)cfgH;
+    double vpAspect = (double)w / (double)h;
+
+    if (fabs(cfgAspect - vpAspect) < 0.01 && w >= cfgW / 2 && h >= cfgH / 2)
+        return true;
+
+    return false;
+}
+
 static void *my_GetProcAddress(const char *name)
 {
     // 1. Try the standard Windows Extension loader
@@ -135,7 +208,6 @@ WRAP_VOID(glHint, (GLenum target, GLenum mode), (target, mode))
 WRAP_VOID(glLineWidth, (GLfloat width), (width))
 WRAP_VOID(glPointSize, (GLfloat size), (size))
 WRAP_VOID(glPolygonMode, (GLenum face, GLenum mode), (face, mode))
-WRAP_VOID(glScissor, (GLint x, GLint y, GLsizei width, GLsizei height), (x, y, width, height))
 WRAP_VOID(glShadeModel, (GLenum mode), (mode))
 
 // Pixel Store
@@ -954,8 +1026,6 @@ WRAP_MANUAL_VOID(glProgramEnvParameters4fvEXT, (GLenum target, GLuint index, GLs
 WRAP_MANUAL_VOID(glProgramLocalParameters4fvEXT, (GLenum target, GLuint index, GLsizei count, const GLfloat *params),
                  (target, index, count, params), (GLenum, GLuint, GLsizei, const GLfloat *))
 
-// My implementations
-
 static void my_glViewport(GLint x, GLint y, GLsizei w, GLsizei h)
 {
     static auto real = (decltype(glViewport) *)SDL_GL_GetProcAddress("glViewport");
@@ -964,22 +1034,37 @@ static void my_glViewport(GLint x, GLint y, GLsizei w, GLsizei h)
         log_error("GLHooks: Missing glViewport");
         return;
     }
-    void *retAddr =
-#ifdef _MSC_VER
-        _ReturnAddress();
-#else
-        __builtin_return_address(0);
-#endif
 
-    if (retAddr == (void *)0x0813043e || retAddr == (void *)0x08130adf)
+    if (!getConfig()->fullscreen)
     {
+        real(x, y, w, h);
         return;
     }
 
-    // w = 640;
-    // h = 480;
+    if (!(x == 0 && y == 0 && w == getConfig()->width && h == getConfig()->height))
+    {
+        real(x, y, w, h);
+        return;
+    }
 
-    real(x, y, w, h);
+    SDL_Window *win = SDLCalls::GetWindow();
+    if (!win)
+    {
+        real(x, y, w, h);
+        return;
+    }
+
+    int outW = 0;
+    int outH = 0;
+    SDL_GetWindowSizeInPixels(win, &outW, &outH);
+
+    if (outW <= 0 || outH <= 0)
+    {
+        real(x, y, w, h);
+        return;
+    }
+
+    real(0, 0, outW, outH);
 }
 
 // -----------------------------------------------------------------------------

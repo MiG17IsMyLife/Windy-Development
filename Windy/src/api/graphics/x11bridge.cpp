@@ -47,7 +47,9 @@ class XServerState
     {
         if (SDLCalls::GetWindow())
         {
-            SDL_SetWindowSize(SDLCalls::GetWindow(), width, height);
+            if (!getConfig()->fullscreen)
+                SDL_SetWindowSize(SDLCalls::GetWindow(), width, height);
+
             RegisterWindow(SDLCalls::GetWindow());
             return mainWindowID;
         }
@@ -261,10 +263,7 @@ Window X11Bridge::XCreateWindow(Display *dpy, Window parent, int x, int y, unsig
 {
     printf("XCreateWindow: %ux%u\n", width, height);
 
-    // Window already created in XOpenDisplay (hidden).
-    // We can update its size or position here if suitable, or just return the existing handle.
-    // For now, assume the Config size is what we want and just show it later in MapWindow.
-    if (SDLCalls::GetWindow())
+    if (SDLCalls::GetWindow() && !getConfig()->fullscreen)
     {
         SDL_SetWindowSize(SDLCalls::GetWindow(), width, height);
     }
@@ -310,6 +309,9 @@ int X11Bridge::XMoveWindow(Display *dpy, Window win, int x, int y)
 
 int X11Bridge::XResizeWindow(Display *dpy, Window win, unsigned int width, unsigned int height)
 {
+    if (getConfig()->fullscreen)
+        return 1;
+
     SDL_Window *sdlWin = XServerState::Instance().GetSDLWindow(win);
     if (sdlWin)
         SDL_SetWindowSize(sdlWin, width, height);

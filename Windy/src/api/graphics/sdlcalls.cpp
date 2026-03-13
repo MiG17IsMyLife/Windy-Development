@@ -108,25 +108,11 @@ void SDLCalls::Start(int *argcp, char **argv)
 void SDLCalls::CreateSDLWindow(bool hidden)
 {
     if (m_window)
-        return; // Already created
+        return;
 
-    int numDisplays;
-    SDL_DisplayID *sdlDisplayId = SDL_GetDisplays(&numDisplays);
-    if (numDisplays > 1)
-        log_warn("More than 1 display detected, will use the first one.\n");
-
-    const SDL_DisplayMode *displayMode = SDL_GetCurrentDisplayMode(sdlDisplayId[0]);
-    SDL_free(sdlDisplayId);
-    if (displayMode == NULL)
-    {
-        log_error("SDL_GetCurrentDisplayMode Error: %s\n", SDL_GetError());
-        SDL_Quit();
-        exit(EXIT_FAILURE);
-    }
-
-    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1); // Double buffering
-    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);  // 24-bit depth buffer
-    SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 8);   // Set the alpha size to 8 bits
+    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+    SDL_GL_SetAttribute(SDL_GL_ALPHA_SIZE, 8);
     SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8);
     SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
     SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
@@ -134,21 +120,18 @@ void SDLCalls::CreateSDLWindow(bool hidden)
     SDL_GL_SetAttribute(SDL_GL_BUFFER_SIZE, 32);
     SDL_GL_SetAttribute(SDL_GL_ACCELERATED_VISUAL, 1);
 
+    const int width = getConfig()->width;
+    const int height = getConfig()->height;
+
     uint32_t windowFlags = SDL_WINDOW_OPENGL;
     if (hidden)
         windowFlags |= SDL_WINDOW_HIDDEN;
 
-    int width = getConfig()->width;
-    int height = getConfig()->height;
-
-    printf("Creating window with width %d and height %d\n", width, height);
-
     m_window = SDL_CreateWindow(getConfig()->gameTitle, width, height, windowFlags);
-
     if (!m_window)
     {
-        SDL_Quit();
         log_error("Window could not be created! SDL_Error: %s\n", SDL_GetError());
+        SDL_Quit();
         exit(EXIT_FAILURE);
     }
 
@@ -163,20 +146,42 @@ void SDLCalls::CreateSDLWindow(bool hidden)
 
     SDL_GL_MakeCurrent(m_window, m_context);
 
-    if (SDL_GL_SetSwapInterval(1) == false)
+    if (getConfig()->fullscreen)
+    {
+        SDL_DisplayMode mode = {};
+        mode.w = width;
+        mode.h = height;
+        mode.pixel_density = 1.0f;
+        mode.refresh_rate = 0.0f;
+        mode.format = SDL_PIXELFORMAT_UNKNOWN;
+
+        if (!SDL_SetWindowFullscreenMode(m_window, &mode))
+            log_warn("SDL_SetWindowFullscreenMode failed: %s\n", SDL_GetError());
+
+        if (!SDL_SetWindowFullscreen(m_window, true))
+            log_warn("SDL_SetWindowFullscreen failed: %s\n", SDL_GetError());
+    }
+
+    if (!SDL_GL_SetSwapInterval(getConfig()->vsync ? 1 : 0))
         log_warn("Warning: Unable to set VSync! SDL Error: %s\n", SDL_GetError());
-    // SDL_SetWindowMinimumSize(m_window, width, height);
+
+    int drawableW = 0;
+    int drawableH = 0;
+    SDL_GetWindowSizeInPixels(m_window, &drawableW, &drawableH);
+
+    log_info("SDL window created: config=%dx%d fullscreen=%s vsync=%s drawable=%dx%d", width, height,
+             getConfig()->fullscreen ? "true" : "false", getConfig()->vsync ? "true" : "false", drawableW, drawableH);
 
     SDL_ShowWindow(m_window);
 
     Uint64 startTime = SDL_GetTicks();
     int running = 1;
-
-    // We clear the window background
     while (running)
     {
         if (SDL_GetTicks() - startTime >= 1000)
             running = 0;
+
+        glViewport(0, 0, width, height);
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
         SDL_GL_SwapWindow(m_window);

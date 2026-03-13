@@ -3,13 +3,15 @@
 #include <stdint.h>
 
 #include <windows.h>
+#include <mmsystem.h>
+#pragma comment(lib, "winmm.lib")
+
 #include <objbase.h>
 #include <iostream>
 #include <fstream>
 #include <string>
 #include <stdlib.h>
 #include <vector>
-#include <string>
 #include <filesystem>
 #include <algorithm>
 
@@ -30,12 +32,11 @@
 extern void InitHardwareBridge();
 extern void CleanupHardwareBridge();
 
-
 // =============================================================================
 // Constants
 // =============================================================================
 static const size_t STACK_SIZE = 1024 * 1024;
-static const char *DEFAULT_CONFIG_FILE = "windy.ini";
+static const char *DEFAULT_CONFIG_FILE = "lindbergh.ini";
 
 // =============================================================================
 // CRC32 Calculation for Game Detection
@@ -102,8 +103,6 @@ static void ConfigureHardwareForGame(const GameDataEntry *game, const WindyConfi
     JvsBoard *jvs = device.GetJvsBoard();
     if (jvs)
     {
-        // Set IOType based on game group
-        // GROUP_ABC uses SEGA_TYPE_1, others use SEGA_TYPE_3
         if (game && game->gameGroup == GROUP_ABC)
         {
             jvs->SetIOType(SEGA_TYPE_1);
@@ -132,8 +131,24 @@ static void ConfigureHardwareForGame(const GameDataEntry *game, const WindyConfi
     BaseBoard *baseboard = device.GetBaseBoard();
     if (baseboard)
     {
-        // SRAM path can be configured per-game in future
         baseboard->SetSramPath("sram.bin");
+    }
+}
+
+// =============================================================================
+// Apply Hardware Config That Must Exist Before Device Init
+// =============================================================================
+static void ApplyPreInitHardwareConfig(const WindyConfig &config)
+{
+    LindberghDevice &device = LindberghDevice::Instance();
+
+    EepromBoard *eeprom = device.GetEepromBoard();
+    if (eeprom)
+    {
+        eeprom->SetRegion(config.region);
+        eeprom->SetFreeplay(config.freeplay ? 1 : 0);
+
+        log_info("Pre-init EEPROM config applied: region=%d, freeplay=%s", config.region, config.freeplay ? "true" : "false");
     }
 }
 
@@ -160,6 +175,28 @@ static void ChangeDirectoryToElfLocation(const char *elfPath)
     {
         log_warn("Failed to change working directory to: %s", newDir);
     }
+}
+
+static std::string ResolveConfigPath(const char *configPath, const char *elfPath)
+{
+    std::filesystem::path path =
+        (configPath && configPath[0]) ? std::filesystem::path(configPath) : std::filesystem::path(DEFAULT_CONFIG_FILE);
+
+    if (path.is_absolute())
+        return path.lexically_normal().string();
+
+    std::filesystem::path elfAbsolute;
+    try
+    {
+        elfAbsolute = std::filesystem::absolute(elfPath);
+    }
+    catch (...)
+    {
+        elfAbsolute = std::filesystem::path(elfPath);
+    }
+
+    std::filesystem::path gameDir = elfAbsolute.parent_path();
+    return (gameDir / path).lexically_normal().string();
 }
 
 // =============================================================================
@@ -227,8 +264,16 @@ static void PrintConfig(const WindyConfig &config)
 // =============================================================================
 int main(int argc, char *argv[])
 {
-    // Initialize logging
+    // Initialize logging first
     logInit();
+
+    // Improve Windows timer resolution for Sleep()-based FPS limiting
+    MMRESULT mmres = timeBeginPeriod(1);
+    if (mmres == TIMERR_NOERROR)
+        log_info("Windows timer resolution set to 1ms");
+    else
+        log_warn("timeBeginPeriod(1) failed: %u", (unsigned)mmres);
+
     PrintBanner();
 
     // -------------------------------------------------
@@ -253,7 +298,7 @@ int main(int argc, char *argv[])
         log_info("");
         log_info("Arguments:");
         log_info("  <path_to_elf>  - Path to the Lindbergh ELF executable");
-        log_info("  -c <config>    - Optional path to configuration file (default: windy.ini)");
+        log_info("  -c <config>    - Optional path to configuration file (default: lindbergh.ini)");
         log_info("  -t             - Enable Test Mode");
         system("pause");
         return 1;
@@ -261,6 +306,7 @@ int main(int argc, char *argv[])
 
     const char *elfPath = argv[1];
     const char *configPath = DEFAULT_CONFIG_FILE;
+    std::string resolvedConfigPath;
 
     bool testMode = false;
 
@@ -270,7 +316,7 @@ int main(int argc, char *argv[])
         if (arg == "-c" && i + 1 < argc)
         {
             configPath = argv[i + 1];
-            i++; // Skip next argument
+            i++;
         }
         else if (arg == "-t")
         {
@@ -284,7 +330,7 @@ int main(int argc, char *argv[])
 
     // Collect arguments for the guest
     std::vector<std::string> guestArgs;
-    guestArgs.push_back(elfPath); // argv[0] is usually the program name
+    guestArgs.push_back(elfPath);
 
     if (testMode)
     {
@@ -304,30 +350,12 @@ int main(int argc, char *argv[])
         absoluteElfPath = elfPath;
     }
 
+    resolvedConfigPath = ResolveConfigPath(configPath, absoluteElfPath.c_str());
+
     log_info("ELF Path:    %s", absoluteElfPath.c_str());
     ConfigManager::Instance().SetElfPath(absoluteElfPath.c_str());
-    log_info("Config Path: %s", configPath);
+    log_info("Config Path: %s", resolvedConfigPath.c_str());
 
-    // -------------------------------------------------
-    // Load Configuration
-    // -------------------------------------------------
-    log_info("Loading configuration...");
-    ConfigManager &configMgr = ConfigManager::Instance();
-
-    if (!configMgr.Load(configPath))
-    {
-        log_warn("Config file not found, using defaults.");
-        // // Create default config file for user reference
-        // configMgr.Save(configPath);
-        // log_info("Created default config: %s", configPath);
-    }
-
-    const WindyConfig &config = configMgr.GetConfig();
-    PrintConfig(config);
-
-    // -------------------------------------------------
-    // Change Working Directory to ELF Location
-    // -------------------------------------------------
     ChangeDirectoryToElfLocation(elfPath);
 
     // -------------------------------------------------
@@ -345,10 +373,26 @@ int main(int argc, char *argv[])
 
     log_info("CRC32: 0x%08X", gameCrc32);
 
-    // Use FindGameByCRC32 from gamedata.h
     const GameDataEntry *detectedGame = FindGameByCRC32(gameCrc32);
     PrintGameInfo(detectedGame, gameCrc32);
+
+    ConfigManager &configMgr = ConfigManager::Instance();
     configMgr.DetectGame(gameCrc32);
+
+    log_info("Loading configuration...");
+    if (!configMgr.Load(resolvedConfigPath.c_str()))
+    {
+        log_warn("Config file not found, using defaults.");
+    }
+
+    const WindyConfig &config = configMgr.GetConfig();
+    PrintConfig(config);
+
+    // -------------------------------------------------
+    // Apply Pre-Init Hardware Configuration
+    // -------------------------------------------------
+    log_info("Applying pre-init hardware configuration...");
+    ApplyPreInitHardwareConfig(config);
 
     // -------------------------------------------------
     // Initialize Hardware Bridge (VEH + Port I/O)
@@ -399,18 +443,16 @@ int main(int argc, char *argv[])
     // Load Dependencies (Multi-ELF Support)
     // -------------------------------------------------
     log_info("Loading Dependencies...");
-    SharedObjectManager::Instance().AddLoader("main", &loader); // Register main
+    SharedObjectManager::Instance().AddLoader("main", &loader);
 
-    // Add default search paths (relative to executable or CWD)
     SharedObjectManager::Instance().AddSearchPath(".");
     SharedObjectManager::Instance().AddSearchPath("lib");
 
-    // Register Native DLL Overrides (Linux .so -> Windows .dll)
-    SharedObjectManager::Instance().RegisterNativeOverride("libopenal.so",   "OpenAL32.dll");
-    SharedObjectManager::Instance().RegisterNativeOverride("libopenal.so.0",   "OpenAL32.dll");
+    SharedObjectManager::Instance().RegisterNativeOverride("libopenal.so", "OpenAL32.dll");
+    SharedObjectManager::Instance().RegisterNativeOverride("libopenal.so.0", "OpenAL32.dll");
     SharedObjectManager::Instance().RegisterNativeOverride("libopenal.so.1", "OpenAL32.dll");
-    SharedObjectManager::Instance().RegisterNativeOverride("libCg.so",       "cg.dll");
-    SharedObjectManager::Instance().RegisterNativeOverride("libCgGL.so",     "cgGL.dll");
+    SharedObjectManager::Instance().RegisterNativeOverride("libCg.so", "cg.dll");
+    SharedObjectManager::Instance().RegisterNativeOverride("libCgGL.so", "cgGL.dll");
     SharedObjectManager::Instance().RegisterNativeOverride("libz.so.1", "msys-z.dll");
     SharedObjectManager::Instance().RegisterNativeOverride("libFAudio.so.0", "FAudio.dll");
 
@@ -433,15 +475,12 @@ int main(int argc, char *argv[])
     // -------------------------------------------------
     log_info("Setting up Linux stack...");
 
-    // Use detected game name or default for argv[0]
-    // const char *argvName = detectedGame ? detectedGame->gameTitle : DEFAULT_ARGV0;
-    
-    // Create argv array for LinuxStack
-    std::vector<char*> guestArgv;
-    for (const auto& arg : guestArgs) {
-        guestArgv.push_back(const_cast<char*>(arg.c_str()));
+    std::vector<char *> guestArgv;
+    for (const auto &arg : guestArgs)
+    {
+        guestArgv.push_back(const_cast<char *>(arg.c_str()));
     }
-  
+
     uint32_t finalEsp = LinuxStack::Setup(STACK_SIZE, (int)guestArgv.size(), guestArgv.data());
     uint32_t entryPoint = loader.GetHeader().e_entry;
 
@@ -463,7 +502,6 @@ int main(int argc, char *argv[])
     log_info("  Entry Point: 0x%08X", entryPoint);
     log_info("==============================================");
 
-    // Small delay for log visibility
     Sleep(1000);
 
     // ---------------------------------------------------
@@ -472,27 +510,19 @@ int main(int argc, char *argv[])
     log_info("Applying game specific patches...");
     Patches::Apply(getConfig()->gameId);
 
-    // FILE *f = fopen("dump.bin", "wb");
-    //     if (f)
-    //     {
-    //         fwrite((void*)0x8048000, 1, 316848, f);
-    //         fclose(f);
-    //     }
-
     // -------------------------------------------------
     // Jump to ELF Entry Point
     // -------------------------------------------------
     if (loader.GetHeader().e_type == 3)
-    { // ET_DYN
+    {
         log_info("Loaded file is a Shared Library/Object (ET_DYN).");
         log_info("Skipping execution as libraries do not have a standard entry point.");
         log_info("Success! Library loaded and dependencies resolved.");
-
-        // Infinite loop to keep process alive if debugging, or just exit.
-        // For this test, we can just return.
+        CoUninitialize();
+        timeEndPeriod(1);
         return 0;
     }
-// __debugbreak();
+
 #ifdef _MSC_VER
 #pragma warning(push)
 #pragma warning(disable : 4731)
@@ -521,11 +551,9 @@ int main(int argc, char *argv[])
                  : "eax", "ebx", "ecx", "memory");
 #endif
 
-    // -------------------------------------------------
-    // Cleanup (unreachable in normal flow)
-    // -------------------------------------------------
     CleanupHardwareBridge();
     CoUninitialize();
+    timeEndPeriod(1);
 
     return 0;
 }

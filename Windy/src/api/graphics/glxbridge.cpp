@@ -257,6 +257,53 @@ static void ProcessGLXEvents()
     }
 }
 
+static void ApplyFpsLimiter()
+{
+    const double fps = getConfig()->fpsLimit;
+    if (fps <= 0.0)
+        return;
+
+    static LARGE_INTEGER freq = {};
+    static bool freqInit = false;
+    static LARGE_INTEGER last = {};
+
+    if (!freqInit)
+    {
+        QueryPerformanceFrequency(&freq);
+        QueryPerformanceCounter(&last);
+        freqInit = true;
+        return;
+    }
+
+    const double targetSeconds = 1.0 / fps;
+
+    for (;;)
+    {
+        LARGE_INTEGER now;
+        QueryPerformanceCounter(&now);
+
+        double elapsed = static_cast<double>(now.QuadPart - last.QuadPart) / static_cast<double>(freq.QuadPart);
+
+        double remaining = targetSeconds - elapsed;
+        if (remaining <= 0.0)
+        {
+            last = now;
+            break;
+        }
+
+        if (remaining > 0.002)
+        {
+            DWORD sleepMs = static_cast<DWORD>((remaining - 0.001) * 1000.0);
+            if (sleepMs > 0)
+                Sleep(sleepMs);
+        }
+        else
+        {
+            SwitchToThread();
+        }
+    }
+}
+
 void GLXBridge::SwapBuffers(Display * /*dpy*/, GLXDrawable drawable)
 {
     SDL_Window *win = X11Bridge::GetSDLWindow(drawable);
@@ -264,8 +311,9 @@ void GLXBridge::SwapBuffers(Display * /*dpy*/, GLXDrawable drawable)
     {
         SDL_GL_SwapWindow(win);
     }
-    // ProcessGLXEvents();
+
     SDLCalls::PollEvents();
+    ApplyFpsLimiter();
 }
 
 int GLXBridge::SwapInterval(int interval)

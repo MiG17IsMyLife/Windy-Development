@@ -7,6 +7,10 @@
 
 #include <cstring>
 #include <cstdlib>
+#include <cctype>
+#include <string>
+#include <cstdio>
+#include <filesystem>
 
 // SDL3 Key codes
 #define KEY_1 30
@@ -90,7 +94,7 @@ void ConfigManager::InitDefaults()
 
     // Graphics
     m_config.enableGPUSpoofing = true;
-    m_config.fpsLimit = 0;
+    m_config.fpsLimit = 0.0;
     m_config.vsync = false;
 
     // Debug
@@ -163,134 +167,120 @@ bool ConfigManager::Load(const char *filename)
     IniParser parser;
     if (!parser.Load(filename))
     {
-        log_warn("ConfigManager::Load: Cannot load '%s', using defaults", filename);
+        log_warn("ConfigManager::Load: Cannot load '%s', generating defaults", filename);
+        Save(filename);  // Generate default lindbergh.ini
         return false;
     }
 
     m_loadedPath = filename;
 
-    // [General]
-    if (parser.HasSection("General"))
-    {
-        const char *val = parser.GetValue("General", "GamePath");
-        if (val[0])
-            strncpy(m_config.gamePath, val, CONFIG_PATH_MAX - 1);
-        val = parser.GetValue("General", "EepromPath");
-        if (val[0])
-            strncpy(m_config.eepromPath, val, CONFIG_PATH_MAX - 1);
-        val = parser.GetValue("General", "SramPath");
-        if (val[0])
-            strncpy(m_config.sramPath, val, CONFIG_PATH_MAX - 1);
-    }
+    // Helper lambda for string values (strips quotes)
+    auto getStr = [&](const char* sec, const char* key, char* dest, size_t maxLen) {
+        const char* val = parser.GetValue(sec, key);
+        if (val && val[0]) {
+            // Strip surrounding quotes if present
+            std::string s = val;
+            if (s.size() >= 2 && s.front() == '"' && s.back() == '"')
+                s = s.substr(1, s.size() - 2);
+            strncpy(dest, s.c_str(), maxLen - 1);
+            dest[maxLen - 1] = '\0';
+        }
+    };
+
+    // Helper for AUTO/true/false/none/int values (lindbergh-loader style)
+    auto getIntAuto = [&](const char* sec, const char* key, int defaultVal) -> int {
+        const char* val = parser.GetValue(sec, key);
+        if (!val || !val[0]) return defaultVal;
+        std::string s = val;
+        // Trim whitespace
+        while (!s.empty() && isspace(s.front())) s.erase(s.begin());
+        while (!s.empty() && isspace(s.back())) s.pop_back();
+        // Strip quotes
+        if (s.size() >= 2 && s.front() == '"' && s.back() == '"')
+            s = s.substr(1, s.size() - 2);
+        // Case-insensitive compare
+        std::string lower = s;
+        for (auto& c : lower) c = (char)tolower(c);
+        if (lower == "auto") return defaultVal;
+        if (lower == "true") return 1;
+        if (lower == "false") return 0;
+        if (lower == "none") return -1;
+        return atoi(s.c_str());
+    };
+
+    auto getFloatVal = [&](const char* sec, const char* key, float defaultVal) -> float {
+        const char* val = parser.GetValue(sec, key);
+        if (!val || !val[0]) return defaultVal;
+        return (float)atof(val);
+    };
 
     // [Display]
-    if (parser.HasSection("Display"))
-    {
-        m_config.width = parser.GetInt("Display", "Width", m_config.width);
-        m_config.height = parser.GetInt("Display", "Height", m_config.height);
-        m_config.fullscreen = parser.GetBool("Display", "Fullscreen", m_config.fullscreen);
-        m_config.keepAspectRatio = parser.GetBool("Display", "KeepAspectRatio", m_config.keepAspectRatio);
-        m_config.stretchToFit = parser.GetBool("Display", "StretchToFit", m_config.stretchToFit);
-        m_config.windowX = parser.GetInt("Display", "WindowX", m_config.windowX);
-        m_config.windowY = parser.GetInt("Display", "WindowY", m_config.windowY);
-    }
+    m_config.width = getIntAuto("Display", "WIDTH", m_config.width);
+    m_config.height = getIntAuto("Display", "HEIGHT", m_config.height);
+    m_config.fullscreen = getIntAuto("Display", "FULLSCREEN", m_config.fullscreen) != 0;
+    m_config.keepAspectRatio = getIntAuto("Display", "KEEP_ASPECT_RATIO", m_config.keepAspectRatio) != 0;
 
     // [Emulation]
-    if (parser.HasSection("Emulation"))
-    {
-        m_config.emulateJVS = parser.GetBool("Emulation", "EmulateJVS", m_config.emulateJVS);
-        m_config.emulateRideboard = parser.GetBool("Emulation", "EmulateRideboard", m_config.emulateRideboard);
-        m_config.emulateDriveboard = parser.GetBool("Emulation", "EmulateDriveboard", m_config.emulateDriveboard);
-        m_config.emulateMotionboard = parser.GetBool("Emulation", "EmulateMotionboard", m_config.emulateMotionboard);
-        m_config.emulateCardReader = parser.GetBool("Emulation", "EmulateCardReader", m_config.emulateCardReader);
-        m_config.emulateTouchscreen = parser.GetBool("Emulation", "EmulateTouchscreen", m_config.emulateTouchscreen);
-        int jvsType = parser.GetInt("Emulation", "JVSIOType", m_config.jvsIOType);
-        m_config.jvsIOType = (jvsType == 0) ? SEGA_TYPE_1 : SEGA_TYPE_3;
-        const char *jvsPath = parser.GetValue("Emulation", "JVSPath");
-        if (jvsPath[0])
-            strncpy(m_config.jvsPath, jvsPath, CONFIG_PATH_MAX - 1);
+    const char* regionRaw = parser.GetValue("Emulation", "REGION");
+    if (regionRaw && regionRaw[0]) {
+        std::string r = regionRaw;
+        while (!r.empty() && isspace(r.front())) r.erase(r.begin());
+        while (!r.empty() && isspace(r.back())) r.pop_back();
+        if (r == "JP") m_config.region = REGION_JAPAN;
+        else if (r == "US") m_config.region = REGION_US;
+        else if (r == "EX") m_config.region = REGION_EXPORT;
     }
+    int fp = getIntAuto("Emulation", "FREEPLAY", m_config.freeplay ? 1 : -1);
+    m_config.freeplay = (fp == 1);
+    m_config.emulateJVS = getIntAuto("Emulation", "EMULATE_JVS", m_config.emulateJVS) != 0;
+    m_config.emulateRideboard = getIntAuto("Emulation", "EMULATE_RIDEBOARD", m_config.emulateRideboard) != 0;
+    m_config.emulateDriveboard = getIntAuto("Emulation", "EMULATE_DRIVEBOARD", m_config.emulateDriveboard) != 0;
+    m_config.emulateMotionboard = getIntAuto("Emulation", "EMULATE_MOTIONBOARD", m_config.emulateMotionboard) != 0;
+    m_config.emulateCardReader = getIntAuto("Emulation", "EMULATE_ID_CARDREADER", m_config.emulateCardReader) != 0;
+    if (!m_config.emulateCardReader)
+        m_config.emulateCardReader = getIntAuto("Emulation", "EMULATE_HW210_CARDREADER", m_config.emulateCardReader) != 0;
+    m_config.emulateTouchscreen = getIntAuto("Emulation", "EMULATE_TOUCHSCREEN", m_config.emulateTouchscreen) != 0;
 
-    // [Region]
-    if (parser.HasSection("Region"))
-    {
-        int region = parser.GetInt("Region", "Region", m_config.region);
-        if (region >= 0 && region <= 3)
-            m_config.region = static_cast<Region>(region);
-        m_config.freeplay = parser.GetBool("Region", "Freeplay", m_config.freeplay);
-    }
+    // [Paths]
+    getStr("Paths", "SRAM_PATH", m_config.sramPath, CONFIG_PATH_MAX);
+    getStr("Paths", "EEPROM_PATH", m_config.eepromPath, CONFIG_PATH_MAX);
+    getStr("Paths", "JVS_PATH", m_config.jvsPath, CONFIG_PATH_MAX);
 
     // [Graphics]
-    if (parser.HasSection("Graphics"))
+    const char *fpsRaw = parser.GetValue("Graphics", "FPS_LIMIT");
+    if (fpsRaw && fpsRaw[0])
     {
-        m_config.enableGPUSpoofing = parser.GetBool("Graphics", "EnableGPUSpoofing", m_config.enableGPUSpoofing);
-        m_config.fpsLimit = parser.GetInt("Graphics", "FPSLimit", m_config.fpsLimit);
-        m_config.vsync = parser.GetBool("Graphics", "VSync", m_config.vsync);
+        m_config.fpsLimit = atof(fpsRaw);
+        if (m_config.fpsLimit < 0.0)
+            m_config.fpsLimit = 0.0;
     }
-
-    // [Debug]
-    if (parser.HasSection("Debug"))
+    else
     {
-        m_config.showDebugMessages = parser.GetBool("Debug", "ShowDebugMessages", m_config.showDebugMessages);
-        m_config.logToFile = parser.GetBool("Debug", "LogToFile", m_config.logToFile);
-        const char *logPath = parser.GetValue("Debug", "LogFilePath");
-        if (logPath[0])
-            strncpy(m_config.logFilePath, logPath, CONFIG_PATH_MAX - 1);
+        // For backward compatibility.
+        int oldLimiter = getIntAuto("Graphics", "FPS_LIMITER_ENABLED", 0);
+        m_config.fpsLimit = oldLimiter ? 60.0 : 0.0;
     }
+    m_config.vsync = getIntAuto("Graphics", "VSYNC", m_config.vsync) != 0;
 
     // [Network]
-    if (parser.HasSection("Network"))
-    {
-        m_config.enableNetworkPatches = parser.GetBool("Network", "EnableNetworkPatches", m_config.enableNetworkPatches);
-        const char *ip = parser.GetValue("Network", "IP");
-        if (ip[0])
-            strncpy(m_config.networkIP, ip, 63);
-        const char *netmask = parser.GetValue("Network", "Netmask");
-        if (netmask[0])
-            strncpy(m_config.networkNetmask, netmask, 63);
-        const char *gateway = parser.GetValue("Network", "Gateway");
-        if (gateway[0])
-            strncpy(m_config.networkGateway, gateway, 63);
-        const char *or2ip = parser.GetValue("Network", "OR2_IP");
-        if (or2ip[0])
-            strncpy(m_config.or2IP, or2ip, 63);
-        const char *or2mask = parser.GetValue("Network", "OR2_Netmask");
-        if (or2mask[0])
-            strncpy(m_config.or2Netmask, or2mask, 63);
-    }
+    m_config.enableNetworkPatches = getIntAuto("Network", "ENABLE_NETWORK_PATCHES", m_config.enableNetworkPatches) != 0;
+    getStr("Network", "OR2_IPADDRESS", m_config.or2IP, 64);
+    getStr("Network", "OR2_NETMASK", m_config.or2Netmask, 64);
 
-    // [Input]
-    if (parser.HasSection("Input"))
-    {
-        m_config.input.player1Start = parser.GetInt("Input", "P1_Start", m_config.input.player1Start);
-        m_config.input.player1Coin = parser.GetInt("Input", "P1_Coin", m_config.input.player1Coin);
-        m_config.input.player1Up = parser.GetInt("Input", "P1_Up", m_config.input.player1Up);
-        m_config.input.player1Down = parser.GetInt("Input", "P1_Down", m_config.input.player1Down);
-        m_config.input.player1Left = parser.GetInt("Input", "P1_Left", m_config.input.player1Left);
-        m_config.input.player1Right = parser.GetInt("Input", "P1_Right", m_config.input.player1Right);
-        m_config.input.player1Button1 = parser.GetInt("Input", "P1_Button1", m_config.input.player1Button1);
-        m_config.input.player1Button2 = parser.GetInt("Input", "P1_Button2", m_config.input.player1Button2);
-        m_config.input.player1Button3 = parser.GetInt("Input", "P1_Button3", m_config.input.player1Button3);
-        m_config.input.player1Button4 = parser.GetInt("Input", "P1_Button4", m_config.input.player1Button4);
-        m_config.input.player1Button5 = parser.GetInt("Input", "P1_Button5", m_config.input.player1Button5);
-        m_config.input.player1Button6 = parser.GetInt("Input", "P1_Button6", m_config.input.player1Button6);
-        m_config.input.player2Start = parser.GetInt("Input", "P2_Start", m_config.input.player2Start);
-        m_config.input.player2Coin = parser.GetInt("Input", "P2_Coin", m_config.input.player2Coin);
-        m_config.input.player2Up = parser.GetInt("Input", "P2_Up", m_config.input.player2Up);
-        m_config.input.player2Down = parser.GetInt("Input", "P2_Down", m_config.input.player2Down);
-        m_config.input.player2Left = parser.GetInt("Input", "P2_Left", m_config.input.player2Left);
-        m_config.input.player2Right = parser.GetInt("Input", "P2_Right", m_config.input.player2Right);
-        m_config.input.player2Button1 = parser.GetInt("Input", "P2_Button1", m_config.input.player2Button1);
-        m_config.input.player2Button2 = parser.GetInt("Input", "P2_Button2", m_config.input.player2Button2);
-        m_config.input.player2Button3 = parser.GetInt("Input", "P2_Button3", m_config.input.player2Button3);
-        m_config.input.player2Button4 = parser.GetInt("Input", "P2_Button4", m_config.input.player2Button4);
-        m_config.input.player2Button5 = parser.GetInt("Input", "P2_Button5", m_config.input.player2Button5);
-        m_config.input.player2Button6 = parser.GetInt("Input", "P2_Button6", m_config.input.player2Button6);
-        m_config.input.test = parser.GetInt("Input", "Test", m_config.input.test);
-        m_config.input.service = parser.GetInt("Input", "Service", m_config.input.service);
-        m_config.input.analogDeadzone = parser.GetInt("Input", "AnalogDeadzone", m_config.input.analogDeadzone);
-        m_config.input.analogReverseX = parser.GetBool("Input", "AnalogReverseX", m_config.input.analogReverseX);
-        m_config.input.analogReverseY = parser.GetBool("Input", "AnalogReverseY", m_config.input.analogReverseY);
+    // [System]
+    m_config.showDebugMessages = getIntAuto("System", "DEBUG_MSGS", m_config.showDebugMessages) != 0;
+    m_config.logToFile = getIntAuto("System", "LOG_TO_FILE", m_config.logToFile) != 0;
+    getStr("System", "LOG_FILE_PATH", m_config.logFilePath, CONFIG_PATH_MAX);
+
+    const char* colourRaw = parser.GetValue("System", "LINDBERGH_COLOUR");
+    if (colourRaw && colourRaw[0]) {
+        std::string c = colourRaw;
+        for (auto& ch : c) ch = (char)toupper(ch);
+        while (!c.empty() && isspace(c.front())) c.erase(c.begin());
+        while (!c.empty() && isspace(c.back())) c.pop_back();
+        if (c == "RED") m_config.gameLindberghColour = RED;
+        else if (c == "YELLOW") m_config.gameLindberghColour = YELLOW;
+        else if (c == "REDEX") m_config.gameLindberghColour = REDEX;
     }
 
     log_info("ConfigManager: Loaded configuration from '%s'", filename);
@@ -301,84 +291,70 @@ bool ConfigManager::Save(const char *filename)
 {
     const char *savePath = filename ? filename : m_loadedPath.c_str();
     if (!savePath || savePath[0] == '\0')
-        savePath = "windy.ini";
+        savePath = "lindbergh.ini";
 
-    IniParser parser;
-
-    parser.SetValue("General", "GamePath", m_config.gamePath);
-    parser.SetValue("General", "EepromPath", m_config.eepromPath);
-    parser.SetValue("General", "SramPath", m_config.sramPath);
-
-    parser.SetInt("Display", "Width", m_config.width);
-    parser.SetInt("Display", "Height", m_config.height);
-    parser.SetBool("Display", "Fullscreen", m_config.fullscreen);
-    parser.SetBool("Display", "KeepAspectRatio", m_config.keepAspectRatio);
-    parser.SetBool("Display", "StretchToFit", m_config.stretchToFit);
-    parser.SetInt("Display", "WindowX", m_config.windowX);
-    parser.SetInt("Display", "WindowY", m_config.windowY);
-
-    parser.SetBool("Emulation", "EmulateJVS", m_config.emulateJVS);
-    parser.SetBool("Emulation", "EmulateRideboard", m_config.emulateRideboard);
-    parser.SetBool("Emulation", "EmulateDriveboard", m_config.emulateDriveboard);
-    parser.SetBool("Emulation", "EmulateMotionboard", m_config.emulateMotionboard);
-    parser.SetBool("Emulation", "EmulateCardReader", m_config.emulateCardReader);
-    parser.SetBool("Emulation", "EmulateTouchscreen", m_config.emulateTouchscreen);
-    parser.SetInt("Emulation", "JVSIOType", m_config.jvsIOType);
-    parser.SetValue("Emulation", "JVSPath", m_config.jvsPath);
-
-    parser.SetInt("Region", "Region", m_config.region);
-    parser.SetBool("Region", "Freeplay", m_config.freeplay);
-
-    parser.SetBool("Graphics", "EnableGPUSpoofing", m_config.enableGPUSpoofing);
-    parser.SetInt("Graphics", "FPSLimit", m_config.fpsLimit);
-    parser.SetBool("Graphics", "VSync", m_config.vsync);
-
-    parser.SetBool("Debug", "ShowDebugMessages", m_config.showDebugMessages);
-    parser.SetBool("Debug", "LogToFile", m_config.logToFile);
-    parser.SetValue("Debug", "LogFilePath", m_config.logFilePath);
-
-    parser.SetBool("Network", "EnableNetworkPatches", m_config.enableNetworkPatches);
-    parser.SetValue("Network", "IP", m_config.networkIP);
-    parser.SetValue("Network", "Netmask", m_config.networkNetmask);
-    parser.SetValue("Network", "Gateway", m_config.networkGateway);
-    parser.SetValue("Network", "OR2_IP", m_config.or2IP);
-    parser.SetValue("Network", "OR2_Netmask", m_config.or2Netmask);
-
-    parser.SetInt("Input", "P1_Start", m_config.input.player1Start);
-    parser.SetInt("Input", "P1_Coin", m_config.input.player1Coin);
-    parser.SetInt("Input", "P1_Up", m_config.input.player1Up);
-    parser.SetInt("Input", "P1_Down", m_config.input.player1Down);
-    parser.SetInt("Input", "P1_Left", m_config.input.player1Left);
-    parser.SetInt("Input", "P1_Right", m_config.input.player1Right);
-    parser.SetInt("Input", "P1_Button1", m_config.input.player1Button1);
-    parser.SetInt("Input", "P1_Button2", m_config.input.player1Button2);
-    parser.SetInt("Input", "P1_Button3", m_config.input.player1Button3);
-    parser.SetInt("Input", "P1_Button4", m_config.input.player1Button4);
-    parser.SetInt("Input", "P1_Button5", m_config.input.player1Button5);
-    parser.SetInt("Input", "P1_Button6", m_config.input.player1Button6);
-    parser.SetInt("Input", "P2_Start", m_config.input.player2Start);
-    parser.SetInt("Input", "P2_Coin", m_config.input.player2Coin);
-    parser.SetInt("Input", "P2_Up", m_config.input.player2Up);
-    parser.SetInt("Input", "P2_Down", m_config.input.player2Down);
-    parser.SetInt("Input", "P2_Left", m_config.input.player2Left);
-    parser.SetInt("Input", "P2_Right", m_config.input.player2Right);
-    parser.SetInt("Input", "P2_Button1", m_config.input.player2Button1);
-    parser.SetInt("Input", "P2_Button2", m_config.input.player2Button2);
-    parser.SetInt("Input", "P2_Button3", m_config.input.player2Button3);
-    parser.SetInt("Input", "P2_Button4", m_config.input.player2Button4);
-    parser.SetInt("Input", "P2_Button5", m_config.input.player2Button5);
-    parser.SetInt("Input", "P2_Button6", m_config.input.player2Button6);
-    parser.SetInt("Input", "Test", m_config.input.test);
-    parser.SetInt("Input", "Service", m_config.input.service);
-    parser.SetInt("Input", "AnalogDeadzone", m_config.input.analogDeadzone);
-    parser.SetBool("Input", "AnalogReverseX", m_config.input.analogReverseX);
-    parser.SetBool("Input", "AnalogReverseY", m_config.input.analogReverseY);
-
-    if (!parser.Save(savePath))
+    FILE* file = fopen(savePath, "w");
+    if (!file)
     {
-        log_error("ConfigManager::Save: Failed to save to '%s'", savePath);
+        log_error("ConfigManager::Save: Failed to open '%s' for writing", savePath);
         return false;
     }
+
+    // [Display]
+    fprintf(file, "[Display]\n");
+    fprintf(file, "# Set the width resolution here\nWIDTH = %d\n\n", m_config.width);
+    fprintf(file, "# Set the height resolution here\nHEIGHT = %d\n\n", m_config.height);
+    fprintf(file, "# Set to true for full screen\nFULLSCREEN = %s\n\n", m_config.fullscreen ? "true" : "false");
+    fprintf(file, "# Set to keep the aspect ratio\nKEEP_ASPECT_RATIO = %s\n\n", m_config.keepAspectRatio ? "true" : "false");
+
+    // [Emulation]
+    fprintf(file, "[Emulation]\n");
+    const char* regionStr = "EX";
+    if (m_config.region == REGION_JAPAN) regionStr = "JP";
+    else if (m_config.region == REGION_US) regionStr = "US";
+    else if (m_config.region == REGION_EXPORT) regionStr = "EX";
+    fprintf(file, "# Set the Region (JP/US/EX)\nREGION = %s\n\n", regionStr);
+    fprintf(file, "# Set to true for Free Play, none to leave as default\nFREEPLAY = %s\n\n",
+            m_config.freeplay ? "true" : "none");
+    fprintf(file, "# Set to true to emulate JVS\nEMULATE_JVS = %s\n\n", m_config.emulateJVS ? "true" : "false");
+    fprintf(file, "# Set to true to emulate the rideboard\nEMULATE_RIDEBOARD = AUTO\n\n");
+    fprintf(file, "# Set to true to emulate the driveboard\nEMULATE_DRIVEBOARD = AUTO\n\n");
+    fprintf(file, "# Set to true to emulate the motion board\nEMULATE_MOTIONBOARD = AUTO\n\n");
+    fprintf(file, "# Set to true to enable card reader emulation in VT3 or R-Tuned\nEMULATE_HW210_CARDREADER = AUTO\n\n");
+    fprintf(file, "# Set to true to enable card reader emulation in ID4 and ID5\nEMULATE_ID_CARDREADER = AUTO\n\n");
+    fprintf(file, "# Set to true to enable touchscreen emulation\nEMULATE_TOUCHSCREEN = AUTO\n\n");
+
+    // [Paths]
+    fprintf(file, "[Paths]\n");
+    fprintf(file, "# Define the path to the sram.bin file\nSRAM_PATH = \"%s\"\n\n", m_config.sramPath);
+    fprintf(file, "# Define the path to the eeprom.bin file\nEEPROM_PATH = \"%s\"\n\n", m_config.eepromPath);
+    fprintf(file, "# Define the JVS serial path\nJVS_PATH = \"%s\"\n\n", m_config.jvsPath);
+
+    // [Graphics]
+    fprintf(file, "[Graphics]\n");
+    fprintf(file, "# Set FPS limit (0.00 disables limiter)\nFPS_LIMIT = %.2f\n\n", m_config.fpsLimit);
+    fprintf(file, "# Enable VSync\nVSYNC = %s\n\n", m_config.vsync ? "true" : "false");
+
+    // [System]
+    fprintf(file, "[System]\n");
+    fprintf(file, "# Set to true to see debug messages in the console\nDEBUG_MSGS = %s\n\n",
+            m_config.showDebugMessages ? "true" : "false");
+    fprintf(file, "# Log to file\nLOG_TO_FILE = %s\n\n", m_config.logToFile ? "true" : "false");
+    fprintf(file, "# Log file path\nLOG_FILE_PATH = \"%s\"\n\n", m_config.logFilePath);
+    const char* colourStr = "YELLOW";
+    if (m_config.gameLindberghColour == RED) colourStr = "RED";
+    else if (m_config.gameLindberghColour == REDEX) colourStr = "REDEX";
+    fprintf(file, "# Set the colour of the lindbergh (YELLOW, RED, REDEX)\nLINDBERGH_COLOUR = %s\n\n", colourStr);
+
+    // [Network]
+    fprintf(file, "[Network]\n");
+    fprintf(file, "# Enable network patches\nENABLE_NETWORK_PATCHES = %s\n\n",
+            m_config.enableNetworkPatches ? "true" : "false");
+    fprintf(file, "# Outrun 2 IP and Netmask\nOR2_IPADDRESS = \"%s\"\nOR2_NETMASK = \"%s\"\n\n",
+            m_config.or2IP, m_config.or2Netmask);
+
+    fclose(file);
+    m_loadedPath = savePath;
 
     log_info("ConfigManager: Saved configuration to '%s'", savePath);
     return true;
